@@ -82,7 +82,7 @@ class PocketMapper:
             status["structure_found"]
         )
 
-        # Diving the structure files into
+        # Dividing the structure files into
         logging.info("Dividing mmCIF structures...")
         status["divided_struct"] = lib.pdb_preprocessing(
             queries=query_df.query("structure_found")
@@ -113,14 +113,10 @@ class PocketMapper:
             [
                 "foldseek",
                 "easy-search",
-                job_data[
-                    "domain_dir"
-                ],  # query structure or folder of structure
-                job_data[
-                    "domain_dir"
-                ],  # target structure or folder of structure
+                job_data["domain_dir"],  # query folder of structure
+                job_data["domain_dir"],  # target folder of structures
                 job_data["foldseek_path"],  # output file
-                "tmp",  # temp folder
+                job_data["foldseek_tmp_path"],  # temp folder
                 "--format-output",
                 "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,lddt,qaln,taln,u,t",
                 "--format-mode",  # BLAST with headers
