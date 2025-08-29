@@ -22,7 +22,7 @@ class PocketMapper:
         self, job_file=None, log_file=None, verbose=False, debug=False
     ):
         # Setting up logger
-        logging.getLogger("pocketmapper")
+        logging.getLogger()
 
         if debug:
             log_level = logging.DEBUG

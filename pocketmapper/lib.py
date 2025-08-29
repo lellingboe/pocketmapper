@@ -57,6 +57,7 @@ def get_mmcif(pdb_code, out_dir, cache):
             return (pdb_code, False)
         except Exception:
             logging.warning(f"Atypical issue when downloading {pdb_code}")
+            return (pdb_code, False)
         else:
             with gzip.open(gz_fname, "rb") as gz:
                 with open(out_fname, "wb") as out:
