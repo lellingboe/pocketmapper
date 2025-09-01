@@ -42,7 +42,16 @@ class PocketMapper:
         logging.warning("warning works!")
 
     # TODO implement caching option
-    def search(self, file, caching=False):
+    def search(
+        self,
+        file,
+        query=None,
+        query_file=None,
+        target=None,
+        target_file=None,
+        structure=None,
+        foldseek=None,
+    ):
         """
         Requires a job file with entries
             queries

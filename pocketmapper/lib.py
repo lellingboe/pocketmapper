@@ -305,7 +305,12 @@ def pocket_overlap(structure, domain_chain, motif_chain):
             res_pos_coords[i] = atoms[1].coord.tolist()
 
     # mapping pocket ids to sequence position for foldseek
-    pocket_res_pos = {res_id_to_pos[k]: v for k, v in pocket_res_ids.items()}
+    if pocket_res_ids:
+        pocket_res_pos = {
+            res_id_to_pos[k]: v
+            for k, v in pocket_res_ids.items()
+            if k in res_id_to_pos
+        }
 
     full_interaction = sets_to_lists(
         full_interaction
