@@ -21,13 +21,13 @@ class PocketMapper:
     def __init__(self):
         # Defaults
         self._settings = {
-            "structure_dir": ".",
+            "structure_dir": "pdb",
             "query_dir": "query",
             "target_dir": "target",
             "pocket_dir": ".",
-            "foldseek_path": os.path.join(".", "foldseek_alignment.tab"),
-            "foldseek_tmp_dir": os.path.join(".", "foldseek_temp"),
-            "pocket_comparison_path": os.path.join(".", "pocket_comparison.tab"),
+            "foldseek_path": "foldseek_alignment.tab",
+            "foldseek_tmp_dir": "foldseek_temp",
+            "pocket_comparison_path": "pocket_comparison.tab",
             "foldseek": True,
             "structure": False,
         }
@@ -207,8 +207,25 @@ class PocketMapper:
         exit()
 
     def make_tq_df(self, single, file, **kwargs):
+        stage = {"stage": "Formatting Query"}
         if self._settings.get(single) is not None:
-            pass  # TODO Create this option later
+            pdb, domain, motif = self._settings.get(single).split("_")
+            try:
+                df = pd.DataFrame.from_dict(
+                    {
+                        0: {
+                            "interaction_pdb": pdb,
+                            "domain_chain": domain,
+                            "motif_chain": motif,
+                        }
+                    },
+                    orient="index",
+                )
+            except Exception:
+                logging.critical(
+                    f"Error with parsing {self._settings.get(single)}", extra=stage
+                )
+                exit()
         else:
             df = pd.read_csv(self._settings[file], sep="\t", index_col=False)
             logging.debug("\n" + str(df.head(5)), extra={"stage": f"{file}"})
