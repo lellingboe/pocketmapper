@@ -97,17 +97,11 @@ class PocketMapper:
 
         # Checking prescence of query and target
         stage["stage"] = "Checking Inputs"
-        if (
-            self._settings.get("query") is None
-            and self._settings.get("query_file") is None
-        ):
+        if self._settings.get("query") is None and self._settings.get("query_file") is None:
             logging.critical(self._settings, extra=stage)
             logging.critical("No query specified", extra=stage)
             exit()
-        if (
-            self._settings.get("target") is None
-            and self._settings.get("target_file") is None
-        ):
+        if self._settings.get("target") is None and self._settings.get("target_file") is None:
             logging.critical("No target specified", extra=stage)
             exit()
 
@@ -157,16 +151,16 @@ class PocketMapper:
         )
         logging.debug(status, extra={"stage": "Download Results"})
         # Updating query_df with a column indicating if the structure is available
-        all_df["structure_found"] = all_df["interaction_pdb"].map(
-            status["structure_found"]
-        )
+        all_df["structure_found"] = all_df["interaction_pdb"].map(status["structure_found"])
         logging.debug(all_df.head(), extra={"stage": "Download Results in DataFrame"})
 
+        stage.update({"stage": "Verifying downloaded/cached structures"})
+        # Ensuring both a target and query structure were found
         if len(all_df.query("structure_found & type == 'query'")) < 1:
-            logging.critical("No query structures", extra={"stage": "test"})
+            logging.critical("No query structures were found locally or able to be downloaded", extra=stage)
             exit()
         if len(all_df.query("structure_found & type == 'target'")) < 1:
-            logging.critical("No target structures", extra={"stage": "test"})
+            logging.critical("No target structures were found locally or able to be downloaded", extra=stage)
             exit()
 
         # Dividing the structure files into
@@ -179,9 +173,16 @@ class PocketMapper:
         )
 
         # Updating query_df with a column indicating if the minimal interraction structures are available
-        all_df["divided_struct"] = (
-            all_df["pdb_domain_motif"].map(status["divided_struct"]).fillna(False)
-        )
+        all_df["divided_struct"] = all_df["pdb_domain_motif"].map(status["divided_struct"]).fillna(False)
+
+        # Ensuring both a target and query structure were found
+        stage.update({"stage": "Verifying divided structures"})
+        if len(all_df.query("divided_struct & type == 'query'")) < 1:
+            logging.critical("No query structures are able to be divided", extra=stage)
+            exit()
+        if len(all_df.query("divided_struct & type == 'target'")) < 1:
+            logging.critical("No target structures  are able to be divided", extra=stage)
+            exit()
 
         # Running foldseek
         subprocess.run(
@@ -223,9 +224,7 @@ class PocketMapper:
         print("Comparing Pockets")
         p_c_path = self._settings["pocket_comparison_path"]
         blosum_path = os.path.join(os.path.dirname(__file__), "blosum62.bla")
-        alignment_df = pd.read_csv(
-            self._settings["foldseek_path"], sep="\t", engine="c"
-        )
+        alignment_df = pd.read_csv(self._settings["foldseek_path"], sep="\t", engine="c")
         pockets_df = lib.compare_pockets(
             alignment_df, pockets, blosum_path=blosum_path
         )  # , alphafold=ALPHAFOLD, alphafold_dir=ALPHAFOLD_DIR)
@@ -254,21 +253,15 @@ class PocketMapper:
                     orient="index",
                 )
             except Exception:
-                logging.critical(
-                    f"Error with parsing {self._settings.get(single)}", extra=stage
-                )
+                logging.critical(f"Error with parsing {self._settings.get(single)}", extra=stage)
                 exit()
         else:
             df = pd.read_csv(self._settings[file], sep="\t", index_col=False)
             df.interaction_pdb = df.interaction_pdb.str.upper()
             logging.debug("\n" + str(df.head(5)), extra={"stage": f"{file}"})
 
-        df["pdb_domain"] = df.apply(
-            lambda x: x.interaction_pdb + "_" + x.domain_chain, axis=1
-        )
-        df["pdb_domain_motif"] = df.apply(
-            lambda x: x.pdb_domain + "_" + x.motif_chain, axis=1
-        )
+        df["pdb_domain"] = df.apply(lambda x: x.interaction_pdb + "_" + x.domain_chain, axis=1)
+        df["pdb_domain_motif"] = df.apply(lambda x: x.pdb_domain + "_" + x.motif_chain, axis=1)
         for k, v in kwargs.items():
             df[k] = v
         return df
