@@ -146,8 +146,6 @@ class PocketMapper:
         # Format queries
         query_df = self.make_tq_df("query", "query_file", type="query")
         target_df = self.make_tq_df("target", "target_file", type="target")
-
-        # Formatting queries and downloading missing PDB files
         all_df = pd.concat([query_df, target_df], ignore_index=True)
         status = {}
 
@@ -157,11 +155,19 @@ class PocketMapper:
             pdb_list=all_df["interaction_pdb"].unique(),
             out_dir=self._settings["structure_dir"],
         )
+        logging.debug(status, extra={"stage": "Download Results"})
         # Updating query_df with a column indicating if the structure is available
         all_df["structure_found"] = all_df["interaction_pdb"].map(
             status["structure_found"]
         )
-        logging.debug(all_df.head(), extra={"stage": "Download Results"})
+        logging.debug(all_df.head(), extra={"stage": "Download Results in DataFrame"})
+
+        if len(all_df.query("structure_found & type == 'query'")) < 1:
+            logging.critical("No query structures", extra={"stage": "test"})
+            exit()
+        if len(all_df.query("structure_found & type == 'target'")) < 1:
+            logging.critical("No target structures", extra={"stage": "test"})
+            exit()
 
         # Dividing the structure files into
         logging.info("Dividing mmCIF structures...", extra={"stage": ""})
@@ -240,7 +246,7 @@ class PocketMapper:
                 df = pd.DataFrame.from_dict(
                     {
                         0: {
-                            "interaction_pdb": pdb,
+                            "interaction_pdb": pdb.upper(),
                             "domain_chain": domain,
                             "motif_chain": motif,
                         }
@@ -254,6 +260,7 @@ class PocketMapper:
                 exit()
         else:
             df = pd.read_csv(self._settings[file], sep="\t", index_col=False)
+            df.interaction_pdb = df.interaction_pdb.str.upper()
             logging.debug("\n" + str(df.head(5)), extra={"stage": f"{file}"})
 
         df["pdb_domain"] = df.apply(
