@@ -15,6 +15,7 @@ import lib
 import subprocess
 import pandas as pd
 import os
+import re
 
 
 class PocketMapper:
@@ -35,18 +36,20 @@ class PocketMapper:
     # TODO implement caching option
     def search(
         self,
+        query=None,
+        target=None,
+        query_file=None,
+        target_file=None,
         verbose=False,
         debug=False,
         settings=None,
-        query=None,
-        query_file=None,
-        target=None,
-        target_file=None,
         structure=None,
         foldseek=None,
+        af2_target=None,
+        **kwargs,
     ):
 
-        # Setting up logger
+        # CREATING LOGGER
         logging.getLogger()
         if debug:
             log_level = logging.DEBUG
@@ -56,6 +59,15 @@ class PocketMapper:
             log_level = logging.WARNING
         fmt = "%(levelname)s: %(stage)s - %(msg)s"
         logging.basicConfig(level=log_level, format=fmt)
+
+        # VALIDATING COMMAND LINE OPTIONS
+
+        # Checking for unrecognized command line options
+        if kwargs:
+            msg = f"Unrecognised inputs: {",".join(kwargs.keys())}"
+            stage = {"stage": "Checking Commandline Options"}
+            logging.critical(msg, extra=stage)
+            exit()
 
         # Reading the options file
         stage = {"stage": "Reading Settings File"}
@@ -83,12 +95,13 @@ class PocketMapper:
         if foldseek is not None:
             self._settings["foldseek"] = foldseek
 
-        # Checking query and target
+        # Checking prescence of query and target
         stage["stage"] = "Checking Inputs"
         if (
             self._settings.get("query") is None
             and self._settings.get("query_file") is None
         ):
+            logging.critical(self._settings, extra=stage)
             logging.critical("No query specified", extra=stage)
             exit()
         if (
@@ -97,6 +110,19 @@ class PocketMapper:
         ):
             logging.critical("No target specified", extra=stage)
             exit()
+
+        # Checking query/target format
+        input_re = re.compile(r"[A-Za-z1-9]{4}_[A-Za-z1-9]_[A-Za-z1-9]")
+        if self._settings.get("query") is not None:
+            if not input_re.match(self._settings.get("query")):
+                msg = f"Query '{self._settings.get("query")}' does not match required format"
+                logging.critical(msg, extra=stage)
+                exit()
+        if self._settings.get("target") is not None:
+            if not input_re.match(self._settings.get("target")):
+                msg = f"Target '{self._settings.get("target")}' does not match required format"
+                logging.critical(msg, extra=stage)
+                exit()
 
         # If any of the specified directories don't exist, make them
         stage["stage"] = "Checking/Creating Directories"
