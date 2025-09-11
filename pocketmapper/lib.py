@@ -191,9 +191,7 @@ def calculate_pockets(df, target_dir, query_dir, pocket_dir):
 
             # Calculate the pocket from that structure
             try:
-                pocket, problem_atoms, problem_residues = pocket_overlap(
-                    structure, row.domain_chain, row.motif_chain
-                )
+                pocket, problem_atoms, problem_residues = pocket_overlap(structure, row.domain_chain, row.motif_chain)
             except Exception:
                 logging.exception(
                     f"Error calculating pocket {row.pdb_domain_motif}",
@@ -258,9 +256,7 @@ def pocket_overlap(structure, domain_chain, motif_chain):
         else:
             backbone2 = [0, 1, 2, 3]
 
-        for (pos1, atom1), (pos2, atom2) in product(
-            enumerate(res1.get_atoms()), enumerate(res2.get_atoms())
-        ):
+        for (pos1, atom1), (pos2, atom2) in product(enumerate(res1.get_atoms()), enumerate(res2.get_atoms())):
             distance = atom1 - atom2
             if distance > 5:
                 continue
@@ -285,11 +281,9 @@ def pocket_overlap(structure, domain_chain, motif_chain):
             vdw_range = vdw1 + vdw2
             overlap = vdw_range - distance
             if overlap > -0.4:
-                (
-                    full_interaction.setdefault(res1.id[1], dict()).setdefault(
-                        res2.id[1], set()
-                    )
-                ).add((pos1 not in backbone1, pos2 not in backbone2))
+                (full_interaction.setdefault(res1.id[1], dict()).setdefault(res2.id[1], set())).add(
+                    (pos1 not in backbone1, pos2 not in backbone2)
+                )
 
                 pocket_res_ids.setdefault(res1.id[1], False)
                 if pos1 not in backbone1:
@@ -320,9 +314,7 @@ def pocket_overlap(structure, domain_chain, motif_chain):
 
     # mapping pocket ids to sequence position for foldseek
     if pocket_res_ids:
-        pocket_res_pos = {
-            res_id_to_pos[k]: v for k, v in pocket_res_ids.items() if k in res_id_to_pos
-        }
+        pocket_res_pos = {res_id_to_pos[k]: v for k, v in pocket_res_ids.items() if k in res_id_to_pos}
 
     full_interaction = sets_to_lists(full_interaction)  # sets are not JSON serializable
     pocket = {
@@ -393,9 +385,7 @@ def compare_pockets(
                 pockets_2 = {
                     "A": {
                         "pocket_exists": True,
-                        "pocket_res_pos": dict(
-                            zip(range(row[8] - 1, row[9]), repeat(True))
-                        ),
+                        "pocket_res_pos": dict(zip(range(row[8] - 1, row[9]), repeat(True))),
                     }
                 }
             else:
@@ -442,28 +432,14 @@ def compare_pockets(
                 p1_adj = 1 - row[6]
                 p2_adj = 1 - row[8]
 
-                p1_adjusted_start = {
-                    (int(pos) + p1_adj): sidechain
-                    for pos, sidechain in p1["pocket_res_pos"].items()
-                }
-                p2_adjusted_start = {
-                    (int(pos) + p2_adj): sidechain
-                    for pos, sidechain in p2["pocket_res_pos"].items()
-                }
-                p1_in_aln_region = (
-                    {  # only the indices that are in the alignment region
-                        k: v
-                        for k, v in p1_adjusted_start.items()
-                        if (
-                            -1 < k and k <= (row[7] - row[6])
-                        )  # row[7] - row[6] is the length of the aligned region
-                    }
-                )
-                p2_in_aln_region = {
+                p1_adjusted_start = {(int(pos) + p1_adj): sidechain for pos, sidechain in p1["pocket_res_pos"].items()}
+                p2_adjusted_start = {(int(pos) + p2_adj): sidechain for pos, sidechain in p2["pocket_res_pos"].items()}
+                p1_in_aln_region = {  # only the indices that are in the alignment region
                     k: v
-                    for k, v in p2_adjusted_start.items()
-                    if (-1 < k and k <= (row[9] - row[8]))
+                    for k, v in p1_adjusted_start.items()
+                    if (-1 < k and k <= (row[7] - row[6]))  # row[7] - row[6] is the length of the aligned region
                 }
+                p2_in_aln_region = {k: v for k, v in p2_adjusted_start.items() if (-1 < k and k <= (row[9] - row[8]))}
                 p1_percent_in_aln = len(p1_in_aln_region) / len(p1_adjusted_start)
                 p2_percent_in_aln = len(p2_in_aln_region) / len(p2_adjusted_start)
 
@@ -492,12 +468,8 @@ def compare_pockets(
                 output["overlap_count"] = len(overlapping_residues)
 
                 # mapping common coords back to pocket 1 and 2 position coords
-                p1_overlap_pos = [
-                    p1_aln_to_seq[x] - p1_adj for x in overlapping_residues
-                ]
-                p2_overlap_pos = [
-                    p2_aln_to_seq[x] - p2_adj for x in overlapping_residues
-                ]
+                p1_overlap_pos = [p1_aln_to_seq[x] - p1_adj for x in overlapping_residues]
+                p2_overlap_pos = [p2_aln_to_seq[x] - p2_adj for x in overlapping_residues]
 
                 x = np.array([p1["res_pos_coords"][str(x)] for x in p1_overlap_pos])
                 y = np.array([p2["res_pos_coords"][str(x)] for x in p2_overlap_pos])
@@ -536,23 +508,15 @@ def compare_pockets(
                 output["pocket_2_aln_seq"] = p2_aln_seq
 
                 # Identity
-                overlap_identity = sum(map(str.__eq__, p1_aln_seq, p2_aln_seq)) / len(
-                    overlapping_residues
-                )
+                overlap_identity = sum(map(str.__eq__, p1_aln_seq, p2_aln_seq)) / len(overlapping_residues)
                 output["overlap_identity"] = overlap_identity
 
                 # BLOSUM62 similarity
-                similarity = binary_similarity(
-                    p1_aln_seq, p2_aln_seq, blosum_similarity_matrix
-                )
+                similarity = binary_similarity(p1_aln_seq, p2_aln_seq, blosum_similarity_matrix)
                 output["overlap_similarity_binary"] = similarity
 
-                similarity_1_2 = full_similarity(
-                    p1_aln_seq, p2_aln_seq, blosum_similarity_matrix
-                )
-                similarity_2_1 = full_similarity(
-                    p2_aln_seq, p1_aln_seq, blosum_similarity_matrix
-                )
+                similarity_1_2 = full_similarity(p1_aln_seq, p2_aln_seq, blosum_similarity_matrix)
+                similarity_2_1 = full_similarity(p2_aln_seq, p1_aln_seq, blosum_similarity_matrix)
                 output["overlap_similarity_1_2"] = similarity_1_2
                 output["overlap_similarity_2_1"] = similarity_2_1
                 output["min_overlap_similarity"] = min(similarity_1_2, similarity_2_1)
@@ -595,9 +559,7 @@ def compare_pockets(
                 output_rows.append(output)
         except Exception:
             output_rows.append(output)
-            logging.exception(
-                f"Pocket Comparison Failure: {domain_1}_{motif_1}, {domain_2}_{motif_2}"
-            )
+            logging.exception(f"{domain_1}_{motif_1}, {domain_2}_{motif_2}", extra={"stage": "Pocket Comparison"})
 
     return pd.DataFrame.from_dict(output_rows)
 
@@ -611,9 +573,7 @@ def binary_similarity(seqA, seqB, similarity_matrix):
     seqA = seqA.replace("U", "X").upper()
     seqB = seqB.replace("U", "X").upper()
 
-    similarity = [
-        (similarity_matrix[x][y] > 0) for x, y in zip(seqA, seqB)
-    ]  # True or False
+    similarity = [(similarity_matrix[x][y] > 0) for x, y in zip(seqA, seqB)]  # True or False
     similarity_score = sum(similarity) / len(similarity)
     return similarity_score
 
@@ -648,9 +608,7 @@ def read_blast_similarity_matrix(similarity_matrix_path, delimiter=" "):
         # parsing the first lines into a dict
         if header is None:
             if delimiter == " ":
-                header = (
-                    line.strip().split()
-                )  # splits on whitespace and discards empty results
+                header = line.strip().split()  # splits on whitespace and discards empty results
             else:
                 header = line.strip().split(delimiter)
             idx_to_aa = dict(list(zip(list(range(0, len(header))), header)))
