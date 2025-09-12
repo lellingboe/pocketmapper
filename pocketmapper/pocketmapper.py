@@ -239,8 +239,11 @@ class PocketMapper:
         try:
             with open(settings) as f:
                 job_data = json.load(f)
+        except FileNotFoundError:
+            logging.critical("No settings file found at specified location", extra=self._stage)
+            exit()
         except Exception:
-            logging.critical("Could not read options file", extra=self._stage)
+            logging.exception("Error reading settings file", extra=self._stage)
             exit()
         self._settings.update(job_data)
         logging.info(job_data, extra=self._stage)

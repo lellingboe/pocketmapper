@@ -316,15 +316,16 @@ def pocket_overlap(structure, domain_chain, motif_chain):
     if pocket_res_ids:
         pocket_res_pos = {res_id_to_pos[k]: v for k, v in pocket_res_ids.items() if k in res_id_to_pos}
 
-    pocket = {
-        "pocket_exists": len(pocket_res_ids) > 0,
-        "pocket_res_ids": pocket_res_ids,
-        "pocket_res_pos": pocket_res_pos,
-        "res_id_to_pos": res_id_to_pos,
-        "pocket_to_motif_sidechain_overlap": full_interaction,
-        "res_pos_coords": res_pos_coords,
-    }
-    pocket = jsonify_dict(pocket)
+    pocket = jsonify_dict(
+        {
+            "pocket_exists": len(pocket_res_ids) > 0,
+            "pocket_res_ids": pocket_res_ids,
+            "pocket_res_pos": pocket_res_pos,
+            "res_id_to_pos": res_id_to_pos,
+            "pocket_to_motif_sidechain_overlap": full_interaction,
+            "res_pos_coords": res_pos_coords,
+        }
+    )
 
     return pocket, problem_atoms, problem_residues
 
