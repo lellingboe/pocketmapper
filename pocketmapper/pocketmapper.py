@@ -162,7 +162,7 @@ class PocketMapper:
         # Dividing the structure files into
         self._stage.update({"stage": "Dividing mmCIF structures"})
         logging.info("", extra=self._stage)
-        status["divided_struct"] = lib.pdb_preprocessing(
+        status["divided_struct"] = lib.pdb_preprocessing_gemmi(
             df=all_df.query("structure_found"),
             ref_dir=self._settings["structure_dir"],
             query_dir=self._settings["query_dir"],

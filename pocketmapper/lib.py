@@ -12,6 +12,7 @@ import json
 from collections import defaultdict
 import numpy as np
 import pandas as pd
+import gemmi
 
 # TODO keep phospho information
 SINGLE_AA_CODE = {
@@ -150,6 +151,78 @@ def pdb_preprocessing(df, ref_dir, target_dir, query_dir):
                 model.detach_child(row.motif_chain)
                 io.set_structure(structure)
                 io.save(domain_out)
+        except Exception:
+            logging.warning(f"Could not divide {row.interaction_pdb}", extra=stage)
+            status_dict[f"{row.pdb_domain_motif}"] = False
+
+    return status_dict
+
+
+def pdb_preprocessing_gemmi(df, ref_dir, target_dir, query_dir):
+    """
+    queries: a lit of tuple of the form (pdb_id, domain_chains, motif_chains)
+        all tuple elements are strings
+
+    writes out .pdb files to self.pdb_directory
+    """
+    status_dict = {}
+    stage = {"stage": "Diviving structures"}
+
+    target_cache = glob(os.path.join(target_dir, "*.cif"))
+    query_cache = glob(os.path.join(query_dir, "*.cif"))
+
+    for i, row in tqdm(df.iterrows()):
+        try:
+            if row.type == "query":
+                out_dir = query_dir
+                cache = query_cache
+            elif row.type == "target":
+                out_dir = target_dir
+                cache = target_cache
+            else:
+                raise Exception
+
+            ref_path = os.path.join(ref_dir, f"{row.interaction_pdb}.cif")
+            domain_out = os.path.join(out_dir, f"{row.pdb_domain}.cif")
+            motif_out = os.path.join(out_dir, f"{row.pdb_domain_motif}.cif")
+
+            interaction_chains = list(row.domain_chain + row.motif_chain)
+
+            if (motif_out in cache) and (domain_out in cache):
+                status_dict[f"{row.pdb_domain_motif}"] = True
+            else:
+                st = gemmi.read_structure(ref_path, format=gemmi.CoorFormat.Mmcif)
+
+                # Taking first model and deleting the rest
+                del st[1:]
+                model = st[0]
+
+                # verify structure contains all interaction chains
+                model_chains = set([chain.name for chain in model])
+                if not set(interaction_chains).issubset(model_chains):
+                    msg = f"Preprocessing: {row.interaction_pdb}"
+                    "does not contain all interaction chains {interaction_chains}"
+                    logging.warning(
+                        msg,
+                        extra=stage,
+                    )
+                    status_dict[f"{row.pdb_domain_motif}"] = False
+                    continue
+                else:
+                    status_dict[f"{row.pdb_domain_motif}"] = True
+
+                # Detaching all non interaction chains
+                for chain_id in model_chains:
+                    if chain_id not in interaction_chains:
+                        del model[chain_id]
+
+                # Output the domain and motif pdb file
+                groups = gemmi.MmcifOutputGroups(False, atoms=True, group_pdb=True)
+                st.make_mmcif_document(groups).write_file(motif_out)
+
+                # output the domain pdb file
+                del model[row.motif_chain]
+                st.make_mmcif_document(groups).write_file(domain_out)
         except Exception:
             logging.warning(f"Could not divide {row.interaction_pdb}", extra=stage)
             status_dict[f"{row.pdb_domain_motif}"] = False
