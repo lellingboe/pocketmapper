@@ -32,6 +32,7 @@ class PocketMapper:
             "foldseek": True,
             "structure": False,
         }
+        self._stage = {"stage": "init"}
 
     # TODO implement caching option
     def search(
@@ -63,23 +64,16 @@ class PocketMapper:
         # VALIDATING COMMAND LINE OPTIONS
 
         # Checking for unrecognized command line options
+        self._stage.update({"stage": "Checking Commandline Options"})
         if kwargs:
             msg = f"Unrecognised inputs: {",".join(kwargs.keys())}"
-            stage = {"stage": "Checking Commandline Options"}
-            logging.critical(msg, extra=stage)
+            logging.critical(msg, extra=self._stage)
             exit()
 
         # Reading the options file
-        stage = {"stage": "Reading Settings File"}
+        self._stage.update({"stage": "Reading Settings File"})
         if settings is not None:
-            try:
-                with open(settings) as f:
-                    job_data = json.load(f)
-            except Exception:
-                logging.critical("Could not read options file", extra=stage)
-                exit()
-            self._settings.update(job_data)
-            logging.info(job_data, extra=stage)
+            self._reading_options(settings=settings)
 
         # If value is specified by the command line use it
         if query is not None:
@@ -96,13 +90,13 @@ class PocketMapper:
             self._settings["foldseek"] = foldseek
 
         # Checking prescence of query and target
-        stage["stage"] = "Checking Inputs"
+        self._stage.update({"stage": "checking inputs"})
         if self._settings.get("query") is None and self._settings.get("query_file") is None:
-            logging.critical(self._settings, extra=stage)
-            logging.critical("No query specified", extra=stage)
+            logging.critical(self._settings, extra=self._stage)
+            logging.critical("No query specified", extra=self._stage)
             exit()
         if self._settings.get("target") is None and self._settings.get("target_file") is None:
-            logging.critical("No target specified", extra=stage)
+            logging.critical("No target specified", extra=self._stage)
             exit()
 
         # Checking query/target format
@@ -110,16 +104,16 @@ class PocketMapper:
         if self._settings.get("query") is not None:
             if not input_re.match(self._settings.get("query")):
                 msg = f"Query '{self._settings.get("query")}' does not match required format"
-                logging.critical(msg, extra=stage)
+                logging.critical(msg, extra=self._stage)
                 exit()
         if self._settings.get("target") is not None:
             if not input_re.match(self._settings.get("target")):
                 msg = f"Target '{self._settings.get("target")}' does not match required format"
-                logging.critical(msg, extra=stage)
+                logging.critical(msg, extra=self._stage)
                 exit()
 
         # If any of the specified directories don't exist, make them
-        stage["stage"] = "Checking/Creating Directories"
+        self._stage.update({"stage": "Checking/Creating Directories"})
         dirs = [
             "structure_dir",
             "query_dir",
@@ -133,38 +127,41 @@ class PocketMapper:
             except Exception:
                 logging.critical(
                     f"Error creating directory {self._settings[dir]}",
-                    extra=stage,
+                    extra=self._stage,
                 )
                 exit()
 
         # Format queries
-        query_df = self.make_tq_df("query", "query_file", type="query")
-        target_df = self.make_tq_df("target", "target_file", type="target")
+        self._stage.update({"stage": "Formatting Query"})
+        query_df = self._make_tq_df("query", "query_file", type="query")
+        target_df = self._make_tq_df("target", "target_file", type="target")
         all_df = pd.concat([query_df, target_df], ignore_index=True)
         status = {}
 
         # Downloading missing PDB files
-        logging.info("Checking mmCIF structures...", extra={"stage": ""})
+        self._stage.update({"stage": "Checking mmCIF structures"})
+        logging.info("", extra=self._stage)
         status["structure_found"] = lib.get_mmcifs(
             pdb_list=all_df["interaction_pdb"].unique(),
             out_dir=self._settings["structure_dir"],
         )
-        logging.debug(status, extra={"stage": "Download Results"})
+        logging.debug(status, extra={"stage": "Available MMCif Structures"})
         # Updating query_df with a column indicating if the structure is available
         all_df["structure_found"] = all_df["interaction_pdb"].map(status["structure_found"])
         logging.debug(all_df.head(), extra={"stage": "Download Results in DataFrame"})
 
-        stage.update({"stage": "Verifying downloaded/cached structures"})
+        self._stage.update({"stage": "Verifying downloaded/cached structures"})
         # Ensuring both a target and query structure were found
         if len(all_df.query("structure_found & type == 'query'")) < 1:
-            logging.critical("No query structures were found locally or able to be downloaded", extra=stage)
+            logging.critical("No query structures were found locally or able to be downloaded", extra=self._stage)
             exit()
         if len(all_df.query("structure_found & type == 'target'")) < 1:
-            logging.critical("No target structures were found locally or able to be downloaded", extra=stage)
+            logging.critical("No target structures were found locally or able to be downloaded", extra=self._stage)
             exit()
 
         # Dividing the structure files into
-        logging.info("Dividing mmCIF structures...", extra={"stage": ""})
+        self._stage.update({"stage": "Dividing mmCIF structures"})
+        logging.info("", extra=self._stage)
         status["divided_struct"] = lib.pdb_preprocessing(
             df=all_df.query("structure_found"),
             ref_dir=self._settings["structure_dir"],
@@ -176,12 +173,12 @@ class PocketMapper:
         all_df["divided_struct"] = all_df["pdb_domain_motif"].map(status["divided_struct"]).fillna(False)
 
         # Ensuring both a target and query structure were found
-        stage.update({"stage": "Verifying divided structures"})
+        self._stage.update({"stage": "Verifying divided structures"})
         if len(all_df.query("divided_struct & type == 'query'")) < 1:
-            logging.critical("No query structures are able to be divided", extra=stage)
+            logging.critical("No query structures are able to be divided", extra=self._stage)
             exit()
         if len(all_df.query("divided_struct & type == 'target'")) < 1:
-            logging.critical("No target structures  are able to be divided", extra=stage)
+            logging.critical("No target structures  are able to be divided", extra=self._stage)
             exit()
 
         # Running foldseek
@@ -206,7 +203,8 @@ class PocketMapper:
         )
 
         # Retrieving/calculating pockets
-        print("Getting Pockets")
+        self._stage.update({"stage": "Calculating/retrieving Pockets"})
+        logging.info("", extra=self._stage)
         pockets, problem_atoms, problem_residues = lib.calculate_pockets(
             df=all_df.query("divided_struct"),
             target_dir=self._settings["target_dir"],
@@ -218,7 +216,7 @@ class PocketMapper:
         if len(problem_residues) > 0:
             logging.warning(
                 f"Residues with no single AA code: {problem_residues}",
-                extra={"stage": "Calculating Pocket"},
+                extra=self._stage,
             )
 
         print("Comparing Pockets")
@@ -237,8 +235,17 @@ class PocketMapper:
         logging.critical("Success!", extra={"stage": "End"})
         exit()
 
-    def make_tq_df(self, single, file, **kwargs):
-        stage = {"stage": "Formatting Query"}
+    def _reading_options(self, settings):
+        try:
+            with open(settings) as f:
+                job_data = json.load(f)
+        except Exception:
+            logging.critical("Could not read options file", extra=self._stage)
+            exit()
+        self._settings.update(job_data)
+        logging.info(job_data, extra=self._stage)
+
+    def _make_tq_df(self, single, file, **kwargs):
         if self._settings.get(single) is not None:
             pdb, domain, motif = self._settings.get(single).split("_")
             try:
@@ -253,7 +260,7 @@ class PocketMapper:
                     orient="index",
                 )
             except Exception:
-                logging.critical(f"Error with parsing {self._settings.get(single)}", extra=stage)
+                logging.critical(f"Error with parsing {self._settings.get(single)}", extra=self._stage)
                 exit()
         else:
             df = pd.read_csv(self._settings[file], sep="\t", index_col=False)
