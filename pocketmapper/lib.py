@@ -212,7 +212,7 @@ def calculate_pockets(df, target_dir, query_dir, pocket_dir):
     return pocket_dict, all_problem_atoms, all_problem_residues
 
 
-def sets_to_lists(item):
+def jsonify_dict(item):
     """
     Recursively looks for sets in a dictionary and turns then into lists
     This allows dicts with sets to become JSON serializeable
@@ -220,7 +220,7 @@ def sets_to_lists(item):
     if isinstance(item, set):
         return list(item)
     elif isinstance(item, dict):
-        return {k: sets_to_lists(v) for k, v in item.items()}
+        return {str(k): jsonify_dict(v) for k, v in item.items()}
     else:
         return item
 
@@ -316,7 +316,6 @@ def pocket_overlap(structure, domain_chain, motif_chain):
     if pocket_res_ids:
         pocket_res_pos = {res_id_to_pos[k]: v for k, v in pocket_res_ids.items() if k in res_id_to_pos}
 
-    full_interaction = sets_to_lists(full_interaction)  # sets are not JSON serializable
     pocket = {
         "pocket_exists": len(pocket_res_ids) > 0,
         "pocket_res_ids": pocket_res_ids,
@@ -325,6 +324,7 @@ def pocket_overlap(structure, domain_chain, motif_chain):
         "pocket_to_motif_sidechain_overlap": full_interaction,
         "res_pos_coords": res_pos_coords,
     }
+    pocket = jsonify_dict(pocket)
 
     return pocket, problem_atoms, problem_residues
 
