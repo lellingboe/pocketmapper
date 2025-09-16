@@ -44,196 +44,172 @@ class PocketMapper:
         verbose=False,
         debug=False,
         settings=None,
-        structure=None,
-        foldseek=None,
-        af2_target=None,
-        **kwargs,
     ):
+        """
+        Main orchestration method to run the pocket mapping workflow.
+        """
+        try:
+            self._setup_logging(debug, verbose)
+            self._configure(settings, query=query, target=target, query_file=query_file, target_file=target_file)
+            self._validate_inputs()
+            self._prepare_directories()
 
-        # CREATING LOGGER
-        logging.getLogger()
+            all_df = self._prepare_dataframes()
+            all_df = self._fetch_and_verify_structures(all_df)
+            all_df = self._preprocess_structures(all_df)
+
+            self._run_foldseek()
+
+            pockets = self._calculate_and_retrieve_pockets(all_df)
+            self._compare_pockets_and_save(pockets)
+
+            logging.info("PocketMapper search completed successfully.", extra={"stage": "End"})
+
+        except Exception as e:
+            logging.exception(str(e), extra=self._stage)
+            exit(1)
+
+    def _setup_logging(self, debug, verbose):
+        self._stage.update({"stage": "Logging Setup"})
+        log_level = logging.WARNING
         if debug:
             log_level = logging.DEBUG
         elif verbose:
             log_level = logging.INFO
-        else:
-            log_level = logging.WARNING
         fmt = "%(levelname)s: %(stage)s - %(msg)s"
-        logging.basicConfig(level=log_level, format=fmt)
+        logging.basicConfig(level=log_level, format=fmt, force=True)
 
-        # VALIDATING COMMAND LINE OPTIONS
+    def _configure(self, settings_file, **kwargs):
+        self._stage.update({"stage": "Configuration"})
+        if settings_file:
+            self._reading_options(settings_file)
 
-        # Checking for unrecognized command line options
-        self._stage.update({"stage": "Checking Commandline Options"})
-        if kwargs:
-            msg = f"Unrecognised inputs: {",".join(kwargs.keys())}"
-            logging.critical(msg, extra=self._stage)
-            exit()
+        # Override settings with any provided command-line arguments
+        for key, value in kwargs.items():
+            if value is not None:
+                self._settings[key] = value
 
-        # Reading the options file
-        self._stage.update({"stage": "Reading Settings File"})
-        if settings is not None:
-            self._reading_options(settings=settings)
+        # Check for unrecognized command line options
+        # unrecognized_keys = set(kwargs.keys()) - set(self._settings.keys())
+        # if unrecognized_keys:
+        #    raise ValueError(f"Unrecognised inputs: {', '.join(unrecognized_keys)}")
 
-        # If value is specified by the command line use it
-        if query is not None:
-            self._settings["query"] = query
-        if query_file is not None:
-            self._settings["query_file"] = query_file
-        if target is not None:
-            self._settings["target"] = target
-        if target_file is not None:
-            self._settings["target_file"] = target_file
-        if structure is not None:
-            self._settings["structure"] = structure
-        if foldseek is not None:
-            self._settings["foldseek"] = foldseek
+    def _validate_inputs(self):
+        self._stage.update({"stage": "Input Validation"})
+        if not self._settings.get("query") and not self._settings.get("query_file"):
+            raise ValueError("No query specified. Use --query or --query_file.")
+        if not self._settings.get("target") and not self._settings.get("target_file"):
+            raise ValueError("No target specified. Use --target or --target_file.")
 
-        # Checking prescence of query and target
-        self._stage.update({"stage": "checking inputs"})
-        if self._settings.get("query") is None and self._settings.get("query_file") is None:
-            logging.critical(self._settings, extra=self._stage)
-            logging.critical("No query specified", extra=self._stage)
-            exit()
-        if self._settings.get("target") is None and self._settings.get("target_file") is None:
-            logging.critical("No target specified", extra=self._stage)
-            exit()
+        input_re = re.compile(r"[A-Za-z0-9]{4}_[A-Za-z0-9]_[A-Za-z0-9]")
+        for key in ["query", "target"]:
+            value = self._settings.get(key)
+            if value and not input_re.match(value):
+                raise ValueError(f"{key.capitalize()} '{value}' does not match required format 'PDB_CHAIN_CHAIN'.")
 
-        # Checking query/target format
-        input_re = re.compile(r"[A-Za-z1-9]{4}_[A-Za-z1-9]_[A-Za-z1-9]")
-        if self._settings.get("query") is not None:
-            if not input_re.match(self._settings.get("query")):
-                msg = f"Query '{self._settings.get("query")}' does not match required format"
-                logging.critical(msg, extra=self._stage)
-                exit()
-        if self._settings.get("target") is not None:
-            if not input_re.match(self._settings.get("target")):
-                msg = f"Target '{self._settings.get("target")}' does not match required format"
-                logging.critical(msg, extra=self._stage)
-                exit()
-
-        # If any of the specified directories don't exist, make them
-        self._stage.update({"stage": "Checking/Creating Directories"})
-        dirs = [
-            "structure_dir",
-            "query_dir",
-            "target_dir",
-            "pocket_dir",
-        ]
-        for dir in dirs:
+    def _prepare_directories(self):
+        self._stage.update({"stage": "Directory Preparation"})
+        dirs_to_create = ["structure_dir", "query_dir", "target_dir", "pocket_dir"]
+        for dir_key in dirs_to_create:
+            path = self._settings[dir_key]
             try:
-                if not os.path.exists(self._settings[dir]):
-                    os.mkdir(self._settings[dir])
-            except Exception:
-                logging.critical(
-                    f"Error creating directory {self._settings[dir]}",
-                    extra=self._stage,
-                )
-                exit()
+                os.makedirs(path, exist_ok=True)
+            except OSError as e:
+                raise OSError(f"Error creating directory {path}: {e}")
 
-        # Format queries
-        self._stage.update({"stage": "Formatting Query"})
+    def _prepare_dataframes(self):
+        self._stage.update({"stage": "Data Preparation"})
         query_df = self._make_tq_df("query", "query_file", type="query")
         target_df = self._make_tq_df("target", "target_file", type="target")
-        all_df = pd.concat([query_df, target_df], ignore_index=True)
-        status = {}
+        return pd.concat([query_df, target_df], ignore_index=True)
 
-        # Downloading missing PDB files
-        self._stage.update({"stage": "Checking mmCIF structures"})
-        logging.info("", extra=self._stage)
-        status["structure_found"] = lib.get_mmcifs(
-            pdb_list=all_df["interaction_pdb"].unique(),
+    def _fetch_and_verify_structures(self, df):
+        self._stage.update({"stage": "Fetch Structures"})
+        logging.info("Checking for mmCIF structures...")
+        found_map = lib.get_mmcifs(
+            pdb_list=df["interaction_pdb"].unique(),
             out_dir=self._settings["structure_dir"],
         )
-        logging.debug(status, extra={"stage": "Available MMCif Structures"})
-        # Updating query_df with a column indicating if the structure is available
-        all_df["structure_found"] = all_df["interaction_pdb"].map(status["structure_found"])
-        logging.debug(all_df.head(), extra={"stage": "Download Results in DataFrame"})
+        df["structure_found"] = df["interaction_pdb"].map(found_map)
 
-        self._stage.update({"stage": "Verifying downloaded/cached structures"})
-        # Ensuring both a target and query structure were found
-        if len(all_df.query("structure_found & type == 'query'")) < 1:
-            logging.critical("No query structures were found locally or able to be downloaded", extra=self._stage)
-            exit()
-        if len(all_df.query("structure_found & type == 'target'")) < 1:
-            logging.critical("No target structures were found locally or able to be downloaded", extra=self._stage)
-            exit()
+        self._stage.update({"stage": "Verify Structures"})
+        if not df.query("structure_found and type == 'query'").empty:
+            logging.info("Query structures found.")
+        else:
+            raise FileNotFoundError("No query structures found locally or via download.")
 
-        # Dividing the structure files into
-        self._stage.update({"stage": "Dividing mmCIF structures"})
-        logging.info("", extra=self._stage)
-        status["divided_struct"] = lib.pdb_preprocessing_gemmi(
-            df=all_df.query("structure_found"),
+        if not df.query("structure_found and type == 'target'").empty:
+            logging.info("Target structures found.")
+        else:
+            raise FileNotFoundError("No target structures found locally or via download.")
+        return df
+
+    def _preprocess_structures(self, df):
+        self._stage.update({"stage": "Preprocess Structures"})
+        logging.info("Dividing mmCIF structures...")
+        divided_map = lib.pdb_preprocessing_gemmi(
+            df=df.query("structure_found"),
             ref_dir=self._settings["structure_dir"],
             query_dir=self._settings["query_dir"],
             target_dir=self._settings["target_dir"],
         )
+        df["divided_struct"] = df["pdb_domain_motif"].map(divided_map).fillna(False)
 
-        # Updating query_df with a column indicating if the minimal interraction structures are available
-        all_df["divided_struct"] = all_df["pdb_domain_motif"].map(status["divided_struct"]).fillna(False)
+        self._stage.update({"stage": "Verify Preprocessing"})
+        if df.query("divided_struct and type == 'query'").empty:
+            raise ValueError("Failed to preprocess any query structures.")
+        if df.query("divided_struct and type == 'target'").empty:
+            raise ValueError("Failed to preprocess any target structures.")
+        return df
 
-        # Ensuring both a target and query structure were found
-        self._stage.update({"stage": "Verifying divided structures"})
-        if len(all_df.query("divided_struct & type == 'query'")) < 1:
-            logging.critical("No query structures are able to be divided", extra=self._stage)
-            exit()
-        if len(all_df.query("divided_struct & type == 'target'")) < 1:
-            logging.critical("No target structures  are able to be divided", extra=self._stage)
-            exit()
+    def _run_foldseek(self):
+        self._stage.update({"stage": "Foldseek Alignment"})
+        logging.info("Running Foldseek easy-search...")
+        cmd = [
+            "foldseek",
+            "easy-search",
+            self._settings["query_dir"],
+            self._settings["target_dir"],
+            self._settings["foldseek_path"],
+            self._settings["foldseek_tmp_dir"],
+            "--format-output",
+            "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,lddt,qaln,taln,u,t",
+            "--format-mode",
+            "4",
+            "-e",
+            "0.001",
+            "--file-include",
+            r"[0-9A-Z]{4}_[0-9A-Za-z]\.cif",
+            "--exhaustive-search",
+        ]
+        subprocess.run(cmd, check=True)
 
-        # Running foldseek
-        subprocess.run(
-            [
-                "foldseek",
-                "easy-search",
-                self._settings["query_dir"],  # query folder of structure
-                self._settings["target_dir"],  # target folder of structures
-                self._settings["foldseek_path"],  # output file
-                self._settings["foldseek_tmp_dir"],  # temp folder
-                "--format-output",
-                "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,lddt,qaln,taln,u,t",
-                "--format-mode",  # BLAST with headers
-                "4",
-                "-e",  # e-value threshold
-                "0.001",
-                "--file-include",
-                r"[0-9A-Z]{4}_[0-9A-Za-z]\.cif",
-                "--exhaustive-search",
-            ]
-        )
-
-        # Retrieving/calculating pockets
-        self._stage.update({"stage": "Calculating/retrieving Pockets"})
-        logging.info("", extra=self._stage)
+    def _calculate_and_retrieve_pockets(self, df):
+        self._stage.update({"stage": "Pocket Calculation"})
+        logging.info("Calculating/retrieving pockets...")
         pockets, problem_atoms, problem_residues = lib.calculate_pockets(
-            df=all_df.query("divided_struct"),
+            df=df.query("divided_struct"),
             target_dir=self._settings["target_dir"],
             query_dir=self._settings["query_dir"],
             pocket_dir=self._settings["pocket_dir"],
         )
-        if len(problem_atoms) > 0:
+        if problem_atoms:
             logging.warning(f"Atoms with no VdW radii: {problem_atoms}")
-        if len(problem_residues) > 0:
-            logging.warning(
-                f"Residues with no single AA code: {problem_residues}",
-                extra=self._stage,
-            )
+        if problem_residues:
+            logging.warning(f"Residues with no single AA code: {problem_residues}")
+        return pockets
 
-        print("Comparing Pockets")
-        p_c_path = self._settings["pocket_comparison_path"]
-        blosum_path = os.path.join(os.path.dirname(__file__), "blosum62.bla")
+    def _compare_pockets_and_save(self, pockets):
+        self._stage.update({"stage": "Pocket Comparison"})
+        logging.info("Comparing pockets...")
         alignment_df = pd.read_csv(self._settings["foldseek_path"], sep="\t", engine="c")
-        pockets_df = lib.compare_pockets(
-            alignment_df, pockets, blosum_path=blosum_path
-        )  # , alphafold=ALPHAFOLD, alphafold_dir=ALPHAFOLD_DIR)
-        pockets_df.to_csv(p_c_path, index=False, sep="\t")
+        blosum_path = os.path.join(os.path.dirname(__file__), "blosum62.bla")
 
-        # Saving the query_df for reference
-        query_df.to_csv(r"/Users/lellingboe/Work/data/pocketmapper/test/query.csv")
+        pockets_df = lib.compare_pockets(alignment_df, pockets, blosum_path=blosum_path)
 
-        ##############################
-        logging.critical("Success!", extra={"stage": "End"})
-        exit()
+        output_path = self._settings["pocket_comparison_path"]
+        pockets_df.to_csv(output_path, index=False, sep="\t")
+        logging.info(f"Pocket comparison results saved to {output_path}")
 
     def _reading_options(self, settings):
         try:
