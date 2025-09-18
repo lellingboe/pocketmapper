@@ -285,6 +285,56 @@ def calculate_pockets(df, target_dir, query_dir, pocket_dir):
     return pocket_dict, all_problem_atoms, all_problem_residues
 
 
+def get_pisa_pocket(df, pocket_dir):
+    """Takes in a path to a pdb file"""
+    parser = MMCIFParser()
+    pocket_cache = glob(pocket_dir + "/*.json")
+
+    all_problem_atoms = defaultdict(lambda: 0)
+    all_problem_residues = defaultdict(lambda: 0)
+    pocket_dict = {}
+    for i, row in tqdm(df.iterrows()):
+        pocket_path = os.path.join(pocket_dir, f"{row.pdb_domain_motif}.json")
+        if pocket_path in pocket_cache:  # If cache exists, just load that
+            with open(pocket_path, "r") as f:
+                pocket = json.load(f)
+        else:
+            # Load the structure
+            try:
+                structure = parser.get_structure(
+                    row.pdb_domain_motif,
+                    os.path.join("placeholder", f"{row.pdb_domain_motif}.cif"),
+                )
+            except Exception:
+                logging.exception(
+                    f"Error parsing structure {row.pdb_domain_motif}",
+                    extra={"stage": "Calculating Pockets"},
+                )
+                continue
+
+            # Calculate the pocket from that structure
+            try:
+                pocket, problem_atoms, problem_residues = pocket_overlap(structure, row.domain_chain, row.motif_chain)
+            except Exception:
+                logging.exception(
+                    f"Error calculating pocket {row.pdb_domain_motif}",
+                    extra={"stage": "Calculating Pockets"},
+                )
+                continue
+
+            # Update problem cases
+            for atom in problem_atoms:
+                all_problem_atoms[atom] += 1
+            for res in problem_residues:
+                all_problem_residues[res] += 1
+
+            with open(pocket_path, "w") as f:
+                json.dump(pocket, f)
+        pocket_dict[row.pdb_domain_motif] = pocket
+
+    return pocket_dict, all_problem_atoms, all_problem_residues
+
+
 def jsonify_dict(item):
     """
     Recursively looks for sets in a dictionary and turns then into lists

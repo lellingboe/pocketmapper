@@ -16,22 +16,12 @@ import subprocess
 import pandas as pd
 import os
 import re
+from datetime import datetime
 
 
 class PocketMapper:
     def __init__(self):
-        # Defaults
-        self._settings = {
-            "structure_dir": "pdb",
-            "query_dir": "query",
-            "target_dir": "target",
-            "pocket_dir": ".",
-            "foldseek_path": "foldseek_alignment.tab",
-            "foldseek_tmp_dir": "foldseek_temp",
-            "pocket_comparison_path": "pocket_comparison.tab",
-            "foldseek": True,
-            "structure": False,
-        }
+        self._settings = {}
         self._stage = {"stage": "init"}
 
     # TODO implement caching option
@@ -44,13 +34,23 @@ class PocketMapper:
         verbose=False,
         debug=False,
         settings=None,
+        cache_dir=None,
+        results_dir=None,
     ):
         """
         Main orchestration method to run the pocket mapping workflow.
         """
         try:
             self._setup_logging(debug, verbose)
-            self._configure(settings, query=query, target=target, query_file=query_file, target_file=target_file)
+            self._configure(
+                settings,
+                cache_dir=cache_dir,
+                results_dir=results_dir,
+                query=query,
+                target=target,
+                query_file=query_file,
+                target_file=target_file,
+            )
             self._validate_inputs()
             self._prepare_directories()
 
@@ -79,20 +79,50 @@ class PocketMapper:
         fmt = "%(levelname)s: %(stage)s - %(msg)s"
         logging.basicConfig(level=log_level, format=fmt, force=True)
 
-    def _configure(self, settings_file, **kwargs):
+    def _configure(self, settings_file, cache_dir, results_dir, **kwargs):
+        # Defult settings
+        if cache_dir is None:
+            cache_dir = "pocketmapper_cache"
+        if results_dir is None:
+            now = datetime.now().strftime("%Y%m%d_%H%M%S")
+            results_dir = f"pocketmapper_results_{now}"
+        self._settings.update(
+            {
+                "structure_dir": os.path.join(cache_dir, "pdb_structures"),
+                "pocket_dir": os.path.join(cache_dir, "pockets"),
+                "foldseek_tmp_dir": os.path.join(cache_dir, "foldseek_tmp"),
+                "query_dir": os.path.join(results_dir, "query_structures"),
+                "target_dir": os.path.join(results_dir, "target_structures"),
+                "foldseek_path": os.path.join(results_dir, "foldseek_results.tsv"),
+                "pocket_comparison_path": os.path.join(results_dir, "pocket_comparison.tsv"),
+                "foldseek": True,
+                "pisa_pockets": True,
+                "structure": False,
+            }
+        )
+
+        # Override defaults with settings file if provided
         self._stage.update({"stage": "Configuration"})
         if settings_file:
-            self._reading_options(settings_file)
+            self._read_settings(settings_file)
 
         # Override settings with any provided command-line arguments
         for key, value in kwargs.items():
             if value is not None:
                 self._settings[key] = value
 
-        # Check for unrecognized command line options
-        # unrecognized_keys = set(kwargs.keys()) - set(self._settings.keys())
-        # if unrecognized_keys:
-        #    raise ValueError(f"Unrecognised inputs: {', '.join(unrecognized_keys)}")
+    def _read_settings(self, settings):
+        try:
+            with open(settings) as f:
+                job_data = json.load(f)
+        except FileNotFoundError:
+            logging.critical("No settings file found at specified location", extra=self._stage)
+            exit()
+        except Exception:
+            logging.exception("Error reading settings file", extra=self._stage)
+            exit()
+        self._settings.update(job_data)
+        logging.info(job_data, extra=self._stage)
 
     def _validate_inputs(self):
         self._stage.update({"stage": "Input Validation"})
@@ -193,6 +223,11 @@ class PocketMapper:
             query_dir=self._settings["query_dir"],
             pocket_dir=self._settings["pocket_dir"],
         )
+        pockets, problem_atoms, problem_residues = lib.get_pisa_pocket(
+            df=df.query("divided_struct"),
+            pocket_dir=self._settings["pocket_dir"],
+        )
+
         if problem_atoms:
             logging.warning(f"Atoms with no VdW radii: {problem_atoms}")
         if problem_residues:
@@ -210,19 +245,6 @@ class PocketMapper:
         output_path = self._settings["pocket_comparison_path"]
         pockets_df.to_csv(output_path, index=False, sep="\t")
         logging.info(f"Pocket comparison results saved to {output_path}")
-
-    def _reading_options(self, settings):
-        try:
-            with open(settings) as f:
-                job_data = json.load(f)
-        except FileNotFoundError:
-            logging.critical("No settings file found at specified location", extra=self._stage)
-            exit()
-        except Exception:
-            logging.exception("Error reading settings file", extra=self._stage)
-            exit()
-        self._settings.update(job_data)
-        logging.info(job_data, extra=self._stage)
 
     def _make_tq_df(self, single, file, **kwargs):
         if self._settings.get(single) is not None:
