@@ -54,6 +54,7 @@ class PocketMapper:
             self._validate_inputs()
             self._prepare_directories()
 
+            # all_df tracks structures and failures through the workflow
             all_df = self._prepare_dataframes()
             all_df = self._fetch_and_verify_structures(all_df)
             all_df = self._preprocess_structures(all_df)
@@ -84,7 +85,7 @@ class PocketMapper:
         if cache_dir is None:
             cache_dir = "pocketmapper_cache"
         if results_dir is None:
-            now = datetime.now().strftime("%Y%m%d_%H%M%S")
+            now = datetime.now().strftime("%y%m%d_%H%M%S")
             results_dir = f"pocketmapper_results_{now}"
         self._settings.update(
             {
@@ -97,6 +98,7 @@ class PocketMapper:
                 "pocket_comparison_path": os.path.join(results_dir, "pocket_comparison.tsv"),
                 "foldseek": True,
                 "pisa_pockets": True,
+                "pisa_dir": "/Users/lellingboe/Work/data/PISA/interfaces",
                 "structure": False,
             }
         )
@@ -155,7 +157,7 @@ class PocketMapper:
 
     def _fetch_and_verify_structures(self, df):
         self._stage.update({"stage": "Fetch Structures"})
-        logging.info("Checking for mmCIF structures...")
+        logging.info("Checking for mmCIF structures...", extra=self._stage)
         found_map = lib.get_mmcifs(
             pdb_list=df["interaction_pdb"].unique(),
             out_dir=self._settings["structure_dir"],
@@ -164,19 +166,19 @@ class PocketMapper:
 
         self._stage.update({"stage": "Verify Structures"})
         if not df.query("structure_found and type == 'query'").empty:
-            logging.info("Query structures found.")
+            logging.info("Query structures found.", extra=self._stage)
         else:
             raise FileNotFoundError("No query structures found locally or via download.")
 
         if not df.query("structure_found and type == 'target'").empty:
-            logging.info("Target structures found.")
+            logging.info("Target structures found.", extra=self._stage)
         else:
             raise FileNotFoundError("No target structures found locally or via download.")
         return df
 
     def _preprocess_structures(self, df):
         self._stage.update({"stage": "Preprocess Structures"})
-        logging.info("Dividing mmCIF structures...")
+        logging.info("Dividing mmCIF structures...", extra=self._stage)
         divided_map = lib.pdb_preprocessing_gemmi(
             df=df.query("structure_found"),
             ref_dir=self._settings["structure_dir"],
@@ -194,7 +196,7 @@ class PocketMapper:
 
     def _run_foldseek(self):
         self._stage.update({"stage": "Foldseek Alignment"})
-        logging.info("Running Foldseek easy-search...")
+        logging.info("Running Foldseek easy-search...", extra=self._stage)
         cmd = [
             "foldseek",
             "easy-search",
@@ -211,22 +213,27 @@ class PocketMapper:
             "--file-include",
             r"[0-9A-Z]{4}_[0-9A-Za-z]\.cif",
             "--exhaustive-search",
+            "-v",
+            "2",
         ]
         subprocess.run(cmd, check=True)
 
     def _calculate_and_retrieve_pockets(self, df):
         self._stage.update({"stage": "Pocket Calculation"})
-        logging.info("Calculating/retrieving pockets...")
+        logging.info("Calculating/retrieving pockets...", extra=self._stage)
         pockets, problem_atoms, problem_residues = lib.calculate_pockets(
             df=df.query("divided_struct"),
             target_dir=self._settings["target_dir"],
             query_dir=self._settings["query_dir"],
             pocket_dir=self._settings["pocket_dir"],
         )
-        pockets, problem_atoms, problem_residues = lib.get_pisa_pocket(
-            df=df.query("divided_struct"),
-            pocket_dir=self._settings["pocket_dir"],
-        )
+        if self._settings["pisa_pockets"]:
+            logging.info("Retrieving PISA pockets...", extra=self._stage)
+            pisa_pockets = lib.get_pisa_pocket(
+                df=df.query("divided_struct"),
+                pocket_dir=self._settings["pisa_dir"],
+            )
+            print(pisa_pockets.keys())
 
         if problem_atoms:
             logging.warning(f"Atoms with no VdW radii: {problem_atoms}")
@@ -236,7 +243,7 @@ class PocketMapper:
 
     def _compare_pockets_and_save(self, pockets):
         self._stage.update({"stage": "Pocket Comparison"})
-        logging.info("Comparing pockets...")
+        logging.info("Comparing pockets...", extra=self._stage)
         alignment_df = pd.read_csv(self._settings["foldseek_path"], sep="\t", engine="c")
         blosum_path = os.path.join(os.path.dirname(__file__), "blosum62.bla")
 
@@ -244,7 +251,7 @@ class PocketMapper:
 
         output_path = self._settings["pocket_comparison_path"]
         pockets_df.to_csv(output_path, index=False, sep="\t")
-        logging.info(f"Pocket comparison results saved to {output_path}")
+        logging.info(f"Pocket comparison results saved to {output_path}", extra=self._stage)
 
     def _make_tq_df(self, single, file, **kwargs):
         if self._settings.get(single) is not None:
