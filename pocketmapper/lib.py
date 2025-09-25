@@ -6,13 +6,14 @@ from Bio.SVDSuperimposer import SVDSuperimposer
 from Bio.PDB import MMCIFParser, MMCIFIO
 from glob import glob
 from concurrent.futures import ThreadPoolExecutor
-from itertools import repeat, product
+from itertools import repeat, product, count
 from tqdm import tqdm
 import json
 from collections import defaultdict
 import numpy as np
 import pandas as pd
 import gemmi
+import pisa
 
 # TODO keep phospho information
 SINGLE_AA_CODE = {
@@ -39,6 +40,7 @@ SINGLE_AA_CODE = {
     "SEP": "S",  # phospho
     "TPO": "T",  # phospho
 }
+TRIPLE_AA_CODE = {v: k for k, v in SINGLE_AA_CODE.items()}
 VDW_RADII = {"C": 1.88, "N": 1.64, "O": 1.46, "S": 1.77, "P": 1.87, "H": 1.0}
 # https://www.cgl.ucsf.edu/chimerax/docs/user/commands/clashes.html
 
@@ -285,16 +287,78 @@ def calculate_pockets(df, target_dir, query_dir, pocket_dir):
     return pocket_dict, all_problem_atoms, all_problem_residues
 
 
-def get_pisa_pocket(df, pocket_dir):
+def get_pisa_pockets(df, in_dir, out_dir):
     """Takes in a path to a pdb file"""
+    bond_types = ["hydrogen_bonds", "salt_bridges", "disulfide_bonds", "covalent_bonds", "other_bonds"]
     pockets = {}
     for i, row in tqdm(df.iterrows()):
         pdb_id = row.interaction_pdb.lower()
-        pocket_path = os.path.join(pocket_dir, f"{pdb_id}.json")
-        if os.path.exists(pocket_path):  # If cache exists, just load that
-            with open(pocket_path, "r") as f:
-                pocket = json.load(f)
-            pockets[row.pdb_domain_motif] = pocket
+
+        # Loading PISA pocket file
+        in_path = os.path.join(in_dir, f"{pdb_id}.json")
+        if not os.path.exists(in_path):
+            # Add Logging Here
+            continue
+        with open(in_path, "r") as f:
+            pisa_data = json.load(f)
+
+        # Extracting the relevant interface
+        interface_chains = "".join(sorted(row.domain_chain + row.motif_chain))
+        if interface_chains not in pisa_data:
+            # Add Logging Here
+            continue
+        pisa_data = pisa_data[interface_chains]
+
+        # Checking the interfaces features 2 molecules
+        if not len(pisa_data["molecules"]) == 2:
+            # Add Logging Here
+            continue
+
+        # Getting the molecule id for the domain chain
+        pocket_mol_id = None
+        for mol in pisa_data["molecules"]:
+            if mol["chain_id"] == row.domain_chain:
+                pocket_mol_id = mol["molecule_id"]
+                pocket_mol = mol
+                break
+        if pocket_mol_id is None:
+            # Add Logging Here
+            continue
+
+        # Making output pocket
+        pocket = {}
+
+        # Mapping residue ids to sequence position
+        pocket["res_id_to_pos"] = {k: str(v) for k, v in zip(pocket_mol["residue_seq_ids"], count(0))}
+        pocket["res_pos_to_aa"] = {str(k): v for k, v in zip(count(0), pocket_mol["residue_label_comp_ids"])}
+        pocket["res_id_to_aa"] = dict(zip(pocket_mol["residue_seq_ids"], pocket_mol["residue_label_comp_ids"]))
+
+        # Getting the pocket residues
+        pocket["pocket_res_ids"] = set()
+        for bond_type in bond_types:
+            bonds_dict = pisa_data[bond_type]
+            res_ids = set(bonds_dict[f"atom_site_{pocket_mol_id}_seq_nums"])
+            pocket["pocket_res_ids"].update(res_ids)
+        pocket["pocket_res_ids"] = sorted(list(pocket["pocket_res_ids"]))
+
+        # Mapping from ID to position
+        pocket["pocket_res_pos"] = [pocket["res_id_to_pos"][x] for x in pocket["pocket_res_ids"]]
+
+        # pocket sequence
+        pocket["aa_seq_id"] = [pocket["res_id_to_aa"][x] for x in pocket["pocket_res_ids"]]
+        pocket["aa_seq_pos"] = [pocket["res_pos_to_aa"][x] for x in pocket["pocket_res_pos"]]
+        pocket["seq_matches"] = pocket["aa_seq_id"] == pocket["aa_seq_pos"]
+
+        if len(pocket["pocket_res_ids"]) > 0:
+            pocket["pocket_exists"] = True
+
+        # Making JSON serializable
+        pocket = jsonify_dict(pocket)
+        pockets[row.pdb_domain_motif] = pocket
+
+        # out_path = os.path.join(out_dir, f"{row.pdb_domain_motif}_new_pisa.json")
+        # with open(out_path, "w") as f:
+        #    json.dump(pocket, f)
     return pockets
 
 
@@ -523,14 +587,14 @@ def compare_pockets(
                 p1_adj = 1 - row[6]
                 p2_adj = 1 - row[8]
 
-                p1_adjusted_start = {(int(pos) + p1_adj): sidechain for pos, sidechain in p1["pocket_res_pos"].items()}
-                p2_adjusted_start = {(int(pos) + p2_adj): sidechain for pos, sidechain in p2["pocket_res_pos"].items()}
-                p1_in_aln_region = {  # only the indices that are in the alignment region
-                    k: v
-                    for k, v in p1_adjusted_start.items()
+                p1_adjusted_start = [(int(pos) + p1_adj) for pos in p1["pocket_res_pos"]]
+                p2_adjusted_start = [(int(pos) + p2_adj) for pos in p2["pocket_res_pos"]]
+                p1_in_aln_region = [  # only the indices that are in the alignment region
+                    k
+                    for k in p1_adjusted_start
                     if (-1 < k and k <= (row[7] - row[6]))  # row[7] - row[6] is the length of the aligned region
-                }
-                p2_in_aln_region = {k: v for k, v in p2_adjusted_start.items() if (-1 < k and k <= (row[9] - row[8]))}
+                ]
+                p2_in_aln_region = [k for k in p2_adjusted_start if (-1 < k and k <= (row[9] - row[8]))]
                 p1_percent_in_aln = len(p1_in_aln_region) / len(p1_adjusted_start)
                 p2_percent_in_aln = len(p2_in_aln_region) / len(p2_adjusted_start)
 
@@ -550,8 +614,14 @@ def compare_pockets(
                     continue
 
                 # map sequence position to alignment position
-                p1_aln_pos = {p1_seq_to_aln[k]: v for k, v in p1_in_aln_region.items()}
-                p2_aln_pos = {p2_seq_to_aln[k]: v for k, v in p2_in_aln_region.items()}
+                p1_aln_pos = [p1_seq_to_aln[k] for k in p1_in_aln_region]
+                p2_aln_pos = [p2_seq_to_aln[k] for k in p2_in_aln_region]
+
+                # Aligned residues as a sequence
+                p1_full_seq = "".join([row[12][x] for x in p1_aln_pos])
+                p2_full_seq = "".join([row[13][x] for x in p2_aln_pos])
+                output["pocket_1_full_seq"] = p1_full_seq
+                output["pocket_2_full_seq"] = p2_full_seq
 
                 # count the overlapping residues
                 overlapping_residues = [x for x in p1_aln_pos if x in p2_aln_pos]
@@ -562,22 +632,24 @@ def compare_pockets(
                 p1_overlap_pos = [p1_aln_to_seq[x] - p1_adj for x in overlapping_residues]
                 p2_overlap_pos = [p2_aln_to_seq[x] - p2_adj for x in overlapping_residues]
 
-                x = np.array([p1["res_pos_coords"][str(x)] for x in p1_overlap_pos])
-                y = np.array([p2["res_pos_coords"][str(x)] for x in p2_overlap_pos])
+                # Turning this off while I work on PISA pockets
+                if False:
+                    x = np.array([p1["res_pos_coords"][str(x)] for x in p1_overlap_pos])
+                    y = np.array([p2["res_pos_coords"][str(x)] for x in p2_overlap_pos])
 
-                if len(overlapping_residues) > 2:
-                    sup.set(x, y)
-                    sup.run()
-                    u, t = sup.get_rotran()
-                    output["p2_to_p1_u"] = u.flatten().tolist()
-                    output["p2_to_p1_t"] = t.tolist()
-                    sup.set(y, x)
-                    sup.run()
-                    u, t = sup.get_rotran()
-                    output["p1_to_p2_u"] = u.flatten().tolist()
-                    output["p1_to_p2_t"] = t.tolist()
-                    output["rmsd"] = sup.get_rms()
-                    output["rmsd_score"] = -np.log2(sup.get_rms()) + 1
+                    if len(overlapping_residues) > 2:
+                        sup.set(x, y)
+                        sup.run()
+                        u, t = sup.get_rotran()
+                        output["p2_to_p1_u"] = u.flatten().tolist()
+                        output["p2_to_p1_t"] = t.tolist()
+                        sup.set(y, x)
+                        sup.run()
+                        u, t = sup.get_rotran()
+                        output["p1_to_p2_u"] = u.flatten().tolist()
+                        output["p1_to_p2_t"] = t.tolist()
+                        output["rmsd"] = sup.get_rms()
+                        output["rmsd_score"] = -np.log2(sup.get_rms()) + 1
 
                 # If no overlapping resides, end here
                 if len(overlapping_residues) == 0:
@@ -614,6 +686,7 @@ def compare_pockets(
                 output["max_overlap_similarity"] = max(similarity_1_2, similarity_2_1)
 
                 # Sidechain interactor conservation p1
+                """
                 p1_sidechain_pos = [x for x in overlapping_residues if p1_aln_pos[x]]
                 p1_seq_p1_sc_contact = "".join([row[12][x] for x in p1_sidechain_pos])
                 p2_seq_p1_sc_contact = "".join([row[13][x] for x in p1_sidechain_pos])
@@ -646,241 +719,7 @@ def compare_pockets(
                     output["p2_sc_similarity"] = p2_sc_similarity
 
                 output["min_sc_similarity"] = min(p1_sc_similarity, p2_sc_similarity)
-
-                output_rows.append(output)
-        except Exception:
-            output_rows.append(output)
-            logging.exception(f"{domain_1}_{motif_1}, {domain_2}_{motif_2}", extra={"stage": "Pocket Comparison"})
-
-    return pd.DataFrame.from_dict(output_rows)
-
-
-def compare_pisa_pockets(
-    alignment_df,
-    pocket_dict,
-    blosum_path=r"/home/data/motif_aligner/blosum62.bla",
-    alphafold=False,
-    alphafold_dir=None,
-):
-    """
-    Compare two pockets based on foldseek alignment
-
-    output = [i1, i2, ]
-    """
-
-    blosum_similarity_matrix = read_blast_similarity_matrix(blosum_path)
-    stage = {"stage": "Pocket Comparison"}
-
-    domain_pocket_dict = defaultdict(dict)
-    for k, v in pocket_dict.items():
-        domain_pocket_dict[k[:6]][k[7]] = v
-
-    # Setting up vars for use later
-    existing_calcs = set()
-    output_rows = []
-    sup = SVDSuperimposer()
-
-    for row in tqdm(alignment_df.itertuples(index=False)):
-        domain_1 = row[0]
-        domain_2 = row[1]
-        try:
-            # % non-gaps to gaps each way, similarity
-            p1_seq_to_aln = {}
-            i = 0
-            for j, res in enumerate(row[12]):
-                if res != "-":
-                    p1_seq_to_aln[i] = j
-                    i += 1
-            p1_aln_to_seq = {v: k for k, v in p1_seq_to_aln.items()}
-
-            p2_seq_to_aln = {}
-            i = 0
-            for j, res in enumerate(row[13]):
-                if res != "-":
-                    p2_seq_to_aln[i] = j
-                    i += 1
-            p2_aln_to_seq = {v: k for k, v in p2_seq_to_aln.items()}
-
-            # Check that both pockets are loaded:
-            pockets_1 = domain_pocket_dict.get(domain_1)
-            if not pockets_1:
-                logging.debug(f"domain:{domain_1}", extra=stage)
-                continue
-            if alphafold:
-                pockets_2 = {
-                    "A": {
-                        "pocket_exists": True,
-                        "pocket_res_pos": dict(zip(range(row[8] - 1, row[9]), repeat(True))),
-                    }
-                }
-            else:
-                pockets_2 = domain_pocket_dict.get(domain_2)
-                if not pockets_2:
-                    logging.debug(f"domain:{domain_2}", extra=stage)
-                    continue
-
-            # Iterating through aligned pairs
-            for motif_1, motif_2 in product(pockets_1.keys(), pockets_2.keys()):
-                # Defining interaction names
-                interaction_1 = domain_1 + "_" + motif_1
-                if alphafold:
-                    interaction_2 = domain_2
-                else:
-                    interaction_2 = domain_2 + "_" + motif_2
-
-                # No self comparisons
-                if interaction_1 == interaction_2:
-                    continue
-
-                # Checking for A-B comparison if B-A has already been calculated
-                if (interaction_2, interaction_1) in existing_calcs:
-                    continue
-                existing_calcs.add((interaction_1, interaction_2))
-
-                # Starting the output list
-                output = {
-                    "pocket_1": domain_1 + "_" + motif_1,
-                    "pocket_2": domain_2 + "_" + motif_2,
-                    "evalue": row[10],
-                    "lddt": row[11],
-                }
-
-                # Getting the pockets
-                p1 = pockets_1.get(motif_1)
-                p2 = pockets_2.get(motif_2)
-                if not p1["pocket_exists"] or not p2["pocket_exists"]:
-                    continue
-
-                # Calculated Metrics
-
-                # subtract start of alignment
-                p1_adj = 1 - row[6]
-                p2_adj = 1 - row[8]
-
-                p1_adjusted_start = {(int(pos) + p1_adj): sidechain for pos, sidechain in p1["pocket_res_pos"].items()}
-                p2_adjusted_start = {(int(pos) + p2_adj): sidechain for pos, sidechain in p2["pocket_res_pos"].items()}
-                p1_in_aln_region = {  # only the indices that are in the alignment region
-                    k: v
-                    for k, v in p1_adjusted_start.items()
-                    if (-1 < k and k <= (row[7] - row[6]))  # row[7] - row[6] is the length of the aligned region
-                }
-                p2_in_aln_region = {k: v for k, v in p2_adjusted_start.items() if (-1 < k and k <= (row[9] - row[8]))}
-                p1_percent_in_aln = len(p1_in_aln_region) / len(p1_adjusted_start)
-                p2_percent_in_aln = len(p2_in_aln_region) / len(p2_adjusted_start)
-
-                output["pocket_1_len"] = len(p1["pocket_res_pos"])
-                output["pocket_2_len"] = len(p2["pocket_res_pos"])
-                output["pocket_1_pct_aln"] = p1_percent_in_aln
-                output["pocket_2_pct_aln"] = p2_percent_in_aln
-
                 """
-                Finished Here
-                1) need to make sure AF residue is actually aligned to reference pocket
-                """
-
-                # if either pocket isn't in the aligned region, end here
-                if min(p1_percent_in_aln, p2_percent_in_aln) == 0:
-                    output_rows.append(output)
-                    continue
-
-                # map sequence position to alignment position
-                p1_aln_pos = {p1_seq_to_aln[k]: v for k, v in p1_in_aln_region.items()}
-                p2_aln_pos = {p2_seq_to_aln[k]: v for k, v in p2_in_aln_region.items()}
-
-                # count the overlapping residues
-                overlapping_residues = [x for x in p1_aln_pos if x in p2_aln_pos]
-                output["overlap_res"] = overlapping_residues
-                output["overlap_count"] = len(overlapping_residues)
-
-                # mapping common coords back to pocket 1 and 2 position coords
-                p1_overlap_pos = [p1_aln_to_seq[x] - p1_adj for x in overlapping_residues]
-                p2_overlap_pos = [p2_aln_to_seq[x] - p2_adj for x in overlapping_residues]
-
-                x = np.array([p1["res_pos_coords"][str(x)] for x in p1_overlap_pos])
-                y = np.array([p2["res_pos_coords"][str(x)] for x in p2_overlap_pos])
-
-                if len(overlapping_residues) > 2:
-                    sup.set(x, y)
-                    sup.run()
-                    u, t = sup.get_rotran()
-                    output["p2_to_p1_u"] = u.flatten().tolist()
-                    output["p2_to_p1_t"] = t.tolist()
-                    sup.set(y, x)
-                    sup.run()
-                    u, t = sup.get_rotran()
-                    output["p1_to_p2_u"] = u.flatten().tolist()
-                    output["p1_to_p2_t"] = t.tolist()
-                    output["rmsd"] = sup.get_rms()
-                    output["rmsd_score"] = -np.log2(sup.get_rms()) + 1
-
-                # If no overlapping resides, end here
-                if len(overlapping_residues) == 0:
-                    output_rows.append(output)
-                    continue
-
-                # Percentage overlap
-                p1_pct_overlap = len(overlapping_residues) / len(p1_adjusted_start)
-                p2_pct_overlap = len(overlapping_residues) / len(p2_adjusted_start)
-                output["pocket_1_pct_overlap"] = p1_pct_overlap
-                output["pocket_2_pct_overlap"] = p2_pct_overlap
-                output["min_pct_overlap"] = min(p1_pct_overlap, p2_pct_overlap)
-                output["max_pct_overlap"] = max(p1_pct_overlap, p2_pct_overlap)
-
-                # Aligned residues as a sequence
-                p1_aln_seq = "".join([row[12][x] for x in overlapping_residues])
-                p2_aln_seq = "".join([row[13][x] for x in overlapping_residues])
-                output["pocket_1_aln_seq"] = p1_aln_seq
-                output["pocket_2_aln_seq"] = p2_aln_seq
-
-                # Identity
-                overlap_identity = sum(map(str.__eq__, p1_aln_seq, p2_aln_seq)) / len(overlapping_residues)
-                output["overlap_identity"] = overlap_identity
-
-                # BLOSUM62 similarity
-                similarity = binary_similarity(p1_aln_seq, p2_aln_seq, blosum_similarity_matrix)
-                output["overlap_similarity_binary"] = similarity
-
-                similarity_1_2 = full_similarity(p1_aln_seq, p2_aln_seq, blosum_similarity_matrix)
-                similarity_2_1 = full_similarity(p2_aln_seq, p1_aln_seq, blosum_similarity_matrix)
-                output["overlap_similarity_1_2"] = similarity_1_2
-                output["overlap_similarity_2_1"] = similarity_2_1
-                output["min_overlap_similarity"] = min(similarity_1_2, similarity_2_1)
-                output["max_overlap_similarity"] = max(similarity_1_2, similarity_2_1)
-
-                # Sidechain interactor conservation p1
-                p1_sidechain_pos = [x for x in overlapping_residues if p1_aln_pos[x]]
-                p1_seq_p1_sc_contact = "".join([row[12][x] for x in p1_sidechain_pos])
-                p2_seq_p1_sc_contact = "".join([row[13][x] for x in p1_sidechain_pos])
-                output["p1_seq_p1_sc_contact"] = p1_seq_p1_sc_contact
-                output["p2_seq_p1_sc_contact"] = p2_seq_p1_sc_contact
-                p1_sc_contact_count = len(p1_sidechain_pos)
-                output["p1_sc_contact_count"] = p1_sc_contact_count
-                if p1_sc_contact_count > 0:
-                    p1_sc_similarity = full_similarity(
-                        p1_seq_p1_sc_contact,
-                        p2_seq_p1_sc_contact,
-                        blosum_similarity_matrix,
-                    )
-                    output["p1_sc_similarity"] = p1_sc_similarity
-
-                # Sidechain interactor conservation p2
-                p2_sidechain_pos = [x for x in overlapping_residues if p2_aln_pos[x]]
-                p1_seq_p2_sc_contact = "".join([row[12][x] for x in p2_sidechain_pos])
-                p2_seq_p2_sc_contact = "".join([row[13][x] for x in p2_sidechain_pos])
-                output["p1_seq_p2_sc_contact"] = p1_seq_p2_sc_contact
-                output["p2_seq_p2_sc_contact"] = p2_seq_p2_sc_contact
-                p2_sc_contact_count = len(p2_sidechain_pos)
-                output["p2_sc_binder_count"] = p2_sc_contact_count
-                if p2_sc_contact_count > 0:
-                    p2_sc_similarity = full_similarity(
-                        p2_seq_p2_sc_contact,
-                        p1_seq_p2_sc_contact,
-                        blosum_similarity_matrix,
-                    )
-                    output["p2_sc_similarity"] = p2_sc_similarity
-
-                output["min_sc_similarity"] = min(p1_sc_similarity, p2_sc_similarity)
-
                 output_rows.append(output)
         except Exception:
             output_rows.append(output)
@@ -963,3 +802,8 @@ def read_blast_similarity_matrix(similarity_matrix_path, delimiter=" "):
         else:
             similarity_matrix["-"][aa] = -4
     return similarity_matrix
+
+
+def download_pisa_info(pdb_list, summary_dir, assembly_dir, interface_dir):
+    downloader = pisa.PisaDownloader()
+    downloader.get_interfaces(pdb_list, summary_dir, assembly_dir, interface_dir)

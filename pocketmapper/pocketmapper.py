@@ -17,12 +17,14 @@ import pandas as pd
 import os
 import re
 from datetime import datetime
+import pisa
 
 
 class PocketMapper:
     def __init__(self):
         self._settings = {}
         self._stage = {"stage": "init"}
+        self.logger = None
 
     # TODO implement caching option
     def search(
@@ -66,17 +68,20 @@ class PocketMapper:
 
             logging.info("PocketMapper search completed successfully.", extra={"stage": "End"})
 
+        # Unhandle exception stop the process and log the error
         except Exception as e:
             logging.exception(str(e), extra=self._stage)
             exit(1)
 
     def _setup_logging(self, debug, verbose):
         self._stage.update({"stage": "Logging Setup"})
-        log_level = logging.WARNING
+
         if debug:
             log_level = logging.DEBUG
         elif verbose:
             log_level = logging.INFO
+        else:
+            log_level = logging.WARNING
         fmt = "%(levelname)s: %(stage)s - %(msg)s"
         logging.basicConfig(level=log_level, format=fmt, force=True)
 
@@ -92,13 +97,13 @@ class PocketMapper:
                 "structure_dir": os.path.join(cache_dir, "pdb_structures"),
                 "pocket_dir": os.path.join(cache_dir, "pockets"),
                 "foldseek_tmp_dir": os.path.join(cache_dir, "foldseek_tmp"),
+                "pisa_dir": os.path.join(cache_dir, "pisa_pockets"),
                 "query_dir": os.path.join(results_dir, "query_structures"),
                 "target_dir": os.path.join(results_dir, "target_structures"),
                 "foldseek_path": os.path.join(results_dir, "foldseek_results.tsv"),
                 "pocket_comparison_path": os.path.join(results_dir, "pocket_comparison.tsv"),
                 "foldseek": True,
                 "pisa_pockets": True,
-                "pisa_dir": "/Users/lellingboe/Work/data/PISA/interfaces",
                 "structure": False,
             }
         )
@@ -141,7 +146,7 @@ class PocketMapper:
 
     def _prepare_directories(self):
         self._stage.update({"stage": "Directory Preparation"})
-        dirs_to_create = ["structure_dir", "query_dir", "target_dir", "pocket_dir"]
+        dirs_to_create = ["structure_dir", "query_dir", "target_dir", "pocket_dir", "pisa_dir"]
         for dir_key in dirs_to_create:
             path = self._settings[dir_key]
             try:
@@ -220,26 +225,38 @@ class PocketMapper:
 
     def _calculate_and_retrieve_pockets(self, df):
         self._stage.update({"stage": "Pocket Calculation"})
-        logging.info("Calculating/retrieving pockets...", extra=self._stage)
-        pockets, problem_atoms, problem_residues = lib.calculate_pockets(
-            df=df.query("divided_struct"),
-            target_dir=self._settings["target_dir"],
-            query_dir=self._settings["query_dir"],
-            pocket_dir=self._settings["pocket_dir"],
-        )
-        if self._settings["pisa_pockets"]:
-            logging.info("Retrieving PISA pockets...", extra=self._stage)
-            pisa_pockets = lib.get_pisa_pocket(
-                df=df.query("divided_struct"),
-                pocket_dir=self._settings["pisa_dir"],
-            )
-            print(pisa_pockets.keys())
 
-        if problem_atoms:
-            logging.warning(f"Atoms with no VdW radii: {problem_atoms}")
-        if problem_residues:
-            logging.warning(f"Residues with no single AA code: {problem_residues}")
-        return pockets
+        # WRITING PISA POCKETS
+        logging.info("Retrieving PISA pockets...", extra=self._stage)
+        downloader = pisa.PisaDownloader()
+        downloader.get_interfaces(
+            pdb_list=df.query("divided_struct")["interaction_pdb"].str.lower().unique(),
+            summary_dir=os.path.join(self._settings["pisa_dir"], "summaries"),
+            asm_dir=os.path.join(self._settings["pisa_dir"], "assemblies"),
+            interface_dir=os.path.join(self._settings["pisa_dir"], "interfaces"),
+        )
+        pisa_pockets = lib.get_pisa_pockets(
+            df=df.query("divided_struct"),
+            in_dir=os.path.join(self._settings["pisa_dir"], "interfaces"),
+            out_dir=self._settings["pocket_dir"],
+        )
+        with open(os.path.join(self._settings["pisa_dir"], "all_pockets.json"), "w") as f:
+            json.dump(pisa_pockets, f)
+
+        # WRITING LOCAL POCKETS
+        # logging.info("Calculating/retrieving local pockets...", extra=self._stage)
+        # pockets, problem_atoms, problem_residues = lib.calculate_pockets(
+        #    df=df.query("divided_struct"),
+        #    target_dir=self._settings["target_dir"],
+        #    query_dir=self._settings["query_dir"],
+        #    pocket_dir=self._settings["pocket_dir"],
+        # )
+
+        # if problem_atoms:
+        #    logging.warning(f"Atoms with no VdW radii: {problem_atoms}")
+        # if problem_residues:
+        #    logging.warning(f"Residues with no single AA code: {problem_residues}")
+        return pisa_pockets
 
     def _compare_pockets_and_save(self, pockets):
         self._stage.update({"stage": "Pocket Comparison"})

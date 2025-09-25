@@ -10,7 +10,7 @@ from collections import defaultdict
 
 class PisaDownloader:
     def __init__(self):
-        pass
+        self._stage = {}
 
     def get_interfaces(self, pdb_list, summary_dir, asm_dir, interface_dir):
         for dir in [summary_dir, asm_dir, interface_dir]:
@@ -23,6 +23,7 @@ class PisaDownloader:
         self.parse_assemblies(assembly_dict, asm_dir, interface_dir)
 
     def get_summaries(self, pdb_codes, summary_dir):
+        self._stage = {"stage": "Downloading PISA summaries"}
         print("Downloading summaries")
         problems = []
         valid = []
@@ -37,7 +38,7 @@ class PisaDownloader:
                     urlretrieve(url, out_fname)
                     valid.append(pdb_code)
                 except Exception:
-                    logging.warning(f"Issue downloading {pdb_code}")
+                    logging.warning(f"Issue downloading {pdb_code}", extra=self._stage)
                     problems.append(pdb_code)
                 finally:
                     sleep(0.25)
@@ -45,6 +46,7 @@ class PisaDownloader:
         return valid
 
     def parse_summaries(self, pdb_codes, summary_dir):
+        self._stage = {"stage": "Parsing PISA summaries"}
         print("Parsing summaries")
         asm_dict = defaultdict(list)
         for pdb_code in tqdm(pdb_codes):
@@ -53,16 +55,17 @@ class PisaDownloader:
                 with open(fname) as f:
                     data = json.load(f)
                 if len(data[pdb_code]) != 1:
-                    logging.critical(f"More than one entry in summary for {pdb_code}")
+                    logging.critical(f"More than one entry in summary for {pdb_code}", extra=self._stage)
                     continue
                 for assembly in data[pdb_code][0]["assemblies"]:
                     asm_dict[pdb_code].append(assembly["assembly_id"])
             except Exception:
-                logging.exception(f"Issue parsing summary for {pdb_code}")
+                logging.exception(f"Issue parsing summary for {pdb_code}", extra=self._stage)
                 exit(1)
         return asm_dict
 
     def get_assemblies(self, asm_dict, asm_dir):
+        self._stage = {"stage": "Downloading PISA assemblies"}
         print("Downloading assemblies")
         problems = []
         for pdb_code, assemblies in tqdm(asm_dict.items()):
@@ -74,12 +77,13 @@ class PisaDownloader:
                         urlcleanup()
                         urlretrieve(url, out_fname)
                     except Exception:
-                        logging.warning(f"Issue downloading assembly {asm} for {pdb_code}")
+                        logging.warning(f"Issue downloading assembly {asm} for {pdb_code}", extra=self._stage)
                         problems.append(f"{pdb_code}_{asm}")
                     sleep(0.25)
         pd.Series(problems).to_csv(os.path.join(asm_dir, "_Failed.txt"), header=False, index=False)
 
     def parse_assemblies(self, asm_dict, asm_dir, interface_dir):
+        self._stage = {"stage": "Parsing PISA assemblies"}
         print("Parsing assemblies")
         for pdb_code, assemblies in tqdm(asm_dict.items()):
 
@@ -93,7 +97,7 @@ class PisaDownloader:
                 except FileNotFoundError:
                     continue
                 if len(data.keys()) != 1:
-                    logging.critical(f"More than one entry in assembly for {pdb_code}_{asm}")
+                    logging.critical(f"More than one entry in assembly for {pdb_code}_{asm}", extra=self._stage)
                     continue
 
                 if "PISA" in data:
@@ -106,7 +110,9 @@ class PisaDownloader:
                     for interface in data["assembly"]["interfaces"]:
                         # Checking if interface is between two molecules
                         if len(interface["molecules"]) != 2:
-                            logging.critical(f"More than one molecule in {pdb_code}, {interface["interface_id"]}")
+                            logging.critical(
+                                f"More than one molecule in {pdb_code}, {interface["interface_id"]}", extra=self._stage
+                            )
                             continue
                         # Checking the chain meet the expected specifications
                         chain_ids = []
@@ -117,7 +123,7 @@ class PisaDownloader:
                         entry_name = "".join(sorted(chain_ids))
                         all_interfaces[entry_name] = interface
                 except Exception:
-                    logging.exception(f"Issue parsing assembly for {pdb_code}_{asm}")
+                    logging.exception(f"Issue parsing assembly for {pdb_code}_{asm}", extra=self._stage)
                     continue
 
             interface_fname = os.path.join(interface_dir, f"{pdb_code}.json")
