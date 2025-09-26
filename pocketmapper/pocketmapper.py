@@ -43,8 +43,9 @@ class PocketMapper:
         Main orchestration method to run the pocket mapping workflow.
         """
         try:
+            # self._read_settings(settings)
             self._setup_logging(debug, verbose)
-            self._configure(
+            self._configure(  # configures the settings which hav already been read
                 settings,
                 cache_dir=cache_dir,
                 results_dir=results_dir,
@@ -68,7 +69,7 @@ class PocketMapper:
 
             logging.info("PocketMapper search completed successfully.", extra={"stage": "End"})
 
-        # Unhandle exception stop the process and log the error
+        # Unhandled exception stops the process and logs the error
         except Exception as e:
             logging.exception(str(e), extra=self._stage)
             exit(1)
@@ -218,8 +219,6 @@ class PocketMapper:
             "--file-include",
             r"[0-9A-Z]{4}_[0-9A-Za-z]\.cif",
             "--exhaustive-search",
-            "-v",
-            "2",
         ]
         subprocess.run(cmd, check=True)
 

@@ -2,7 +2,8 @@ import gzip
 import os
 import logging
 from urllib.request import urlcleanup, urlretrieve
-from Bio.SVDSuperimposer import SVDSuperimposer
+
+# from Bio.SVDSuperimposer import SVDSuperimposer
 from Bio.PDB import MMCIFParser, MMCIFIO
 from glob import glob
 from concurrent.futures import ThreadPoolExecutor
@@ -10,7 +11,6 @@ from itertools import repeat, product, count
 from tqdm import tqdm
 import json
 from collections import defaultdict
-import numpy as np
 import pandas as pd
 import gemmi
 import pisa
@@ -39,8 +39,11 @@ SINGLE_AA_CODE = {
     "MET": "M",
     "SEP": "S",  # phospho
     "TPO": "T",  # phospho
+    "PTR": "Y",  # phospho
 }
-TRIPLE_AA_CODE = {v: k for k, v in SINGLE_AA_CODE.items()}
+TRIPLE_AA_CODE = defaultdict(list)
+for k, v in SINGLE_AA_CODE.items():
+    TRIPLE_AA_CODE[v].append(k)
 VDW_RADII = {"C": 1.88, "N": 1.64, "O": 1.46, "S": 1.77, "P": 1.87, "H": 1.0}
 # https://www.cgl.ucsf.edu/chimerax/docs/user/commands/clashes.html
 
@@ -288,6 +291,7 @@ def calculate_pockets(df, target_dir, query_dir, pocket_dir):
 
 
 def get_pisa_pockets(df, in_dir, out_dir):
+    stage = {"stage": "Calculating Pockets"}
     """Takes in a path to a pdb file"""
     bond_types = ["hydrogen_bonds", "salt_bridges", "disulfide_bonds", "covalent_bonds", "other_bonds"]
     pockets = {}
@@ -297,7 +301,7 @@ def get_pisa_pockets(df, in_dir, out_dir):
         # Loading PISA pocket file
         in_path = os.path.join(in_dir, f"{pdb_id}.json")
         if not os.path.exists(in_path):
-            # Add Logging Here
+            logging.warning(f"Could not load PISA data for {pdb_id}", extra=stage)
             continue
         with open(in_path, "r") as f:
             pisa_data = json.load(f)
@@ -305,13 +309,13 @@ def get_pisa_pockets(df, in_dir, out_dir):
         # Extracting the relevant interface
         interface_chains = "".join(sorted(row.domain_chain + row.motif_chain))
         if interface_chains not in pisa_data:
-            # Add Logging Here
+            logging.warning(f"No PISA data for {pdb_id} interface {interface_chains}", extra=stage)
             continue
         pisa_data = pisa_data[interface_chains]
 
         # Checking the interfaces features 2 molecules
         if not len(pisa_data["molecules"]) == 2:
-            # Add Logging Here
+            logging.warning(f"More than two molecules in {pdb_id} interface {interface_chains}", extra=stage)
             continue
 
         # Getting the molecule id for the domain chain
@@ -322,43 +326,62 @@ def get_pisa_pockets(df, in_dir, out_dir):
                 pocket_mol = mol
                 break
         if pocket_mol_id is None:
-            # Add Logging Here
+            logging.warning(f"Could not find domain chain in {pdb_id} interface {interface_chains}", extra=stage)
             continue
 
         # Making output pocket
-        pocket = {}
+        pocket = {
+            "res_auth_ids": set(),
+            "id_pos_codes_match": True,
+        }
 
-        # Mapping residue ids to sequence position
-        pocket["res_id_to_pos"] = {k: str(v) for k, v in zip(pocket_mol["residue_seq_ids"], count(0))}
-        pocket["res_pos_to_aa"] = {str(k): v for k, v in zip(count(0), pocket_mol["residue_label_comp_ids"])}
-        pocket["res_id_to_aa"] = dict(zip(pocket_mol["residue_seq_ids"], pocket_mol["residue_label_comp_ids"]))
+        #####
+        res_id_to_pos = {k: str(v) for k, v in zip(pocket_mol["residue_seq_ids"], count(0))}
 
         # Getting the pocket residues
-        pocket["pocket_res_ids"] = set()
         for bond_type in bond_types:
             bonds_dict = pisa_data[bond_type]
-            res_ids = set(bonds_dict[f"atom_site_{pocket_mol_id}_seq_nums"])
-            pocket["pocket_res_ids"].update(res_ids)
-        pocket["pocket_res_ids"] = sorted(list(pocket["pocket_res_ids"]))
+            res_auth_ids = bonds_dict[f"atom_site_{pocket_mol_id}_seq_nums"]
+            pocket["res_auth_ids"].update(set(res_auth_ids))
+            for i, res_auth_id in enumerate(res_auth_ids):
+                if res_auth_id not in pocket:  # initializing dict
+                    pocket[res_auth_id] = {}
+                res_dict = {}
+                res_dict["seq_pos"] = res_id_to_pos[res_auth_id]
+                res_dict["res_code"] = bonds_dict[f"atom_site_{pocket_mol_id}_residues"][i]
+                res_dict["res_code_single"] = SINGLE_AA_CODE.get(res_dict["res_code"], "X")
+                res_dict["uniprot_pos"] = bonds_dict[f"atom_site_{pocket_mol_id}_unp_nums"][i]
+                res_dict["res_code_from_pos"] = pocket_mol["residue_label_comp_ids"][int(res_dict["seq_pos"])]
+                if not res_dict["res_code"] == res_dict["res_code_from_pos"]:
+                    pocket["id_pos_codes_match"] = False
 
-        # Mapping from ID to position
-        pocket["pocket_res_pos"] = [pocket["res_id_to_pos"][x] for x in pocket["pocket_res_ids"]]
+                pocket[res_auth_id] = res_dict
 
-        # pocket sequence
-        pocket["aa_seq_id"] = [pocket["res_id_to_aa"][x] for x in pocket["pocket_res_ids"]]
-        pocket["aa_seq_pos"] = [pocket["res_pos_to_aa"][x] for x in pocket["pocket_res_pos"]]
-        pocket["seq_matches"] = pocket["aa_seq_id"] == pocket["aa_seq_pos"]
+        if False:
 
-        if len(pocket["pocket_res_ids"]) > 0:
+            # Mapping residue ids to sequence position
+            pocket["res_pos_to_aa"] = {str(k): v for k, v in zip(count(0), pocket_mol["residue_label_comp_ids"])}
+            pocket["res_id_to_aa"] = dict(zip(pocket_mol["residue_seq_ids"], pocket_mol["residue_label_comp_ids"]))
+
+            # Mapping from ID to position
+            pocket["pocket_res_pos"] = [pocket["res_id_to_pos"][x] for x in pocket["pocket_res_ids"]]
+
+            # pocket sequence
+            pocket["aa_seq_id"] = [pocket["res_id_to_aa"][x] for x in pocket["pocket_res_ids"]]
+            pocket["aa_seq_pos"] = [pocket["res_pos_to_aa"][x] for x in pocket["pocket_res_pos"]]
+            pocket["seq_matches"] = pocket["aa_seq_id"] == pocket["aa_seq_pos"]
+
+        pocket["res_auth_ids"] = sorted(list(pocket["res_auth_ids"]))
+        if len(pocket["res_auth_ids"]) > 0:
             pocket["pocket_exists"] = True
+
+        if not pocket["id_pos_codes_match"]:
+            logging.warning(f"Mismatch between residue ids and positions in {row.pdb_domain_motif}", extra=stage)
 
         # Making JSON serializable
         pocket = jsonify_dict(pocket)
         pockets[row.pdb_domain_motif] = pocket
 
-        # out_path = os.path.join(out_dir, f"{row.pdb_domain_motif}_new_pisa.json")
-        # with open(out_path, "w") as f:
-        #    json.dump(pocket, f)
     return pockets
 
 
@@ -497,9 +520,12 @@ def compare_pockets(
     output = [i1, i2, ]
     """
 
-    blosum_similarity_matrix = read_blast_similarity_matrix(blosum_path)
     stage = {"stage": "Pocket Comparison"}
+    blosum_similarity_matrix = read_blast_similarity_matrix(blosum_path)
 
+    unknown_ids = defaultdict(set)
+
+    # {pdb_domain_motif: info} -> {pdb_domain: {motif1: info, motif2:info}}
     domain_pocket_dict = defaultdict(dict)
     for k, v in pocket_dict.items():
         domain_pocket_dict[k[:6]][k[7]] = v
@@ -507,8 +533,9 @@ def compare_pockets(
     # Setting up vars for use later
     existing_calcs = set()
     output_rows = []
-    sup = SVDSuperimposer()
+    # sup = SVDSuperimposer()
 
+    # TODO divide this into common things for each pocket and a cross-comparison
     for row in tqdm(alignment_df.itertuples(index=False)):
         domain_1 = row[0]
         domain_2 = row[1]
@@ -521,7 +548,7 @@ def compare_pockets(
                 if res != "-":
                     p1_seq_to_aln[i] = j
                     i += 1
-            p1_aln_to_seq = {v: k for k, v in p1_seq_to_aln.items()}
+            # p1_aln_to_seq = {v: k for k, v in p1_seq_to_aln.items()}
 
             p2_seq_to_aln = {}
             i = 0
@@ -529,7 +556,7 @@ def compare_pockets(
                 if res != "-":
                     p2_seq_to_aln[i] = j
                     i += 1
-            p2_aln_to_seq = {v: k for k, v in p2_seq_to_aln.items()}
+            # p2_aln_to_seq = {v: k for k, v in p2_seq_to_aln.items()}
 
             # Check that both pockets are loaded:
             pockets_1 = domain_pocket_dict.get(domain_1)
@@ -559,8 +586,8 @@ def compare_pockets(
                     interaction_2 = domain_2 + "_" + motif_2
 
                 # No self comparisons
-                if interaction_1 == interaction_2:
-                    continue
+                # if interaction_1 == interaction_2:
+                #    continue
 
                 # Checking for A-B comparison if B-A has already been calculated
                 if (interaction_2, interaction_1) in existing_calcs:
@@ -583,56 +610,109 @@ def compare_pockets(
 
                 # Calculated Metrics
 
-                # subtract start of alignment
+                # pocket 1
                 p1_adj = 1 - row[6]
+                p1_fs_len = row[7] - row[6] + 1
+                p1_in_aln_region_count = 0
+                p1["foldseek_pos"] = []
+                for res in p1["res_auth_ids"]:
+                    fs_start_adj_pos = int(p1[res]["seq_pos"]) + p1_adj
+                    in_aln_region = -1 < fs_start_adj_pos < p1_fs_len
+                    p1[res]["in_fs_aln_region"] = in_aln_region
+                    if in_aln_region:
+                        p1_in_aln_region_count += 1
+                        fs_res_pos = p1_seq_to_aln[fs_start_adj_pos]
+                        p1["foldseek_pos"].append(fs_res_pos)
+                        p1[res]["fs_pos"] = fs_res_pos
+                        p1[res]["fs_res_code"] = row[12][fs_res_pos]
+
+                        # Checking fs single res code and pocektmapper single res codes match
+                        if p1[res]["fs_res_code"] != p1[res]["res_code_single"]:
+                            unknown_ids[p1[res]["fs_res_code"]].add(p1[res]["res_code"])
+
+                output["pocket_1_res_ids"] = ",".join(p1["res_auth_ids"])
+                output["pocket_1_len"] = len(p1["res_auth_ids"])
+                output["pocket_1_seq"] = "".join([p1[x]["res_code_single"] for x in p1["res_auth_ids"]])
+                output["pocket_1_pct_aln"] = p1_in_aln_region_count / len(p1["res_auth_ids"])
+
+                # pocket 2
                 p2_adj = 1 - row[8]
+                p2_fs_len = row[9] - row[8] + 1
+                p2_in_aln_region_count = 0
+                p2["foldseek_pos"] = []
+                for res in p2["res_auth_ids"]:
+                    fs_start_adj_pos = int(p2[res]["seq_pos"]) + p2_adj
+                    in_aln_region = -1 < fs_start_adj_pos < p2_fs_len
+                    p2[res]["in_fs_aln_region"] = in_aln_region
+                    if in_aln_region:
+                        p2_in_aln_region_count += 1
+                        fs_res_pos = p2_seq_to_aln[fs_start_adj_pos]
+                        p2["foldseek_pos"].append(fs_res_pos)
+                        p2[res]["fs_pos"] = fs_res_pos
+                        p2[res]["fs_res_code"] = row[13][fs_res_pos]
 
-                p1_adjusted_start = [(int(pos) + p1_adj) for pos in p1["pocket_res_pos"]]
-                p2_adjusted_start = [(int(pos) + p2_adj) for pos in p2["pocket_res_pos"]]
-                p1_in_aln_region = [  # only the indices that are in the alignment region
-                    k
-                    for k in p1_adjusted_start
-                    if (-1 < k and k <= (row[7] - row[6]))  # row[7] - row[6] is the length of the aligned region
-                ]
-                p2_in_aln_region = [k for k in p2_adjusted_start if (-1 < k and k <= (row[9] - row[8]))]
-                p1_percent_in_aln = len(p1_in_aln_region) / len(p1_adjusted_start)
-                p2_percent_in_aln = len(p2_in_aln_region) / len(p2_adjusted_start)
+                        # Checking fs single res code and pocektmapper single res codes match
+                        if p2[res]["fs_res_code"] != p2[res]["res_code_single"]:
+                            unknown_ids[p2[res]["fs_res_code"]].add(p2[res]["res_code"])
 
-                output["pocket_1_len"] = len(p1["pocket_res_pos"])
-                output["pocket_2_len"] = len(p2["pocket_res_pos"])
-                output["pocket_1_pct_aln"] = p1_percent_in_aln
-                output["pocket_2_pct_aln"] = p2_percent_in_aln
+                output["pocket_2_res_ids"] = ",".join(p2["res_auth_ids"])
+                output["pocket_2_len"] = len(p2["res_auth_ids"])
+                output["pocket_2_seq"] = "".join([p2[x]["res_code_single"] for x in p2["res_auth_ids"]])
+                output["pocket_2_pct_aln"] = p2_in_aln_region_count / len(p2["res_auth_ids"])
+                output["pocket_2_res_ids"] = ",".join(p2["res_auth_ids"])
 
-                """
-                Finished Here
-                1) need to make sure AF residue is actually aligned to reference pocket
-                """
-
-                # if either pocket isn't in the aligned region, end here
-                if min(p1_percent_in_aln, p2_percent_in_aln) == 0:
+                # OVERLAP
+                overlapping_residues = [x for x in p1["foldseek_pos"] if x in p2["foldseek_pos"]]
+                output["overlap_count"] = len(overlapping_residues)
+                if len(overlapping_residues) == 0:  # If no overlapping resides, end here
                     output_rows.append(output)
                     continue
 
-                # map sequence position to alignment position
-                p1_aln_pos = [p1_seq_to_aln[k] for k in p1_in_aln_region]
-                p2_aln_pos = [p2_seq_to_aln[k] for k in p2_in_aln_region]
+                # overlap ids
+                p1_overlap_ids = []
+                for res in p1["res_auth_ids"]:
+                    if p1[res].get("fs_pos", -1) in overlapping_residues:
+                        p1_overlap_ids.append(res)
+                output["pocket_1_overlap_ids"] = ",".join(p1_overlap_ids)
+                p2_overlap_ids = []
+                for res in p2["res_auth_ids"]:
+                    if p2[res].get("fs_pos", -1) in overlapping_residues:
+                        p2_overlap_ids.append(res)
+                output["pocket_2_overlap_ids"] = ",".join(p2_overlap_ids)
 
+                # percent overlap
+                p1_pct_overlap = len(overlapping_residues) / len(p1["res_auth_ids"])
+                p2_pct_overlap = len(overlapping_residues) / len(p2["res_auth_ids"])
+                output["pocket_1_pct_overlap"] = p1_pct_overlap
+                output["pocket_2_pct_overlap"] = p2_pct_overlap
+                output["min_pct_overlap"] = min(p1_pct_overlap, p2_pct_overlap)
+                output["max_pct_overlap"] = max(p1_pct_overlap, p2_pct_overlap)
+
+                #####
                 # Aligned residues as a sequence
-                p1_full_seq = "".join([row[12][x] for x in p1_aln_pos])
-                p2_full_seq = "".join([row[13][x] for x in p2_aln_pos])
-                output["pocket_1_full_seq"] = p1_full_seq
-                output["pocket_2_full_seq"] = p2_full_seq
+                p1_aln_seq = "".join([row[12][x] for x in overlapping_residues])
+                p2_aln_seq = "".join([row[13][x] for x in overlapping_residues])
+                output["pocket_1_seq_overlap"] = p1_aln_seq
+                output["pocket_2_seq_overlap"] = p2_aln_seq
 
-                # count the overlapping residues
-                overlapping_residues = [x for x in p1_aln_pos if x in p2_aln_pos]
-                output["overlap_res"] = overlapping_residues
-                output["overlap_count"] = len(overlapping_residues)
+                # Identity
+                overlap_identity = sum(map(str.__eq__, p1_aln_seq, p2_aln_seq)) / len(overlapping_residues)
+                output["overlap_identity"] = overlap_identity
 
-                # mapping common coords back to pocket 1 and 2 position coords
-                p1_overlap_pos = [p1_aln_to_seq[x] - p1_adj for x in overlapping_residues]
-                p2_overlap_pos = [p2_aln_to_seq[x] - p2_adj for x in overlapping_residues]
+                # BLOSUM62 similarity
+                similarity = binary_similarity(p1_aln_seq, p2_aln_seq, blosum_similarity_matrix)
+                output["overlap_similarity_binary"] = similarity
+
+                similarity_1_2 = full_similarity(p1_aln_seq, p2_aln_seq, blosum_similarity_matrix)
+                similarity_2_1 = full_similarity(p2_aln_seq, p1_aln_seq, blosum_similarity_matrix)
+                output["overlap_similarity_1_2"] = similarity_1_2
+                output["overlap_similarity_2_1"] = similarity_2_1
+                output["min_overlap_similarity"] = min(similarity_1_2, similarity_2_1)
+                output["max_overlap_similarity"] = max(similarity_1_2, similarity_2_1)
 
                 # Turning this off while I work on PISA pockets
+
+                """
                 if False:
                     x = np.array([p1["res_pos_coords"][str(x)] for x in p1_overlap_pos])
                     y = np.array([p2["res_pos_coords"][str(x)] for x in p2_overlap_pos])
@@ -650,40 +730,8 @@ def compare_pockets(
                         output["p1_to_p2_t"] = t.tolist()
                         output["rmsd"] = sup.get_rms()
                         output["rmsd_score"] = -np.log2(sup.get_rms()) + 1
-
-                # If no overlapping resides, end here
-                if len(overlapping_residues) == 0:
-                    output_rows.append(output)
-                    continue
-
-                # Percentage overlap
-                p1_pct_overlap = len(overlapping_residues) / len(p1_adjusted_start)
-                p2_pct_overlap = len(overlapping_residues) / len(p2_adjusted_start)
-                output["pocket_1_pct_overlap"] = p1_pct_overlap
-                output["pocket_2_pct_overlap"] = p2_pct_overlap
-                output["min_pct_overlap"] = min(p1_pct_overlap, p2_pct_overlap)
-                output["max_pct_overlap"] = max(p1_pct_overlap, p2_pct_overlap)
-
-                # Aligned residues as a sequence
-                p1_aln_seq = "".join([row[12][x] for x in overlapping_residues])
-                p2_aln_seq = "".join([row[13][x] for x in overlapping_residues])
-                output["pocket_1_aln_seq"] = p1_aln_seq
-                output["pocket_2_aln_seq"] = p2_aln_seq
-
-                # Identity
-                overlap_identity = sum(map(str.__eq__, p1_aln_seq, p2_aln_seq)) / len(overlapping_residues)
-                output["overlap_identity"] = overlap_identity
-
-                # BLOSUM62 similarity
-                similarity = binary_similarity(p1_aln_seq, p2_aln_seq, blosum_similarity_matrix)
-                output["overlap_similarity_binary"] = similarity
-
-                similarity_1_2 = full_similarity(p1_aln_seq, p2_aln_seq, blosum_similarity_matrix)
-                similarity_2_1 = full_similarity(p2_aln_seq, p1_aln_seq, blosum_similarity_matrix)
-                output["overlap_similarity_1_2"] = similarity_1_2
-                output["overlap_similarity_2_1"] = similarity_2_1
-                output["min_overlap_similarity"] = min(similarity_1_2, similarity_2_1)
-                output["max_overlap_similarity"] = max(similarity_1_2, similarity_2_1)
+                """
+                output_rows.append(output)
 
                 # Sidechain interactor conservation p1
                 """
@@ -720,10 +768,12 @@ def compare_pockets(
 
                 output["min_sc_similarity"] = min(p1_sc_similarity, p2_sc_similarity)
                 """
-                output_rows.append(output)
         except Exception:
             output_rows.append(output)
             logging.exception(f"{domain_1}_{motif_1}, {domain_2}_{motif_2}", extra={"stage": "Pocket Comparison"})
+
+    if len(unknown_ids) > 0:
+        logging.warning(f"Unknown IDs: {dict(unknown_ids)}", extra=stage)
 
     return pd.DataFrame.from_dict(output_rows)
 
