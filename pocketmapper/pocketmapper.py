@@ -24,7 +24,7 @@ class PocketMapper:
     def __init__(self):
         self._settings = {}
         self._stage = {"stage": "init"}
-        self.logger = None
+        self._all_df = None
 
     # TODO implement caching option
     def search(
@@ -38,12 +38,14 @@ class PocketMapper:
         settings=None,
         cache_dir=None,
         results_dir=None,
+        help=None,
     ):
         """
         Main orchestration method to run the pocket mapping workflow.
         """
         try:
             # self._read_settings(settings)
+            self._help(help)
             self._setup_logging(debug, verbose)
             self._configure(  # configures the settings which hav already been read
                 settings,
@@ -58,13 +60,13 @@ class PocketMapper:
             self._prepare_directories()
 
             # all_df tracks structures and failures through the workflow
-            all_df = self._prepare_dataframes()
-            all_df = self._fetch_and_verify_structures(all_df)
-            all_df = self._preprocess_structures(all_df)
+            self._prepare_dataframes()
+            self._fetch_and_verify_structures()
+            self._preprocess_structures()
 
             self._run_foldseek()
 
-            pockets = self._calculate_and_retrieve_pockets(all_df)
+            pockets = self._calculate_and_retrieve_pockets()
             self._compare_pockets_and_save(pockets)
 
             logging.info("PocketMapper search completed successfully.", extra={"stage": "End"})
@@ -73,6 +75,11 @@ class PocketMapper:
         except Exception as e:
             logging.exception(str(e), extra=self._stage)
             exit(1)
+
+    def _help(self, help):
+        if help:
+            print("Displaying help!")
+            exit()
 
     def _setup_logging(self, debug, verbose):
         self._stage.update({"stage": "Logging Setup"})
@@ -159,46 +166,48 @@ class PocketMapper:
         self._stage.update({"stage": "Data Preparation"})
         query_df = self._make_tq_df("query", "query_file", type="query")
         target_df = self._make_tq_df("target", "target_file", type="target")
-        return pd.concat([query_df, target_df], ignore_index=True)
+        self._all_df = pd.concat([query_df, target_df], ignore_index=True)
 
-    def _fetch_and_verify_structures(self, df):
+    def _fetch_and_verify_structures(self):
         self._stage.update({"stage": "Fetch Structures"})
         logging.info("Checking for mmCIF structures...", extra=self._stage)
         found_map = lib.get_mmcifs(
-            pdb_list=df["interaction_pdb"].unique(),
+            pdb_list=self._all_df["interaction_pdb"].unique(),
             out_dir=self._settings["structure_dir"],
         )
-        df["structure_found"] = df["interaction_pdb"].map(found_map)
+        self._all_df["structure_found"] = self._all_df["interaction_pdb"].map(found_map)
 
         self._stage.update({"stage": "Verify Structures"})
-        if not df.query("structure_found and type == 'query'").empty:
+        if not self._all_df.query("structure_found and type == 'query'").empty:
             logging.info("Query structures found.", extra=self._stage)
         else:
-            raise FileNotFoundError("No query structures found locally or via download.")
+            logging.critical("No query structures found locally or via download", extra=self._stage)
+            exit(1)
 
-        if not df.query("structure_found and type == 'target'").empty:
+        if not self._all_df.query("structure_found and type == 'target'").empty:
             logging.info("Target structures found.", extra=self._stage)
         else:
-            raise FileNotFoundError("No target structures found locally or via download.")
-        return df
+            logging.critical("No target structures found locally or via download", extra=self._stage)
+            exit(1)
 
-    def _preprocess_structures(self, df):
+    def _preprocess_structures(self):
         self._stage.update({"stage": "Preprocess Structures"})
         logging.info("Dividing mmCIF structures...", extra=self._stage)
         divided_map = lib.pdb_preprocessing_gemmi(
-            df=df.query("structure_found"),
+            df=self._all_df.query("structure_found"),
             ref_dir=self._settings["structure_dir"],
             query_dir=self._settings["query_dir"],
             target_dir=self._settings["target_dir"],
         )
-        df["divided_struct"] = df["pdb_domain_motif"].map(divided_map).fillna(False)
+        self._all_df["divided_struct"] = self._all_df["pdb_domain_motif"].map(divided_map).fillna(False)
 
         self._stage.update({"stage": "Verify Preprocessing"})
-        if df.query("divided_struct and type == 'query'").empty:
-            raise ValueError("Failed to preprocess any query structures.")
-        if df.query("divided_struct and type == 'target'").empty:
-            raise ValueError("Failed to preprocess any target structures.")
-        return df
+        if self._all_df.query("divided_struct and type == 'query'").empty:
+            logging.critical("No query structure could be preprocessed", extra=self._stage)
+            exit(1)
+        if self._all_df.query("divided_struct and type == 'target'").empty:
+            logging.critical("No target structure could be preprocessed", extra=self._stage)
+            exit(1)
 
     def _run_foldseek(self):
         self._stage.update({"stage": "Foldseek Alignment"})
@@ -222,20 +231,20 @@ class PocketMapper:
         ]
         subprocess.run(cmd, check=True)
 
-    def _calculate_and_retrieve_pockets(self, df):
+    def _calculate_and_retrieve_pockets(self):
         self._stage.update({"stage": "Pocket Calculation"})
 
         # WRITING PISA POCKETS
         logging.info("Retrieving PISA pockets...", extra=self._stage)
         downloader = pisa.PisaDownloader()
         downloader.get_interfaces(
-            pdb_list=df.query("divided_struct")["interaction_pdb"].str.lower().unique(),
+            pdb_list=self._all_df.query("divided_struct")["interaction_pdb"].str.lower().unique(),
             summary_dir=os.path.join(self._settings["pisa_dir"], "summaries"),
             asm_dir=os.path.join(self._settings["pisa_dir"], "assemblies"),
             interface_dir=os.path.join(self._settings["pisa_dir"], "interfaces"),
         )
         pisa_pockets = lib.get_pisa_pockets(
-            df=df.query("divided_struct"),
+            df=self._all_df.query("divided_struct"),
             in_dir=os.path.join(self._settings["pisa_dir"], "interfaces"),
             out_dir=self._settings["pocket_dir"],
         )
@@ -299,7 +308,7 @@ class PocketMapper:
 
 
 def main():
-    fire.Fire(PocketMapper)
+    fire.Fire(PocketMapper())
 
 
 if __name__ == "__main__":

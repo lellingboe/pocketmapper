@@ -516,8 +516,6 @@ def compare_pockets(
 ):
     """
     Compare two pockets based on foldseek alignment
-
-    output = [i1, i2, ]
     """
 
     stage = {"stage": "Pocket Comparison"}
