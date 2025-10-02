@@ -69,7 +69,7 @@ class PocketMapper:
             self._fetch_and_verify_structures()
             self._preprocess_structures()
 
-            pockets = self._calculate_and_retrieve_pockets()
+            pockets = self._retrieve_pockets()
             pockets = self._get_atom_coords_from_cif(pockets)
 
             self._run_foldseek()
@@ -102,8 +102,14 @@ class PocketMapper:
         logging.basicConfig(level=log_level, format=fmt, force=True)
 
     def _configure(self, settings_file, uncaught_args, **kwargs):
-        # get all info from settings
         self._stage.update({"stage": "Configuring Settings"})
+
+        # Unrecognised arguments
+        if len(uncaught_args) > 0:
+            logging.critical(f"Unrecognised args: {list(uncaught_args.keys())}", extra=self._stage)
+            exit(1)
+
+        # get all info from settings
         if settings_file:
             try:
                 with open(settings_file) as f:
@@ -251,7 +257,7 @@ class PocketMapper:
         ]
         subprocess.run(cmd, check=True)
 
-    def _calculate_and_retrieve_pockets(self):
+    def _retrieve_pockets(self):
         self._stage.update({"stage": "Pocket Calculation"})
 
         # WRITING PISA POCKETS
