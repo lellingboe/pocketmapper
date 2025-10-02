@@ -3,6 +3,7 @@ import shutil
 import os
 import logging
 from urllib.request import urlcleanup, urlretrieve
+from copy import deepcopy
 
 from Bio.SVDSuperimposer import SVDSuperimposer
 from Bio.PDB import MMCIFParser
@@ -525,13 +526,12 @@ def compare_pockets(
                 }
 
                 # Getting the pockets
-                p1 = pockets_1.get(motif_1)
-                p2 = pockets_2.get(motif_2)
+                p1 = deepcopy(pockets_1.get(motif_1))
+                p2 = deepcopy(pockets_2.get(motif_2))
                 if not p1["pocket_exists"] or not p2["pocket_exists"]:
                     continue
 
                 # Calculated Metrics
-
                 # pocket 1
                 p1_adj = 1 - row[6]
                 p1_fs_len = row[7] - row[6] + 1
@@ -633,16 +633,9 @@ def compare_pockets(
                 output["max_overlap_similarity"] = max(similarity_1_2, similarity_2_1)
 
                 # RMSD dings
-                if True:
-
+                if p1["has_coords"] and p2["has_coords"]:
                     x = array([p1[str(x)]["ca_coords"] for x in p1_overlap_ids])
                     y = array([p2[str(x)]["ca_coords"] for x in p2_overlap_ids])
-
-                    """if len(x) != len(y):
-                        print(f"Length mismatch: {domain_1}_{motif_1}, {domain_2}_{motif_2}")
-                        print(p1_overlap_ids)
-                        print(p2_overlap_ids)
-                        continue"""
 
                     if len(overlapping_residues) > 2:
                         sup.set(x, y)
@@ -662,11 +655,13 @@ def compare_pockets(
                         x_on_y = sup.get_transformed()
                         ca_dists = LA.norm(x_on_y - y, axis=1)
                         output["ca_dists"] = ",".join([str(round(x, 3)) for x in ca_dists])
+
                 output_rows.append(output)
 
         except Exception:
             output_rows.append(output)
             logging.exception(f"{domain_1}_{motif_1}, {domain_2}_{motif_2}", extra={"stage": "Pocket Comparison"})
+            exit(1)
 
     if len(unknown_ids) > 0:
         logging.warning(f"Unknown IDs: {dict(unknown_ids)}", extra=stage)

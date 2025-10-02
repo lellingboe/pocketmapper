@@ -280,16 +280,21 @@ class PocketMapper:
         return pisa_pockets
 
     def _get_atom_coords_from_cif(self, pockets):
+        self._stage.update({"stage": "Getting atom coords"})
         for pocket_id, pocket in pockets.items():
-
-            struct_path = os.path.join(self._settings["divided_struct_dir"], f"{pocket_id[:-2]}.cif.gz")
-            st = gemmi.read_structure(struct_path, format=gemmi.CoorFormat.Mmcif)
-            domain_chain = st[0][pocket_id[5]]
-            pocket_keys = pocket.keys()
-            for res in domain_chain:
-                res_id = str(res.seqid.num)
-                if res_id in pocket_keys:
-                    pockets[pocket_id][res_id]["ca_coords"] = list(res.get_ca().pos)
+            try:
+                struct_path = os.path.join(self._settings["divided_struct_dir"], f"{pocket_id[:-2]}.cif.gz")
+                st = gemmi.read_structure(struct_path, format=gemmi.CoorFormat.Mmcif)
+                domain_chain = st[0][pocket_id[5]]
+                pocket_keys = pocket.keys()
+                for res in domain_chain:
+                    res_id = str(res.seqid.num)
+                    if res_id in pocket_keys:
+                        pockets[pocket_id][res_id]["ca_coords"] = list(res.get_ca().pos)
+                pockets[pocket_id]["has_coords"] = True
+            except Exception:
+                logging.warning(f"Error is getting coords for {pocket_id}", extra=self._stage)
+                pockets[pocket_id]["has_coords"] = False
 
         with open(os.path.join(self._settings["pisa_dir"], "all_pockets_2.json"), "w") as f:
             json.dump(pockets, f)
