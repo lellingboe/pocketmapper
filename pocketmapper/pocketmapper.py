@@ -67,7 +67,7 @@ class PocketMapper:
             # Preparing structures for later
             self._prepare_dataframes()
             self._fetch_and_verify_structures()
-            self._preprocess_structures()
+            self._divide_structures()
 
             pockets = self._retrieve_pockets()
             pockets = self._get_atom_coords_from_cif(pockets)
@@ -152,7 +152,7 @@ class PocketMapper:
             if key not in self._settings:
                 self._settings[key] = value
 
-        logging.info(f"\n{self._settings}", extra=self._stage)
+        logging.debug(f"\n{self._settings}", extra=self._stage)
 
     def _validate_inputs(self):
         # Checking a target and query is specified
@@ -215,7 +215,7 @@ class PocketMapper:
             logging.critical("No target structures found locally or via download", extra=self._stage)
             exit(1)
 
-    def _preprocess_structures(self):
+    def _divide_structures(self):
         self._stage.update({"stage": "Preprocess Structures"})
         logging.info("Dividing mmCIF structures...", extra=self._stage)
         divided_map = lib.pdb_preprocessing_gemmi(

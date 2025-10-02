@@ -6,21 +6,34 @@ from time import sleep
 from tqdm import tqdm
 import json
 from collections import defaultdict
+from glob import glob
 
 
 class PisaDownloader:
     def __init__(self):
+        self.logger = logging.getLogger(__name__)
         self._stage = {}
 
     def get_interfaces(self, pdb_list, summary_dir, asm_dir, interface_dir):
         for dir in [summary_dir, asm_dir, interface_dir]:
             os.makedirs(dir, exist_ok=True)
-        found_pdbs = self.get_summaries(pdb_list, summary_dir)
-        assembly_dict = self.parse_summaries(
-            found_pdbs, summary_dir
-        )  # Dictionary with pdb_code as key and list of assemblies as value
-        self.get_assemblies(assembly_dict, asm_dir)
-        self.parse_assemblies(assembly_dict, asm_dir, interface_dir)
+
+        existing_files = glob(r"*.json", root_dir=interface_dir)
+        missing_pdbs = [x for x in pdb_list if f"{x.lower()}.json" not in existing_files]
+
+        self._stage = {"stage": "Checking cache for interfaces"}
+        if len(missing_pdbs) > 0:
+            local_count = len(pdb_list) - len(missing_pdbs)
+            logging.info(f"{local_count}/{len(pdb_list)} interfaces found locally", extra=self._stage)
+
+            found_pdbs = self.get_summaries(missing_pdbs, summary_dir)
+            assembly_dict = self.parse_summaries(
+                found_pdbs, summary_dir
+            )  # Dictionary with pdb_code as key and list of assemblies as value
+            self.get_assemblies(assembly_dict, asm_dir)
+            self.parse_assemblies(assembly_dict, asm_dir, interface_dir)
+        else:
+            self.logger.info("All interfaces found locally", extra=self._stage)
 
     def get_summaries(self, pdb_codes, summary_dir):
         self._stage = {"stage": "Downloading PISA summaries"}

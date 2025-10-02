@@ -77,7 +77,7 @@ def get_mmcif(pdb_code, out_dir, cache):
 
 
 def get_mmcifs(pdb_list, out_dir):
-    cache = glob(os.path.join(out_dir, "*.cif"))
+    cache = glob(os.path.join(out_dir, "*.cif.gz"))
     with ThreadPoolExecutor(max_workers=100) as e:
         result = e.map(
             get_mmcif,
@@ -106,7 +106,7 @@ def pdb_preprocessing_gemmi(df, ref_dir, cache_dir, target_dir, query_dir):
             cache_motif_path_gz = cache_motif_path + ".gz"
 
             # Ensuring divided structure is in the cache directory
-            if not os.path.exists(cache_domain_path):
+            if not os.path.exists(cache_domain_path_gz):
                 ref_path = os.path.join(ref_dir, f"{row.interaction_pdb}.cif.gz")
                 st = gemmi.read_structure(ref_path, format=gemmi.CoorFormat.Mmcif)
 
@@ -126,8 +126,6 @@ def pdb_preprocessing_gemmi(df, ref_dir, cache_dir, target_dir, query_dir):
                     )
                     status_dict[f"{row.pdb_domain_motif}"] = False
                     continue
-                else:
-                    status_dict[f"{row.pdb_domain_motif}"] = True
 
                 # Detaching all non interaction chains
                 for chain_id in model_chains:
@@ -150,20 +148,22 @@ def pdb_preprocessing_gemmi(df, ref_dir, cache_dir, target_dir, query_dir):
                         shutil.copyfileobj(f_in, f_out)
                 os.remove(cache_domain_path)
 
+                status_dict[f"{row.pdb_domain_motif}"] = True
+
             # Copying divides structures into forders for foldseek
             if row.type == "query":
                 out_dir = query_dir
             elif row.type == "target":
                 out_dir = target_dir
             else:
-                logging.warning(f"row with {row.interaction_pdb} is neither tyed target or query", extra=stage)
+                logging.warning(f"row with {row.interaction_pdb} is neither target nor query", extra=stage)
                 continue
 
             domain_out = os.path.join(out_dir, f"{row.pdb_domain}.cif.gz")
             motif_out = os.path.join(out_dir, f"{row.pdb_domain_motif}.cif.gz")
-
             shutil.copyfile(cache_domain_path_gz, domain_out)
             shutil.copyfile(cache_motif_path_gz, motif_out)
+            status_dict[f"{row.pdb_domain_motif}"] = True
 
         except Exception as e:
             logging.warning(f"Could not divide {row.interaction_pdb}", extra=stage)
