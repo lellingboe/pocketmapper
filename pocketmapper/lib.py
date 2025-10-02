@@ -1,10 +1,11 @@
 import gzip
+import shutil
 import os
 import logging
 from urllib.request import urlcleanup, urlretrieve
 
-# from Bio.SVDSuperimposer import SVDSuperimposer
-from Bio.PDB import MMCIFParser, MMCIFIO
+from Bio.SVDSuperimposer import SVDSuperimposer
+from Bio.PDB import MMCIFParser
 from glob import glob
 from concurrent.futures import ThreadPoolExecutor
 from itertools import repeat, product, count
@@ -14,6 +15,8 @@ from collections import defaultdict
 import pandas as pd
 import gemmi
 import pisa
+from numpy import array
+from numpy import linalg as LA
 
 # TODO keep phospho information
 SINGLE_AA_CODE = {
@@ -55,7 +58,7 @@ def get_mmcif(pdb_code, out_dir, cache):
     if not (out_fname in cache):
 
         url = f"https://files.wwpdb.org/pub/pdb/data/structures/divided/mmCIF/{pdb_code[1:3]}/{pdb_code}.cif.gz"
-        gz_fname = os.path.join(out_dir, f"{pdb_code}.temp.gz")
+        gz_fname = os.path.join(out_dir, f"{pdb_code}.cif.gz")
         try:
             urlcleanup()
             urlretrieve(url, gz_fname)
@@ -65,11 +68,11 @@ def get_mmcif(pdb_code, out_dir, cache):
         except Exception:
             logging.warning(f"Atypical issue when downloading {pdb_code}", extra=stage)
             return (pdb_code, False)
-        else:
-            with gzip.open(gz_fname, "rb") as gz:
-                with open(out_fname, "wb") as out:
-                    out.writelines(gz)
-            os.remove(gz_fname)
+        # else:
+        #    with gzip.open(gz_fname, "rb") as gz:
+        #        with open(out_fname, "wb") as out:
+        #            out.writelines(gz)
+        #    os.remove(gz_fname)
     return (pdb_code, True)
 
 
@@ -85,8 +88,7 @@ def get_mmcifs(pdb_list, out_dir):
     return {x.upper(): y for x, y in result}
 
 
-# TODO thread pool executor version
-def pdb_preprocessing(df, ref_dir, target_dir, query_dir):
+def pdb_preprocessing_gemmi(df, ref_dir, cache_dir, target_dir, query_dir):
     """
     queries: a lit of tuple of the form (pdb_id, domain_chains, motif_chains)
         all tuple elements are strings
@@ -94,108 +96,18 @@ def pdb_preprocessing(df, ref_dir, target_dir, query_dir):
     writes out .pdb files to self.pdb_directory
     """
     status_dict = {}
-    stage = {"stage": "Diviving structures"}
-    parser = MMCIFParser(QUIET=True)
-    io = MMCIFIO()
-
-    target_cache = glob(os.path.join(target_dir, "*.cif"))
-    query_cache = glob(os.path.join(query_dir, "*.cif"))
+    stage = {"stage": "Dividing structures"}
 
     for i, row in tqdm(df.iterrows()):
         try:
-            if row.type == "query":
-                out_dir = query_dir
-                cache = query_cache
-            elif row.type == "target":
-                out_dir = target_dir
-                cache = target_cache
-            else:
-                raise Exception
+            cache_domain_path = os.path.join(cache_dir, f"{row.pdb_domain}.cif")
+            cache_domain_path_gz = cache_domain_path + ".gz"
+            cache_motif_path = os.path.join(cache_dir, f"{row.pdb_domain_motif}.cif")
+            cache_motif_path_gz = cache_motif_path + ".gz"
 
-            ref_path = os.path.join(ref_dir, f"{row.interaction_pdb}.cif")
-            domain_out = os.path.join(out_dir, f"{row.pdb_domain}.cif")
-            motif_out = os.path.join(out_dir, f"{row.pdb_domain_motif}.cif")
-
-            interaction_chains = list(row.domain_chain + row.motif_chain)
-
-            if (motif_out in cache) and (domain_out in cache):
-                status_dict[f"{row.pdb_domain_motif}"] = True
-            else:
-                structure = parser.get_structure(row.interaction_pdb, ref_path)
-
-                # Taking first model and detaching the rest
-                model_gen = structure.get_models()
-                model = next(model_gen)
-                for dup_model in list(model_gen):
-                    structure.detach_child(dup_model.id)
-
-                # verify structure contains all interaction chains
-                model_chains = {x.id for x in model.get_chains()}
-                if not set(interaction_chains).issubset(model_chains):
-                    msg = f"Preprocessing: {row.interaction_pdb}"
-                    "does not contain all interaction chains {interaction_chains}"
-                    logging.warning(
-                        msg,
-                        extra=stage,
-                    )
-                    status_dict[f"{row.pdb_domain_motif}"] = False
-                    continue
-                else:
-                    status_dict[f"{row.pdb_domain_motif}"] = True
-
-                # Detaching all non interaction chains
-                for chain in list(model.get_chains()):
-                    if chain.id not in interaction_chains:
-                        model.detach_child(chain.id)
-
-                # Output the domain and motif pdb file
-                io.set_structure(structure)
-                io.save(motif_out)
-
-                # output the domain pdb file
-                model.detach_child(row.motif_chain)
-                io.set_structure(structure)
-                io.save(domain_out)
-        except Exception:
-            logging.warning(f"Could not divide {row.interaction_pdb}", extra=stage)
-            status_dict[f"{row.pdb_domain_motif}"] = False
-
-    return status_dict
-
-
-def pdb_preprocessing_gemmi(df, ref_dir, target_dir, query_dir):
-    """
-    queries: a lit of tuple of the form (pdb_id, domain_chains, motif_chains)
-        all tuple elements are strings
-
-    writes out .pdb files to self.pdb_directory
-    """
-    status_dict = {}
-    stage = {"stage": "Diviving structures"}
-
-    target_cache = glob(os.path.join(target_dir, "*.cif"))
-    query_cache = glob(os.path.join(query_dir, "*.cif"))
-
-    for i, row in tqdm(df.iterrows()):
-        try:
-            if row.type == "query":
-                out_dir = query_dir
-                cache = query_cache
-            elif row.type == "target":
-                out_dir = target_dir
-                cache = target_cache
-            else:
-                raise Exception
-
-            ref_path = os.path.join(ref_dir, f"{row.interaction_pdb}.cif")
-            domain_out = os.path.join(out_dir, f"{row.pdb_domain}.cif")
-            motif_out = os.path.join(out_dir, f"{row.pdb_domain_motif}.cif")
-
-            interaction_chains = list(row.domain_chain + row.motif_chain)
-
-            if (motif_out in cache) and (domain_out in cache):
-                status_dict[f"{row.pdb_domain_motif}"] = True
-            else:
+            # Ensuring divided structure is in the cache directory
+            if not os.path.exists(cache_domain_path):
+                ref_path = os.path.join(ref_dir, f"{row.interaction_pdb}.cif.gz")
                 st = gemmi.read_structure(ref_path, format=gemmi.CoorFormat.Mmcif)
 
                 # Taking first model and deleting the rest
@@ -203,6 +115,7 @@ def pdb_preprocessing_gemmi(df, ref_dir, target_dir, query_dir):
                 model = st[0]
 
                 # verify structure contains all interaction chains
+                interaction_chains = list(row.domain_chain + row.motif_chain)
                 model_chains = set([chain.name for chain in model])
                 if not set(interaction_chains).issubset(model_chains):
                     msg = f"Preprocessing: {row.interaction_pdb}"
@@ -223,13 +136,38 @@ def pdb_preprocessing_gemmi(df, ref_dir, target_dir, query_dir):
 
                 # Output the domain and motif pdb file
                 groups = gemmi.MmcifOutputGroups(False, atoms=True, group_pdb=True)
-                st.make_mmcif_document(groups).write_file(motif_out)
+                st.make_mmcif_document(groups).write_file(cache_motif_path)
+                with open(cache_motif_path, "rb") as f_in:
+                    with gzip.open(cache_motif_path_gz, "wb") as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                os.remove(cache_motif_path)
 
                 # output the domain pdb file
                 del model[row.motif_chain]
-                st.make_mmcif_document(groups).write_file(domain_out)
-        except Exception:
+                st.make_mmcif_document(groups).write_file(cache_domain_path)
+                with open(cache_domain_path, "rb") as f_in:
+                    with gzip.open(cache_domain_path_gz, "wb") as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                os.remove(cache_domain_path)
+
+            # Copying divides structures into forders for foldseek
+            if row.type == "query":
+                out_dir = query_dir
+            elif row.type == "target":
+                out_dir = target_dir
+            else:
+                logging.warning(f"row with {row.interaction_pdb} is neither tyed target or query", extra=stage)
+                continue
+
+            domain_out = os.path.join(out_dir, f"{row.pdb_domain}.cif.gz")
+            motif_out = os.path.join(out_dir, f"{row.pdb_domain_motif}.cif.gz")
+
+            shutil.copyfile(cache_domain_path_gz, domain_out)
+            shutil.copyfile(cache_motif_path_gz, motif_out)
+
+        except Exception as e:
             logging.warning(f"Could not divide {row.interaction_pdb}", extra=stage)
+            logging.debug("Exception info", exc_info=e, extra="stage")
             status_dict[f"{row.pdb_domain_motif}"] = False
 
     return status_dict
@@ -356,20 +294,6 @@ def get_pisa_pockets(df, in_dir, out_dir):
                     pocket["id_pos_codes_match"] = False
 
                 pocket[res_auth_id] = res_dict
-
-        if False:
-
-            # Mapping residue ids to sequence position
-            pocket["res_pos_to_aa"] = {str(k): v for k, v in zip(count(0), pocket_mol["residue_label_comp_ids"])}
-            pocket["res_id_to_aa"] = dict(zip(pocket_mol["residue_seq_ids"], pocket_mol["residue_label_comp_ids"]))
-
-            # Mapping from ID to position
-            pocket["pocket_res_pos"] = [pocket["res_id_to_pos"][x] for x in pocket["pocket_res_ids"]]
-
-            # pocket sequence
-            pocket["aa_seq_id"] = [pocket["res_id_to_aa"][x] for x in pocket["pocket_res_ids"]]
-            pocket["aa_seq_pos"] = [pocket["res_pos_to_aa"][x] for x in pocket["pocket_res_pos"]]
-            pocket["seq_matches"] = pocket["aa_seq_id"] == pocket["aa_seq_pos"]
 
         pocket["res_auth_ids"] = sorted(list(pocket["res_auth_ids"]))
         if len(pocket["res_auth_ids"]) > 0:
@@ -531,7 +455,7 @@ def compare_pockets(
     # Setting up vars for use later
     existing_calcs = set()
     output_rows = []
-    # sup = SVDSuperimposer()
+    sup = SVDSuperimposer()
 
     # TODO divide this into common things for each pocket and a cross-comparison
     for row in tqdm(alignment_df.itertuples(index=False)):
@@ -708,12 +632,17 @@ def compare_pockets(
                 output["min_overlap_similarity"] = min(similarity_1_2, similarity_2_1)
                 output["max_overlap_similarity"] = max(similarity_1_2, similarity_2_1)
 
-                # Turning this off while I work on PISA pockets
+                # RMSD dings
+                if True:
 
-                """
-                if False:
-                    x = np.array([p1["res_pos_coords"][str(x)] for x in p1_overlap_pos])
-                    y = np.array([p2["res_pos_coords"][str(x)] for x in p2_overlap_pos])
+                    x = array([p1[str(x)]["ca_coords"] for x in p1_overlap_ids])
+                    y = array([p2[str(x)]["ca_coords"] for x in p2_overlap_ids])
+
+                    """if len(x) != len(y):
+                        print(f"Length mismatch: {domain_1}_{motif_1}, {domain_2}_{motif_2}")
+                        print(p1_overlap_ids)
+                        print(p2_overlap_ids)
+                        continue"""
 
                     if len(overlapping_residues) > 2:
                         sup.set(x, y)
@@ -721,51 +650,20 @@ def compare_pockets(
                         u, t = sup.get_rotran()
                         output["p2_to_p1_u"] = u.flatten().tolist()
                         output["p2_to_p1_t"] = t.tolist()
+
+                        # TODO do this with matrix algebra isntead of doing it twice
                         sup.set(y, x)
                         sup.run()
                         u, t = sup.get_rotran()
                         output["p1_to_p2_u"] = u.flatten().tolist()
                         output["p1_to_p2_t"] = t.tolist()
                         output["rmsd"] = sup.get_rms()
-                        output["rmsd_score"] = -np.log2(sup.get_rms()) + 1
-                """
+
+                        x_on_y = sup.get_transformed()
+                        ca_dists = LA.norm(x_on_y - y, axis=1)
+                        output["ca_dists"] = ",".join([str(round(x, 3)) for x in ca_dists])
                 output_rows.append(output)
 
-                # Sidechain interactor conservation p1
-                """
-                p1_sidechain_pos = [x for x in overlapping_residues if p1_aln_pos[x]]
-                p1_seq_p1_sc_contact = "".join([row[12][x] for x in p1_sidechain_pos])
-                p2_seq_p1_sc_contact = "".join([row[13][x] for x in p1_sidechain_pos])
-                output["p1_seq_p1_sc_contact"] = p1_seq_p1_sc_contact
-                output["p2_seq_p1_sc_contact"] = p2_seq_p1_sc_contact
-                p1_sc_contact_count = len(p1_sidechain_pos)
-                output["p1_sc_contact_count"] = p1_sc_contact_count
-                if p1_sc_contact_count > 0:
-                    p1_sc_similarity = full_similarity(
-                        p1_seq_p1_sc_contact,
-                        p2_seq_p1_sc_contact,
-                        blosum_similarity_matrix,
-                    )
-                    output["p1_sc_similarity"] = p1_sc_similarity
-
-                # Sidechain interactor conservation p2
-                p2_sidechain_pos = [x for x in overlapping_residues if p2_aln_pos[x]]
-                p1_seq_p2_sc_contact = "".join([row[12][x] for x in p2_sidechain_pos])
-                p2_seq_p2_sc_contact = "".join([row[13][x] for x in p2_sidechain_pos])
-                output["p1_seq_p2_sc_contact"] = p1_seq_p2_sc_contact
-                output["p2_seq_p2_sc_contact"] = p2_seq_p2_sc_contact
-                p2_sc_contact_count = len(p2_sidechain_pos)
-                output["p2_sc_binder_count"] = p2_sc_contact_count
-                if p2_sc_contact_count > 0:
-                    p2_sc_similarity = full_similarity(
-                        p2_seq_p2_sc_contact,
-                        p1_seq_p2_sc_contact,
-                        blosum_similarity_matrix,
-                    )
-                    output["p2_sc_similarity"] = p2_sc_similarity
-
-                output["min_sc_similarity"] = min(p1_sc_similarity, p2_sc_similarity)
-                """
         except Exception:
             output_rows.append(output)
             logging.exception(f"{domain_1}_{motif_1}, {domain_2}_{motif_2}", extra={"stage": "Pocket Comparison"})

@@ -18,6 +18,8 @@ import os
 import re
 from datetime import datetime
 import pisa
+import shutil
+import gemmi
 
 
 class PocketMapper:
@@ -29,45 +31,51 @@ class PocketMapper:
     # TODO implement caching option
     def search(
         self,
-        query=None,
+        query=None,  # settings passed to configure
         target=None,
         query_file=None,
         target_file=None,
-        verbose=False,
-        debug=False,
         settings=None,
         cache_dir=None,
         results_dir=None,
-        help=None,
+        verbose=False,  # settings passed to logging
+        debug=False,
+        help=None,  # help option
+        **kwargs,
     ):
         """
         Main orchestration method to run the pocket mapping workflow.
         """
+
         try:
-            # self._read_settings(settings)
+            # Setting up things
             self._help(help)
             self._setup_logging(debug, verbose)
-            self._configure(  # configures the settings which hav already been read
-                settings,
+            self._configure(  # configures the settings which have already been read
+                settings_file=settings,
                 cache_dir=cache_dir,
                 results_dir=results_dir,
                 query=query,
                 target=target,
                 query_file=query_file,
                 target_file=target_file,
+                uncaught_args=kwargs,
             )
             self._validate_inputs()
             self._prepare_directories()
 
-            # all_df tracks structures and failures through the workflow
+            # Preparing structures for later
             self._prepare_dataframes()
             self._fetch_and_verify_structures()
             self._preprocess_structures()
 
+            pockets = self._calculate_and_retrieve_pockets()
+            pockets = self._get_atom_coords_from_cif(pockets)
+
             self._run_foldseek()
 
-            pockets = self._calculate_and_retrieve_pockets()
             self._compare_pockets_and_save(pockets)
+            self._delete_tmp()
 
             logging.info("PocketMapper search completed successfully.", extra={"stage": "End"})
 
@@ -93,59 +101,62 @@ class PocketMapper:
         fmt = "%(levelname)s: %(stage)s - %(msg)s"
         logging.basicConfig(level=log_level, format=fmt, force=True)
 
-    def _configure(self, settings_file, cache_dir, results_dir, **kwargs):
-        # Defult settings
-        if cache_dir is None:
-            cache_dir = "pocketmapper_cache"
-        if results_dir is None:
-            now = datetime.now().strftime("%y%m%d_%H%M%S")
-            results_dir = f"pocketmapper_results_{now}"
-        self._settings.update(
-            {
-                "structure_dir": os.path.join(cache_dir, "pdb_structures"),
-                "pocket_dir": os.path.join(cache_dir, "pockets"),
-                "foldseek_tmp_dir": os.path.join(cache_dir, "foldseek_tmp"),
-                "pisa_dir": os.path.join(cache_dir, "pisa_pockets"),
-                "query_dir": os.path.join(results_dir, "query_structures"),
-                "target_dir": os.path.join(results_dir, "target_structures"),
-                "foldseek_path": os.path.join(results_dir, "foldseek_results.tsv"),
-                "pocket_comparison_path": os.path.join(results_dir, "pocket_comparison.tsv"),
-                "foldseek": True,
-                "pisa_pockets": True,
-                "structure": False,
-            }
-        )
-
-        # Override defaults with settings file if provided
-        self._stage.update({"stage": "Configuration"})
+    def _configure(self, settings_file, uncaught_args, **kwargs):
+        # get all info from settings
+        self._stage.update({"stage": "Configuring Settings"})
         if settings_file:
-            self._read_settings(settings_file)
+            try:
+                with open(settings_file) as f:
+                    job_data = json.load(f)
+            except FileNotFoundError:
+                logging.critical("No settings file found at specified location", extra=self._stage)
+                exit(1)
+            except Exception:
+                logging.exception("Unexpected error reading settings file", extra=self._stage)
+                exit(1)
+            finally:
+                self._settings.update(job_data)
 
-        # Override settings with any provided command-line arguments
+        # Override settings_file with any provided command-line arguments
         for key, value in kwargs.items():
             if value is not None:
                 self._settings[key] = value
 
-    def _read_settings(self, settings):
-        try:
-            with open(settings) as f:
-                job_data = json.load(f)
-        except FileNotFoundError:
-            logging.critical("No settings file found at specified location", extra=self._stage)
-            exit()
-        except Exception:
-            logging.exception("Error reading settings file", extra=self._stage)
-            exit()
-        self._settings.update(job_data)
-        logging.info(job_data, extra=self._stage)
+        # Defult settings
+        cache_dir = self._settings.get("cache_dir", "pocketmapper_cache")
+        now = datetime.now().strftime("%y%m%d_%H%M%S")
+        results_dir = self._settings.get("results_dir", f"pocketmapper_results_{now}")
+        defaults = {
+            "cache_dir": cache_dir,
+            "structure_dir": os.path.join(cache_dir, "pdb_structures"),
+            "pocket_dir": os.path.join(cache_dir, "pockets"),
+            "foldseek_tmp_dir": os.path.join(cache_dir, "foldseek_tmp"),
+            "pisa_dir": os.path.join(cache_dir, "pisa_pockets"),
+            "divided_struct_dir": os.path.join(cache_dir, "divided_structs"),
+            "results_dir": results_dir,
+            "query_dir": os.path.join(results_dir, "query_structures"),
+            "target_dir": os.path.join(results_dir, "target_structures"),
+            "foldseek_path": os.path.join(results_dir, "foldseek_results.tsv"),
+            "pocket_comparison_path": os.path.join(results_dir, "pocket_comparison.tsv"),
+            "foldseek": True,
+            "pisa_pockets": True,
+            "structure": False,
+        }
+        for key, value in defaults.items():
+            if key not in self._settings:
+                self._settings[key] = value
+
+        logging.info(f"\n{self._settings}", extra=self._stage)
 
     def _validate_inputs(self):
+        # Checking a target and query is specified
         self._stage.update({"stage": "Input Validation"})
         if not self._settings.get("query") and not self._settings.get("query_file"):
             raise ValueError("No query specified. Use --query or --query_file.")
         if not self._settings.get("target") and not self._settings.get("target_file"):
             raise ValueError("No target specified. Use --target or --target_file.")
 
+        # Checking single pdb inputs
         input_re = re.compile(r"[A-Za-z0-9]{4}_[A-Za-z0-9]_[A-Za-z0-9]")
         for key in ["query", "target"]:
             value = self._settings.get(key)
@@ -154,7 +165,15 @@ class PocketMapper:
 
     def _prepare_directories(self):
         self._stage.update({"stage": "Directory Preparation"})
-        dirs_to_create = ["structure_dir", "query_dir", "target_dir", "pocket_dir", "pisa_dir"]
+        dirs_to_create = [
+            "structure_dir",
+            "query_dir",
+            "target_dir",
+            "pocket_dir",
+            "pisa_dir",
+            "divided_struct_dir",
+            "results_dir",
+        ]
         for dir_key in dirs_to_create:
             path = self._settings[dir_key]
             try:
@@ -196,6 +215,7 @@ class PocketMapper:
         divided_map = lib.pdb_preprocessing_gemmi(
             df=self._all_df.query("structure_found"),
             ref_dir=self._settings["structure_dir"],
+            cache_dir=self._settings["divided_struct_dir"],
             query_dir=self._settings["query_dir"],
             target_dir=self._settings["target_dir"],
         )
@@ -226,7 +246,7 @@ class PocketMapper:
             "-e",
             "0.001",
             "--file-include",
-            r"[0-9A-Z]{4}_[0-9A-Za-z]\.cif",
+            r"[0-9A-Z]{4}_[0-9A-Za-z]\.cif\.gz",
             "--exhaustive-search",
         ]
         subprocess.run(cmd, check=True)
@@ -248,23 +268,26 @@ class PocketMapper:
             in_dir=os.path.join(self._settings["pisa_dir"], "interfaces"),
             out_dir=self._settings["pocket_dir"],
         )
-        with open(os.path.join(self._settings["pisa_dir"], "all_pockets.json"), "w") as f:
+        with open(os.path.join(self._settings["pisa_dir"], "all_pockets_1.json"), "w") as f:
             json.dump(pisa_pockets, f)
 
-        # WRITING LOCAL POCKETS
-        # logging.info("Calculating/retrieving local pockets...", extra=self._stage)
-        # pockets, problem_atoms, problem_residues = lib.calculate_pockets(
-        #    df=df.query("divided_struct"),
-        #    target_dir=self._settings["target_dir"],
-        #    query_dir=self._settings["query_dir"],
-        #    pocket_dir=self._settings["pocket_dir"],
-        # )
-
-        # if problem_atoms:
-        #    logging.warning(f"Atoms with no VdW radii: {problem_atoms}")
-        # if problem_residues:
-        #    logging.warning(f"Residues with no single AA code: {problem_residues}")
         return pisa_pockets
+
+    def _get_atom_coords_from_cif(self, pockets):
+        for pocket_id, pocket in pockets.items():
+
+            struct_path = os.path.join(self._settings["divided_struct_dir"], f"{pocket_id[:-2]}.cif.gz")
+            st = gemmi.read_structure(struct_path, format=gemmi.CoorFormat.Mmcif)
+            domain_chain = st[0][pocket_id[5]]
+            pocket_keys = pocket.keys()
+            for res in domain_chain:
+                res_id = str(res.seqid.num)
+                if res_id in pocket_keys:
+                    pockets[pocket_id][res_id]["ca_coords"] = list(res.get_ca().pos)
+
+        with open(os.path.join(self._settings["pisa_dir"], "all_pockets_2.json"), "w") as f:
+            json.dump(pockets, f)
+        return pockets
 
     def _compare_pockets_and_save(self, pockets):
         self._stage.update({"stage": "Pocket Comparison"})
@@ -305,6 +328,15 @@ class PocketMapper:
         for k, v in kwargs.items():
             df[k] = v
         return df
+
+    def _delete_tmp(self):
+        tmp_dirs = [
+            "foldseek_tmp_dir",
+            "query_dir",
+            "target_dir",
+        ]
+        for dir in tmp_dirs:
+            shutil.rmtree(self._settings[dir])
 
 
 def main():
