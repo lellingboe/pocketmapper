@@ -9,7 +9,7 @@ from Bio.SVDSuperimposer import SVDSuperimposer
 from Bio.PDB import MMCIFParser
 from glob import glob
 from concurrent.futures import ThreadPoolExecutor
-from itertools import repeat, product, count
+from itertools import repeat, product
 from tqdm import tqdm
 import json
 from collections import defaultdict
@@ -44,6 +44,7 @@ SINGLE_AA_CODE = {
     "SEP": "S",  # phospho
     "TPO": "T",  # phospho
     "PTR": "Y",  # phospho
+    "MSE": "M",  # selenomethionine
 }
 TRIPLE_AA_CODE = defaultdict(list)
 for k, v in SINGLE_AA_CODE.items():
@@ -55,14 +56,12 @@ VDW_RADII = {"C": 1.88, "N": 1.64, "O": 1.46, "S": 1.77, "P": 1.87, "H": 1.0}
 def get_mmcif(pdb_code, out_dir, cache):
     stage = {"stage": "Downloading PDB File"}
     pdb_code = pdb_code.lower()
-    out_fname = os.path.join(out_dir, f"{pdb_code}.cif")
+    out_fname = os.path.join(out_dir, f"{pdb_code}.cif.gz")
     if not (out_fname in cache):
-
         url = f"https://files.wwpdb.org/pub/pdb/data/structures/divided/mmCIF/{pdb_code[1:3]}/{pdb_code}.cif.gz"
-        gz_fname = os.path.join(out_dir, f"{pdb_code}.cif.gz")
         try:
             urlcleanup()
-            urlretrieve(url, gz_fname)
+            urlretrieve(url, out_fname)
         except OSError:
             logging.warning(f"get_mmcif: Could not download {pdb_code}", extra=stage)
             return (pdb_code, False)
@@ -262,7 +261,6 @@ def get_pisa_pockets(df, in_dir, out_dir):
         for mol in pisa_data["molecules"]:
             if mol["chain_id"] == row.domain_chain:
                 pocket_mol_id = mol["molecule_id"]
-                pocket_mol = mol
                 break
         if pocket_mol_id is None:
             logging.warning(f"Could not find domain chain in {pdb_id} interface {interface_chains}", extra=stage)
@@ -274,9 +272,6 @@ def get_pisa_pockets(df, in_dir, out_dir):
             "id_pos_codes_match": True,
         }
 
-        #####
-        res_id_to_pos = {k: str(v) for k, v in zip(pocket_mol["residue_seq_ids"], count(0))}
-
         # Getting the pocket residues
         for bond_type in bond_types:
             bonds_dict = pisa_data[bond_type]
@@ -286,22 +281,16 @@ def get_pisa_pockets(df, in_dir, out_dir):
                 if res_auth_id not in pocket:  # initializing dict
                     pocket[res_auth_id] = {}
                 res_dict = {}
-                res_dict["seq_pos"] = res_id_to_pos[res_auth_id]
                 res_dict["res_code"] = bonds_dict[f"atom_site_{pocket_mol_id}_residues"][i]
                 res_dict["res_code_single"] = SINGLE_AA_CODE.get(res_dict["res_code"], "X")
                 res_dict["uniprot_pos"] = bonds_dict[f"atom_site_{pocket_mol_id}_unp_nums"][i]
-                res_dict["res_code_from_pos"] = pocket_mol["residue_label_comp_ids"][int(res_dict["seq_pos"])]
-                if not res_dict["res_code"] == res_dict["res_code_from_pos"]:
-                    pocket["id_pos_codes_match"] = False
 
                 pocket[res_auth_id] = res_dict
 
-        pocket["res_auth_ids"] = sorted(list(pocket["res_auth_ids"]))
+        sorted_res_auth_ids = [str(x) for x in sorted([int(x) for x in pocket["res_auth_ids"]])]
+        pocket["res_auth_ids"] = sorted_res_auth_ids
         if len(pocket["res_auth_ids"]) > 0:
             pocket["pocket_exists"] = True
-
-        if not pocket["id_pos_codes_match"]:
-            logging.warning(f"Mismatch between residue ids and positions in {row.pdb_domain_motif}", extra=stage)
 
         # Making JSON serializable
         pocket = jsonify_dict(pocket)
@@ -446,7 +435,7 @@ def compare_pockets(
     stage = {"stage": "Pocket Comparison"}
     blosum_similarity_matrix = read_blast_similarity_matrix(blosum_path)
 
-    unknown_ids = defaultdict(set)
+    unknown_ids = defaultdict(lambda: defaultdict(set))
 
     # {pdb_domain_motif: info} -> {pdb_domain: {motif1: info, motif2:info}}
     domain_pocket_dict = defaultdict(dict)
@@ -550,7 +539,9 @@ def compare_pockets(
 
                         # Checking fs single res code and pocektmapper single res codes match
                         if p1[res]["fs_res_code"] != p1[res]["res_code_single"]:
-                            unknown_ids[p1[res]["fs_res_code"]].add(p1[res]["res_code"])
+                            unknown_ids[p1[res]["fs_res_code"]][p1[res]["res_code"]].add(
+                                ",".join([interaction_2, interaction_1, res])
+                            )
 
                 output["pocket_1_res_ids"] = ",".join(p1["res_auth_ids"])
                 output["pocket_1_len"] = len(p1["res_auth_ids"])
@@ -575,7 +566,8 @@ def compare_pockets(
 
                         # Checking fs single res code and pocektmapper single res codes match
                         if p2[res]["fs_res_code"] != p2[res]["res_code_single"]:
-                            unknown_ids[p2[res]["fs_res_code"]].add(p2[res]["res_code"])
+                            debug_id = ",".join([interaction_1, interaction_2, res])
+                            unknown_ids[p2[res]["fs_res_code"]][p2[res]["res_code"]].add(debug_id)
 
                 output["pocket_2_res_ids"] = ",".join(p2["res_auth_ids"])
                 output["pocket_2_len"] = len(p2["res_auth_ids"])
@@ -660,13 +652,13 @@ def compare_pockets(
 
         except Exception:
             output_rows.append(output)
-            logging.exception(f"{domain_1}_{motif_1}, {domain_2}_{motif_2}", extra={"stage": "Pocket Comparison"})
+            logging.exception(
+                f"Uncontrolled error calculating {domain_1}_{motif_1} and {domain_2}_{motif_2}",
+                extra={"stage": "Pocket Comparison"},
+            )
             exit(1)
 
-    if len(unknown_ids) > 0:
-        logging.warning(f"Unknown IDs: {dict(unknown_ids)}", extra=stage)
-
-    return pd.DataFrame.from_dict(output_rows)
+    return pd.DataFrame.from_dict(output_rows), unknown_ids
 
 
 def binary_similarity(seqA, seqB, similarity_matrix):

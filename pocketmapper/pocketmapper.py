@@ -235,28 +235,6 @@ class PocketMapper:
             logging.critical("No target structure could be preprocessed", extra=self._stage)
             exit(1)
 
-    def _run_foldseek(self):
-        self._stage.update({"stage": "Foldseek Alignment"})
-        logging.info("Running Foldseek easy-search...", extra=self._stage)
-        cmd = [
-            "foldseek",
-            "easy-search",
-            self._settings["query_dir"],
-            self._settings["target_dir"],
-            self._settings["foldseek_path"],
-            self._settings["foldseek_tmp_dir"],
-            "--format-output",
-            "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,lddt,qaln,taln,u,t",
-            "--format-mode",
-            "4",
-            "-e",
-            "0.001",
-            "--file-include",
-            r"[0-9A-Z]{4}_[0-9A-Za-z]\.cif\.gz",
-            "--exhaustive-search",
-        ]
-        subprocess.run(cmd, check=True)
-
     def _retrieve_pockets(self):
         self._stage.update({"stage": "Pocket Calculation"})
 
@@ -287,18 +265,61 @@ class PocketMapper:
                 st = gemmi.read_structure(struct_path, format=gemmi.CoorFormat.Mmcif)
                 domain_chain = st[0][pocket_id[5]]
                 pocket_keys = pocket.keys()
+                seq_pos = 0
                 for res in domain_chain:
+                    # mapping ca_seq position
+                    ca_atom = res.get_ca()
                     res_id = str(res.seqid.num)
-                    if res_id in pocket_keys:
-                        pockets[pocket_id][res_id]["ca_coords"] = list(res.get_ca().pos)
+
+                    # If the residue has a CA atom specified, save the info to the pocket and
+                    if ca_atom is not None:
+                        if res_id in pocket_keys:
+                            pockets[pocket_id][res_id]["seq_pos"] = seq_pos
+                            pockets[pocket_id][res_id]["ca_coords"] = list(res.get_ca().pos)
+                        seq_pos += 1
+
+                    if ca_atom is None:
+                        if res_id in pocket_keys:
+                            msg = (
+                                f"Pocket residue {res_id} in {pocket_id}"
+                                "does not have CA coords and will be excluded from the comparison"
+                            )
+                            logging.warning(
+                                msg,
+                                extra=self._stage,
+                            )
+                            pockets[pocket_id][res_id]["seq_pos"] = -1
                 pockets[pocket_id]["has_coords"] = True
+
             except Exception:
-                logging.warning(f"Error is getting coords for {pocket_id}", extra=self._stage)
+                logging.warning(f"Error getting coords for {pocket_id}", extra=self._stage)
                 pockets[pocket_id]["has_coords"] = False
 
         with open(os.path.join(self._settings["pisa_dir"], "all_pockets_2.json"), "w") as f:
             json.dump(pockets, f)
         return pockets
+
+    def _run_foldseek(self):
+        self._stage.update({"stage": "Foldseek Alignment"})
+        logging.info("Running Foldseek easy-search...", extra=self._stage)
+        cmd = [
+            "foldseek",
+            "easy-search",
+            self._settings["query_dir"],
+            self._settings["target_dir"],
+            self._settings["foldseek_path"],
+            self._settings["foldseek_tmp_dir"],
+            "--format-output",
+            "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,lddt,qaln,taln,u,t",
+            "--format-mode",
+            "4",
+            "-e",
+            "0.001",
+            "--file-include",
+            r"[0-9A-Z]{4}_[0-9A-Za-z]\.cif\.gz",
+            "--exhaustive-search",
+        ]
+        subprocess.run(cmd, check=True)
 
     def _compare_pockets_and_save(self, pockets):
         self._stage.update({"stage": "Pocket Comparison"})
@@ -306,7 +327,13 @@ class PocketMapper:
         alignment_df = pd.read_csv(self._settings["foldseek_path"], sep="\t", engine="c")
         blosum_path = os.path.join(os.path.dirname(__file__), "blosum62.bla")
 
-        pockets_df = lib.compare_pockets(alignment_df, pockets, blosum_path=blosum_path)
+        pockets_df, unknown_alias = lib.compare_pockets(alignment_df, pockets, blosum_path=blosum_path)
+
+        if len(unknown_alias) > 0:
+            unknown_alias_path = os.path.join(self._settings["results_dir"], "unknown_ids.json")
+            logging.warning("Unknown Foldseek Alias, see unknown_alias.json in results directory", extra=self._stage)
+            with open(unknown_alias_path, "w") as f:
+                json.dump(lib.jsonify_dict(dict(unknown_alias)), f)
 
         output_path = self._settings["pocket_comparison_path"]
         pockets_df.to_csv(output_path, index=False, sep="\t")
@@ -346,6 +373,7 @@ class PocketMapper:
             "query_dir",
             "target_dir",
         ]
+        # TODO this is unsafe
         for dir in tmp_dirs:
             shutil.rmtree(self._settings[dir])
 
