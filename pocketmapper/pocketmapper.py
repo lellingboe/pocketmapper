@@ -277,18 +277,17 @@ class PocketMapper:
                             pockets[pocket_id][res_id]["seq_pos"] = seq_pos
                             pockets[pocket_id][res_id]["ca_coords"] = list(res.get_ca().pos)
                         seq_pos += 1
-
-                    if ca_atom is None:
+                    else:
                         if res_id in pocket_keys:
                             msg = (
-                                f"Pocket residue {res_id} in {pocket_id}"
+                                f"Pocket residue {res_id} in {pocket_id} "
                                 "does not have CA coords and will be excluded from the comparison"
                             )
                             logging.warning(
                                 msg,
                                 extra=self._stage,
                             )
-                            pockets[pocket_id][res_id]["seq_pos"] = -1
+                            pockets[pocket_id][res_id]["seq_pos"] = -1  # Removes it from later comparison
                 pockets[pocket_id]["has_coords"] = True
 
             except Exception:
@@ -317,7 +316,8 @@ class PocketMapper:
             "0.001",
             "--file-include",
             r"[0-9A-Z]{4}_[0-9A-Za-z]\.cif\.gz",
-            "--exhaustive-search",
+            "--max-seqs",
+            "2500",
         ]
         subprocess.run(cmd, check=True)
 

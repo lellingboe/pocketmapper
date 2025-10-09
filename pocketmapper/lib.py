@@ -650,8 +650,13 @@ def compare_pockets(
 
                 output_rows.append(output)
 
+        except KeyError:
+            logging.warning(
+                f"Uncontrolled error calculating {domain_1}_{motif_1} and {domain_2}_{motif_2}",
+                extra={"stage": "Pocket Comparison"},
+            )
+
         except Exception:
-            output_rows.append(output)
             logging.exception(
                 f"Uncontrolled error calculating {domain_1}_{motif_1} and {domain_2}_{motif_2}",
                 extra={"stage": "Pocket Comparison"},
