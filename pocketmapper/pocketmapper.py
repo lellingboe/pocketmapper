@@ -38,8 +38,8 @@ class PocketMapper:
         settings=None,
         cache_dir=None,
         results_dir=None,
-        verbose=False,  # settings passed to logging
-        debug=False,
+        verbose=False,  # makes log file more verbose
+        debug=False,  # make log file even more verbose
         help=None,  # help option
         **kwargs,
     ):
@@ -90,16 +90,27 @@ class PocketMapper:
             exit()
 
     def _setup_logging(self, debug, verbose):
-        self._stage.update({"stage": "Logging Setup"})
-
+        self._stage = {"stage": "Logging Setup"}
         if debug:
             log_level = logging.DEBUG
         elif verbose:
             log_level = logging.INFO
         else:
             log_level = logging.WARNING
-        fmt = "%(levelname)s: %(stage)s - %(msg)s"
-        logging.basicConfig(level=log_level, format=fmt, force=True)
+        formatter = logging.Formatter("%(levelname)s: %(stage)s - %(msg)s")
+        self.logger = logging.getLogger("pocketmapper")
+
+        # Writing to console
+        sh = logging.StreamHandler()
+        sh.setLevel(log_level)
+        sh.setFormatter(formatter)
+        self.logger.addHandler(sh)
+
+        # Writing to file
+        fh = logging.FileHandler("test.log")
+        fh.setLevel(log_level)
+        fh.setFormatter(formatter)
+        self.logger.addHandler(fh)
 
     def _configure(self, settings_file, uncaught_args, **kwargs):
         self._stage.update({"stage": "Configuring Settings"})
@@ -167,7 +178,10 @@ class PocketMapper:
         for key in ["query", "target"]:
             value = self._settings.get(key)
             if value and not input_re.match(value):
-                raise ValueError(f"{key.capitalize()} '{value}' does not match required format 'PDB_CHAIN_CHAIN'.")
+                self.logger.critical(
+                    f"{key.capitalize()} '{value}' does not match required format 'PDB_CHAIN_CHAIN'.", extra=self._stage
+                )
+                exit(1)
 
     def _prepare_directories(self):
         self._stage.update({"stage": "Directory Preparation"})
