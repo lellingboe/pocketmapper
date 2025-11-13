@@ -26,15 +26,14 @@ class PocketMapper:
     def __init__(self):
         self._settings = {}
         self._stage = {"stage": "init"}
-        self._all_df = None
+        self._requires_structures = ["pdb_chain_chain", "file"]
+        self._pdb_df = None
 
     # TODO implement caching option
     def search(
         self,
         query=None,  # settings passed to configure
         target=None,
-        query_file=None,
-        target_file=None,
         settings=None,
         cache_dir=None,
         results_dir=None,
@@ -46,33 +45,43 @@ class PocketMapper:
         """
         Main orchestration method to run the pocket mapping workflow.
         """
+        self._stage = {"stage": "Start"}
 
+        # Storing input parameters
+        self._query = query
+        self._target = target
+        self._settings_file = settings
+        self._cache_dir = cache_dir
+        self._results_dir = results_dir
+        self._verbose = verbose
+        self._debug = debug
+        self._help = help
+        self._uncaught_args = kwargs
+
+        # Main try-except block to catch unhandled exceptions
         try:
             # Setting up things
-            self._help(help)
-            self._setup_logging(debug, verbose)
+            self._search_help()
+            self._setup_logging()
             self._configure(  # configures the settings which have already been read
-                settings_file=settings,
                 cache_dir=cache_dir,
                 results_dir=results_dir,
                 query=query,
                 target=target,
-                query_file=query_file,
-                target_file=target_file,
-                uncaught_args=kwargs,
             )
-            self._validate_inputs()
-            self._prepare_directories()
+            self._determine_query_target_types()
+            self._check_query_target_set()
+            self._read_query_target_data()
 
             # Preparing structures for later
-            self._prepare_dataframes()
+            self._prepare_directories()
             self._fetch_and_verify_structures()
             self._divide_structures()
 
+            self._run_foldseek()
+
             pockets = self._retrieve_pockets()
             pockets = self._get_atom_coords_from_cif(pockets)
-
-            self._run_foldseek()
 
             self._compare_pockets_and_save(pockets)
             self._delete_tmp()
@@ -84,62 +93,109 @@ class PocketMapper:
             logging.exception(str(e), extra=self._stage)
             exit(1)
 
-    def _help(self, help):
-        if help:
-            print("Displaying help!")
+    def _search_help(self):
+        """
+        Displays help information for the PocketMapper tool and exits the program.
+
+        If the 'help' parameter is provided and evaluates to True, this method prints a help message
+        describing the usage, options, and features of the PocketMapper package, then terminates execution.
+
+        Parameters:
+            help (bool): If True, triggers the display of the help message.
+
+        Usage:
+            Call this method when the user requests help (e.g., via a command-line flag).
+        """
+
+        help_msg = """
+PocketMapper - A tool for mapping and analyzing protein pockets.
+
+Usage:
+    pocketmapper search [OPTIONS]
+
+Options:
+    --query QUERY            Specify the query in 'PDB_CHAIN_CHAIN' format (e.g., 1ABC_A_B)
+    --target TARGET          Specify the target in 'PDB_CHAIN_CHAIN' format (e.g., 2XYZ_C_D)
+    --query_file FILE        Path to a TSV file listing query structures
+    --target_file FILE       Path to a TSV file listing target structures
+    --settings FILE          Path to a JSON settings file
+    --cache_dir DIR          Directory for caching intermediate files (default: pocketmapper_cache)
+    --results_dir DIR        Directory for output results (default: pocketmapper_results_<timestamp>)
+    --verbose                Enable more detailed logging
+    --debug                  Enable debug-level logging
+    --help                   Show this help message and exit
+
+Description:
+    PocketMapper orchestrates the workflow for fetching structures, calculating and comparing protein pockets,
+    and aligning structures using Foldseek. It supports both single structure and batch (file-based) modes.
+
+Examples:
+    pocketmapper search --query 1ABC_A_B --target 2XYZ_C_D
+    pocketmapper search --query_file queries.tsv --target_file targets.tsv --settings config.json
+
+For more information, visit: https://github.com/yourorg/pocketmapper
+                """
+
+        if self._help:
+            print(help_msg)
             exit()
 
-    def _setup_logging(self, debug, verbose):
+    def _setup_logging(self):
         self._stage = {"stage": "Logging Setup"}
-        if debug:
+        if self._debug:
             log_level = logging.DEBUG
-        elif verbose:
+        elif self._verbose:
             log_level = logging.INFO
         else:
             log_level = logging.WARNING
-        formatter = logging.Formatter("%(levelname)s: %(stage)s - %(msg)s")
+        fmt = "%(levelname)s: %(stage)s - %(msg)s"
         self.logger = logging.getLogger("pocketmapper")
-
-        # Writing to console
-        sh = logging.StreamHandler()
-        sh.setLevel(log_level)
-        sh.setFormatter(formatter)
-        self.logger.addHandler(sh)
+        logging.basicConfig(level=log_level, format=fmt)
 
         # Writing to file
+        formatter = logging.Formatter(fmt)
         fh = logging.FileHandler("test.log")
         fh.setLevel(log_level)
         fh.setFormatter(formatter)
         self.logger.addHandler(fh)
 
-    def _configure(self, settings_file, uncaught_args, **kwargs):
+        self.logger.debug("Level set to DEBUG", extra=self._stage)
+
+    def _configure(self, **kwargs):
+        """
+        Configures settings for the PocketMapper workflow.
+        """
         self._stage.update({"stage": "Configuring Settings"})
 
         # Unrecognised arguments
-        if len(uncaught_args) > 0:
-            logging.critical(f"Unrecognised args: {list(uncaught_args.keys())}", extra=self._stage)
+        if len(self._uncaught_args) > 0:
+            logging.critical(f"Unrecognised args: {list(self._uncaught_args.keys())}", extra=self._stage)
             exit(1)
 
-        # get all info from settings
-        if settings_file:
-            try:
-                with open(settings_file) as f:
-                    job_data = json.load(f)
-            except FileNotFoundError:
-                logging.critical("No settings file found at specified location", extra=self._stage)
+        # Populates settings from the settings file if provided
+        if self._settings_file is not None:
+            # Checking that the supplied settings file exists
+            if not os.path.isfile(self._settings_file):
+                logging.critical(f"Settings file not found: {self._settings_file}", extra=self._stage)
                 exit(1)
+
+            try:
+                with open(self._settings_file) as f:
+                    settings_data_from_file = json.load(f)
             except Exception:
-                logging.exception("Unexpected error reading settings file", extra=self._stage)
+                logging.exception(
+                    f"Error reading settings file: {self._settings_file}. Is it in JSON format?", extra=self._stage
+                )
                 exit(1)
             finally:
-                self._settings.update(job_data)
+                self._settings.update(settings_data_from_file)
 
         # Override settings_file with any provided command-line arguments
         for key, value in kwargs.items():
             if value is not None:
                 self._settings[key] = value
 
-        # Defult settings
+        # Default settings
         cache_dir = self._settings.get("cache_dir", "pocketmapper_cache")
         now = datetime.now().strftime("%y%m%d_%H%M%S")
         results_dir = self._settings.get("results_dir", f"pocketmapper_results_{now}")
@@ -165,23 +221,148 @@ class PocketMapper:
 
         logging.debug(f"\n{self._settings}", extra=self._stage)
 
-    def _validate_inputs(self):
+    def _determine_query_target_types(self):
+        self._stage.update({"stage": "Determine Query/Target Types"})
+
+        # possible types for both query and target:
+        #   pdb_chain_chain
+        #   file (pdb_chain_chain per line)
+        #   alphafold3 structure (implement later)
+
+        # possible types for target only:
+        #   foldseek database
+        #
+
+        self._query_type = None
+        self._target_type = None
+
+        query = self._settings.get("query")
+        if os.path.isfile(query):
+            self._query_type = "file"
+        else:
+            self._query_type = "pdb_chain_chain"
+
+        target = self._settings.get("target")
+        if os.path.isfile(target):
+            if ".txt" in target:
+                self._target_type = "file"
+            else:
+                self._target_type = "foldseek_db"
+                self._settings["target_dir"] = target  # Overriding target dir to point to the db
+        else:
+            self._target_type = "pdb_chain_chain"
+
+        self.logger.debug(f"Determined query type: {self._query_type}", extra=self._stage)
+        self.logger.debug(f"Determined target type: {self._target_type}", extra=self._stage)
+
+    def _check_query_target_set(self):
         # Checking a target and query is specified
         self._stage.update({"stage": "Input Validation"})
-        if not self._settings.get("query") and not self._settings.get("query_file"):
-            raise ValueError("No query specified. Use --query or --query_file.")
-        if not self._settings.get("target") and not self._settings.get("target_file"):
-            raise ValueError("No target specified. Use --target or --target_file.")
+        if not self._settings.get("query"):
+            raise ValueError("No query specified. Use --query")
+        if not self._settings.get("target"):
+            raise ValueError("No target specified. Use --target")
 
         # Checking single pdb inputs
-        input_re = re.compile(r"[A-Za-z0-9]{4}_[A-Za-z0-9]_[A-Za-z0-9]")
+
+        """input_re = re.compile(r"[A-Za-z0-9]{4}_[A-Za-z0-9]_[A-Za-z0-9]")
         for key in ["query", "target"]:
             value = self._settings.get(key)
             if value and not input_re.match(value):
                 self.logger.critical(
                     f"{key.capitalize()} '{value}' does not match required format 'PDB_CHAIN_CHAIN'.", extra=self._stage
                 )
+                exit(1)"""
+
+    def _read_query_target_data(self):
+        self._stage.update({"stage": "Reading Input Data"})
+
+        self._query_data = self._parse_inputs(self._query, self._query_type, type="query")
+        if type(self._query_data) is pd.DataFrame:
+            self.logger.debug(f"query_data:\n{self._query_data.head()}", extra=self._stage)
+        else:
+            self.logger.debug(f"query_data:\n{self._query_data}", extra=self._stage)
+
+        self._target_data = self._parse_inputs(self._target, self._target_type, type="target")
+        if type(self._target_data) is pd.DataFrame:
+            self.logger.debug(f"target_data:\n{self._target_data.head()}", extra=self._stage)
+        else:
+            self.logger.debug(f"target_data:\n{self._target_data}", extra=self._stage)
+
+        """
+        query_df = self._make_tq_df("query", "query_file", type="query")
+        target_df = self._make_tq_df("target", "target_file", type="target")
+        """
+        pdb_data = [self._query_data]
+        if type(self._target_data) is pd.DataFrame:
+            pdb_data.append(self._target_data)
+        self._pdb_df = pd.concat(pdb_data, ignore_index=True)
+
+    def _parse_inputs(self, value, value_type, **kwargs):
+        pdb_chain_chain_re = re.compile(r"[A-Za-z0-9]{4}_[A-Za-z0-9]_[A-Za-z0-9]")
+        if value_type == "file":
+            pdbs = []
+            domains = []
+            motifs = []
+            valid_lines = 0
+            with open(value) as f:
+                for i, line in enumerate(f.readlines()):
+                    if line[0] == "#":
+                        continue
+                    line = line.strip()
+                    if pdb_chain_chain_re.match(line):
+                        pdb, domain, motif = line.split("_")
+                        pdbs.append(pdb)
+                        domains.append(domain)
+                        motifs.append(motif)
+                        valid_lines += 1
+                    else:
+                        self.logger.warning(
+                            f"Line {i + 1} in file '{value}' does not match PDB_CHAIN_CHAIN format: {line}",
+                            extra=self._stage,
+                        )
+            if valid_lines == 0:
+                self.logger.critical(f"No valid lines found in file '{value}'.", extra=self._stage)
                 exit(1)
+            df = self.pdb_info_to_df(
+                pdbs=pdbs,
+                domains=domains,
+                motifs=motifs,
+                **kwargs,
+            )
+            return df
+        elif value_type == "pdb_chain_chain":
+            if not pdb_chain_chain_re.match(value):
+                self.logger.critical(f"'{value}' does not match required format 'PDB_CHAIN_CHAIN'.", extra=self._stage)
+                exit(1)
+            pdb, domain, motif = value.split("_")
+            df = self.pdb_info_to_df(
+                pdbs=[pdb],
+                domains=[domain],
+                motifs=[motif],
+                **kwargs,
+            )
+            return df
+        elif value_type == "foldseek_db":
+            # For foldseek db, we just return the path to the db
+            return value
+        else:
+            self.logger.critical(f"Unknown value_type '{value_type}'", extra=self._stage)
+            exit(1)
+
+    def pdb_info_to_df(self, pdbs, domains, motifs, **kwargs):
+        data = {
+            "interaction_pdb": [pdb.upper() for pdb in pdbs],
+            "domain_chain": domains,
+            "motif_chain": motifs,
+        }
+
+        df = pd.DataFrame.from_dict(data)
+        df["pdb_domain"] = df.apply(lambda x: x.interaction_pdb + "_" + x.domain_chain, axis=1)
+        df["pdb_domain_motif"] = df.apply(lambda x: x.pdb_domain + "_" + x.motif_chain, axis=1)
+        for k, v in kwargs.items():
+            df[k] = v
+        return df
 
     def _prepare_directories(self):
         self._stage.update({"stage": "Directory Preparation"})
@@ -201,29 +382,29 @@ class PocketMapper:
             except OSError as e:
                 raise OSError(f"Error creating directory {path}: {e}")
 
-    def _prepare_dataframes(self):
-        self._stage.update({"stage": "Data Preparation"})
-        query_df = self._make_tq_df("query", "query_file", type="query")
-        target_df = self._make_tq_df("target", "target_file", type="target")
-        self._all_df = pd.concat([query_df, target_df], ignore_index=True)
-
     def _fetch_and_verify_structures(self):
         self._stage.update({"stage": "Fetch Structures"})
         logging.info("Checking for mmCIF structures...", extra=self._stage)
         found_map = lib.get_mmcifs(
-            pdb_list=self._all_df["interaction_pdb"].unique(),
+            pdb_list=self._pdb_df["interaction_pdb"].unique(),
             out_dir=self._settings["structure_dir"],
         )
-        self._all_df["structure_found"] = self._all_df["interaction_pdb"].map(found_map)
+        self._pdb_df["structure_found"] = self._pdb_df["interaction_pdb"].map(found_map)
 
         self._stage.update({"stage": "Verify Structures"})
-        if not self._all_df.query("structure_found and type == 'query'").empty:
+        if (
+            not self._pdb_df.query("structure_found and type == 'query'").empty
+            and self._query_type in self._requires_structures
+        ):
             logging.info("Query structures found.", extra=self._stage)
         else:
             logging.critical("No query structures found locally or via download", extra=self._stage)
             exit(1)
 
-        if not self._all_df.query("structure_found and type == 'target'").empty:
+        if (
+            not self._pdb_df.query("structure_found and type == 'target'").empty
+            and self._target_type in self._requires_structures
+        ):
             logging.info("Target structures found.", extra=self._stage)
         else:
             logging.critical("No target structures found locally or via download", extra=self._stage)
@@ -233,21 +414,21 @@ class PocketMapper:
         self._stage.update({"stage": "Preprocess Structures"})
         logging.info("Dividing mmCIF structures...", extra=self._stage)
         divided_map = lib.pdb_preprocessing_gemmi(
-            df=self._all_df.query("structure_found"),
+            df=self._pdb_df.query("structure_found"),
             ref_dir=self._settings["structure_dir"],
             cache_dir=self._settings["divided_struct_dir"],
             query_dir=self._settings["query_dir"],
             target_dir=self._settings["target_dir"],
         )
-        self._all_df["divided_struct"] = self._all_df["pdb_domain_motif"].map(divided_map).fillna(False)
+        self._pdb_df["divided_struct"] = self._pdb_df["pdb_domain_motif"].map(divided_map).fillna(False)
 
-        self._stage.update({"stage": "Verify Preprocessing"})
-        if self._all_df.query("divided_struct and type == 'query'").empty:
+        """self._stage.update({"stage": "Verify Preprocessing"})
+        if self._pdb_df.query("divided_struct and type == 'query'").empty:
             logging.critical("No query structure could be preprocessed", extra=self._stage)
             exit(1)
-        if self._all_df.query("divided_struct and type == 'target'").empty:
+        if self._pdb_df.query("divided_struct and type == 'target'").empty:
             logging.critical("No target structure could be preprocessed", extra=self._stage)
-            exit(1)
+            exit(1)"""
 
     def _retrieve_pockets(self):
         self._stage.update({"stage": "Pocket Calculation"})
@@ -256,13 +437,13 @@ class PocketMapper:
         logging.info("Retrieving PISA pockets...", extra=self._stage)
         downloader = pisa.PisaDownloader()
         downloader.get_interfaces(
-            pdb_list=self._all_df.query("divided_struct")["interaction_pdb"].str.lower().unique(),
+            pdb_list=self._pdb_df.query("divided_struct")["interaction_pdb"].str.lower().unique(),
             summary_dir=os.path.join(self._settings["pisa_dir"], "summaries"),
             asm_dir=os.path.join(self._settings["pisa_dir"], "assemblies"),
             interface_dir=os.path.join(self._settings["pisa_dir"], "interfaces"),
         )
         pisa_pockets = lib.get_pisa_pockets(
-            df=self._all_df.query("divided_struct"),
+            df=self._pdb_df.query("divided_struct"),
             in_dir=os.path.join(self._settings["pisa_dir"], "interfaces"),
             out_dir=self._settings["pocket_dir"],
         )
@@ -332,6 +513,8 @@ class PocketMapper:
             r"[0-9A-Z]{4}_[0-9A-Za-z]\.cif\.gz",
             "--max-seqs",
             "2500",
+            "-v",
+            "0",
         ]
         subprocess.run(cmd, check=True)
 
@@ -341,7 +524,10 @@ class PocketMapper:
         alignment_df = pd.read_csv(self._settings["foldseek_path"], sep="\t", engine="c")
         blosum_path = os.path.join(os.path.dirname(__file__), "blosum62.bla")
 
-        pockets_df, unknown_alias = lib.compare_pockets(alignment_df, pockets, blosum_path=blosum_path)
+        alphafold = self._target_type == "foldseek_db"
+        pockets_df, unknown_alias = lib.compare_pockets(
+            alignment_df, pockets, blosum_path=blosum_path, alphafold=alphafold
+        )
 
         if len(unknown_alias) > 0:
             unknown_alias_path = os.path.join(self._settings["results_dir"], "unknown_ids.json")
@@ -353,39 +539,11 @@ class PocketMapper:
         pockets_df.to_csv(output_path, index=False, sep="\t")
         logging.info(f"Pocket comparison results saved to {output_path}", extra=self._stage)
 
-    def _make_tq_df(self, single, file, **kwargs):
-        if self._settings.get(single) is not None:
-            pdb, domain, motif = self._settings.get(single).split("_")
-            try:
-                df = pd.DataFrame.from_dict(
-                    {
-                        0: {
-                            "interaction_pdb": pdb.upper(),
-                            "domain_chain": domain,
-                            "motif_chain": motif,
-                        }
-                    },
-                    orient="index",
-                )
-            except Exception:
-                logging.critical(f"Error with parsing {self._settings.get(single)}", extra=self._stage)
-                exit()
-        else:
-            df = pd.read_csv(self._settings[file], sep="\t", index_col=False)
-            df.interaction_pdb = df.interaction_pdb.str.upper()
-            logging.debug("\n" + str(df.head(5)), extra={"stage": f"{file}"})
-
-        df["pdb_domain"] = df.apply(lambda x: x.interaction_pdb + "_" + x.domain_chain, axis=1)
-        df["pdb_domain_motif"] = df.apply(lambda x: x.pdb_domain + "_" + x.motif_chain, axis=1)
-        for k, v in kwargs.items():
-            df[k] = v
-        return df
-
     def _delete_tmp(self):
         tmp_dirs = [
             "foldseek_tmp_dir",
             "query_dir",
-            "target_dir",
+            # "target_dir",
         ]
         # TODO this is unsafe
         for dir in tmp_dirs:

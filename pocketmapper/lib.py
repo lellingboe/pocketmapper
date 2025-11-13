@@ -426,7 +426,6 @@ def compare_pockets(
     pocket_dict,
     blosum_path=r"/home/data/motif_aligner/blosum62.bla",
     alphafold=False,
-    alphafold_dir=None,
 ):
     """
     Compare two pockets based on foldseek alignment
@@ -478,10 +477,13 @@ def compare_pockets(
             if alphafold:
                 pockets_2 = {
                     "A": {
+                        "res_auth_ids": [str(k) for k in range(row[9])],
+                        "id_pos_codes_match": True,
                         "pocket_exists": True,
-                        "pocket_res_pos": dict(zip(range(row[8] - 1, row[9]), repeat(True))),
+                        "has_coords": False,
                     }
                 }
+                pockets_2["A"].update({str(k): {"seq_pos": k} for k in range(row[9])})
             else:
                 pockets_2 = domain_pocket_dict.get(domain_2)
                 if not pockets_2:
@@ -565,15 +567,16 @@ def compare_pockets(
                         p2[res]["fs_res_code"] = row[13][fs_res_pos]
 
                         # Checking fs single res code and pocektmapper single res codes match
-                        if p2[res]["fs_res_code"] != p2[res]["res_code_single"]:
+
+                        if not alphafold and (p2[res]["fs_res_code"] != p2[res]["res_code_single"]):
                             debug_id = ",".join([interaction_1, interaction_2, res])
                             unknown_ids[p2[res]["fs_res_code"]][p2[res]["res_code"]].add(debug_id)
 
-                output["pocket_2_res_ids"] = ",".join(p2["res_auth_ids"])
-                output["pocket_2_len"] = len(p2["res_auth_ids"])
-                output["pocket_2_seq"] = "".join([p2[x]["res_code_single"] for x in p2["res_auth_ids"]])
-                output["pocket_2_pct_aln"] = p2_in_aln_region_count / len(p2["res_auth_ids"])
-                output["pocket_2_res_ids"] = ",".join(p2["res_auth_ids"])
+                if not alphafold:
+                    output["pocket_2_res_ids"] = ",".join(p2["res_auth_ids"])
+                    output["pocket_2_len"] = len(p2["res_auth_ids"])
+                    output["pocket_2_seq"] = "".join([p2[x]["res_code_single"] for x in p2["res_auth_ids"]])
+                    output["pocket_2_pct_aln"] = p2_in_aln_region_count / len(p2["res_auth_ids"])
 
                 # OVERLAP
                 overlapping_residues = [x for x in p1["foldseek_pos"] if x in p2["foldseek_pos"]]
@@ -596,11 +599,13 @@ def compare_pockets(
 
                 # percent overlap
                 p1_pct_overlap = len(overlapping_residues) / len(p1["res_auth_ids"])
-                p2_pct_overlap = len(overlapping_residues) / len(p2["res_auth_ids"])
                 output["pocket_1_pct_overlap"] = p1_pct_overlap
-                output["pocket_2_pct_overlap"] = p2_pct_overlap
-                output["min_pct_overlap"] = min(p1_pct_overlap, p2_pct_overlap)
-                output["max_pct_overlap"] = max(p1_pct_overlap, p2_pct_overlap)
+
+                if not alphafold:
+                    p2_pct_overlap = len(overlapping_residues) / len(p2["res_auth_ids"])
+                    output["pocket_2_pct_overlap"] = p2_pct_overlap
+                    output["min_pct_overlap"] = min(p1_pct_overlap, p2_pct_overlap)
+                    output["max_pct_overlap"] = max(p1_pct_overlap, p2_pct_overlap)
 
                 #####
                 # Aligned residues as a sequence
@@ -652,10 +657,9 @@ def compare_pockets(
 
         except KeyError:
             logging.warning(
-                f"Uncontrolled error calculating {domain_1}_{motif_1} and {domain_2}_{motif_2}",
+                f"Uncontrolled KeyError calculating {domain_1}_{motif_1} and {domain_2}_{motif_2}",
                 extra={"stage": "Pocket Comparison"},
             )
-
         except Exception:
             logging.exception(
                 f"Uncontrolled error calculating {domain_1}_{motif_1} and {domain_2}_{motif_2}",
