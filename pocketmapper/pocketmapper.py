@@ -20,6 +20,7 @@ from datetime import datetime
 import pisa
 import shutil
 import gemmi
+from importlib.resources import files
 
 
 class PocketMapper:
@@ -246,9 +247,9 @@ For more information, visit: https://github.com/yourorg/pocketmapper
         if os.path.isfile(target):
             if ".txt" in target:
                 self._target_type = "file"
-            else:
-                self._target_type = "foldseek_db"
-                self._settings["target_dir"] = target  # Overriding target dir to point to the db
+        elif target.lower() == "ted":
+            self._target_type = "foldseek_db"
+            self._settings["target_dir"] = files("TED_fs").joinpath("TED")  # Overriding target dir to point to the db
         else:
             self._target_type = "pdb_chain_chain"
 
@@ -369,12 +370,14 @@ For more information, visit: https://github.com/yourorg/pocketmapper
         dirs_to_create = [
             "structure_dir",
             "query_dir",
-            "target_dir",
             "pocket_dir",
             "pisa_dir",
             "divided_struct_dir",
             "results_dir",
         ]
+        if self._target_type != "foldseek_db":
+            dirs_to_create.append("target_dir")
+
         for dir_key in dirs_to_create:
             path = self._settings[dir_key]
             try:
@@ -401,14 +404,12 @@ For more information, visit: https://github.com/yourorg/pocketmapper
             logging.critical("No query structures found locally or via download", extra=self._stage)
             exit(1)
 
-        if (
-            not self._pdb_df.query("structure_found and type == 'target'").empty
-            and self._target_type in self._requires_structures
-        ):
-            logging.info("Target structures found.", extra=self._stage)
-        else:
-            logging.critical("No target structures found locally or via download", extra=self._stage)
-            exit(1)
+        if self._target_type in self._requires_structures:
+            if not self._pdb_df.query("structure_found and type == 'target'").empty:
+                logging.info("Target structures found.", extra=self._stage)
+            else:
+                logging.critical("No target structures found locally or via download", extra=self._stage)
+                exit(1)
 
     def _divide_structures(self):
         self._stage.update({"stage": "Preprocess Structures"})
