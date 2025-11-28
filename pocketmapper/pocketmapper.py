@@ -21,6 +21,7 @@ import pisa
 import shutil
 import gemmi
 from importlib.resources import files
+from local_aligner import LocalAligner
 
 
 class PocketMapper:
@@ -79,7 +80,7 @@ class PocketMapper:
             self._fetch_and_verify_structures()
             self._divide_structures()
 
-            self._run_foldseek()
+            self._alignment()
 
             pockets = self._retrieve_pockets()
             pockets = self._get_atom_coords_from_cif(pockets)
@@ -210,9 +211,9 @@ For more information, visit: https://github.com/yourorg/pocketmapper
             "results_dir": results_dir,
             "query_dir": os.path.join(results_dir, "query_structures"),
             "target_dir": os.path.join(results_dir, "target_structures"),
-            "foldseek_path": os.path.join(results_dir, "foldseek_results.tsv"),
+            "alignment_path": os.path.join(results_dir, "alignment.tsv"),
             "pocket_comparison_path": os.path.join(results_dir, "pocket_comparison.tsv"),
-            "foldseek": True,
+            "foldseek": False,
             "pisa_pockets": True,
             "structure": False,
         }
@@ -494,15 +495,24 @@ For more information, visit: https://github.com/yourorg/pocketmapper
             json.dump(pockets, f)
         return pockets
 
+    def _alignment(self):
+        self._stage.update({"stage": "Alignment"})
+        if self._settings["foldseek"]:
+            logging.info("Running Foldseek easy-search...", extra=self._stage)
+            self._run_foldseek()
+        else:
+            logging.info("Running local alignments...", extra=self._stage)
+            self._local_alignment()
+
     def _run_foldseek(self):
+        """ """
         self._stage.update({"stage": "Foldseek Alignment"})
-        logging.info("Running Foldseek easy-search...", extra=self._stage)
         cmd = [
             "foldseek",
             "easy-search",
             self._settings["query_dir"],
             self._settings["target_dir"],
-            self._settings["foldseek_path"],
+            self._settings["alignment_path"],
             self._settings["foldseek_tmp_dir"],
             "--format-output",
             "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,lddt,qaln,taln,u,t",
@@ -519,10 +529,16 @@ For more information, visit: https://github.com/yourorg/pocketmapper
         ]
         subprocess.run(cmd, check=True)
 
+    def _local_alignment(self):
+        aligner = LocalAligner()
+        alignment = aligner.align_df(self._pdb_df, self._settings["divided_struct_dir"])
+        print(alignment)
+        alignment.to_csv(self._settings["alignment_path"], index=False, sep="\t")
+
     def _compare_pockets_and_save(self, pockets):
         self._stage.update({"stage": "Pocket Comparison"})
         logging.info("Comparing pockets...", extra=self._stage)
-        alignment_df = pd.read_csv(self._settings["foldseek_path"], sep="\t", engine="c")
+        alignment_df = pd.read_csv(self._settings["alignment_path"], sep="\t", engine="c")
         blosum_path = os.path.join(os.path.dirname(__file__), "blosum62.bla")
 
         alphafold = self._target_type == "foldseek_db"
@@ -542,10 +558,13 @@ For more information, visit: https://github.com/yourorg/pocketmapper
 
     def _delete_tmp(self):
         tmp_dirs = [
-            "foldseek_tmp_dir",
             "query_dir",
-            # "target_dir",
         ]
+        if self._target_type != "foldseek_db":
+            tmp_dirs.append("target_dir")
+        if self._settings.get("foldseek"):
+            tmp_dirs.append("foldseek_tmp_dir")
+
         # TODO this is unsafe
         for dir in tmp_dirs:
             shutil.rmtree(self._settings[dir])
