@@ -45,7 +45,91 @@ class PocketMapper:
         **kwargs,
     ):
         """
-        Main orchestration method to run the pocket mapping workflow.
+         Orchestrate and run the full PocketMapper search workflow.
+
+        This method is the top-level entry point that coordinates all steps required
+        to perform a pocket mapping search. It accepts high-level inputs (query,
+        target, settings and locations for cache/results), stores them on the instance,
+        and then executes a sequence of internal operations to produce and persist
+        pocket comparison results.
+
+        Behavior and workflow steps (high-level):
+        - Store provided input parameters on the instance for access by downstream
+            methods (e.g., self._query, self._target, self._settings_file).
+        - Optionally present help and configure logging according to verbosity/debug
+            settings.
+        - Configure runtime parameters (cache and results directories, effective
+            query/target selections) via self._configure.
+        - Determine types of the query and target inputs and validate that both are set.
+        - Read and parse query/target data into internal representations.
+        - Prepare filesystem directories for caching and results.
+        - Fetch and verify structural data (e.g., download or load coordinate files).
+        - Split or divide structures into segments as required for downstream analysis.
+        - Perform structural alignment between query and target as necessary.
+        - Retrieve candidate pockets and (when applicable) extract atomic coordinates
+            from CIF files.
+        - Compare pockets across structures and persist the results to the configured
+            results directory.
+        - Clean up temporary files created during the run.
+        - Log completion and final stage information.
+
+        Side effects:
+        - Writes and updates on-disk state: creates/uses cache_dir and results_dir,
+            writes logs, may write intermediate files (temporary directories/files).
+        - Alters instance state by setting a number of attributes used by private
+            helper methods (e.g., self._stage, self._uncaught_args).
+        - Terminates the Python process with sys.exit(1) if an unexpected exception
+            occurs (after logging the error).
+
+        Parameters:
+        - query (optional): High-level specification of the query input. Can be a path,
+            identifier, or data object as supported by the class. Passed through to
+            self._configure for interpretation. If None, behavior depends on configuration
+            and other inputs.
+        - target (optional): High-level specification of the target input. Similar
+            semantics to query.
+        - settings (optional): Path or object representing configuration/settings to
+            load for this run. Stored as self._settings_file and used when configuring
+            runtime behavior.
+        - cache_dir (optional): Filesystem path to a directory used for caching
+            downloaded or intermediate files. If omitted, a default cache location will
+            be used/created by configuration routines.
+        - results_dir (optional): Filesystem path to write final results and any
+            persistent outputs. If omitted, a default results location will be used.
+        - verbose (bool, default False): When True, makes log files more verbose and
+            enables more informative console/log output.
+        - debug (bool, default False): When True, enables additional debug-level logging
+            beyond verbose, useful for troubleshooting internal steps.
+        - help (optional): If provided, triggers help/usage behavior in _search_help.
+            Exact semantics depend on the implementation of that helper.
+        - **kwargs: Any additional uncaught keyword arguments provided by callers are
+            stored on the instance as self._uncaught_args and can be used by helper
+            methods or future extensions.
+
+        Return value:
+        - None. Results and artifacts are persisted to disk (results_dir, cache_dir)
+            and logged. The method intentionally does not return computed data objects;
+            callers should read from the results directory or use other instance methods
+            to access in-memory results after the run.
+
+        Error handling:
+        - Any unhandled exception raised during the orchestration will be caught,
+            logged with traceback/context (using the current self._stage for logging
+            metadata), and the process will exit with status code 1. This ensures that
+            failures are visible in logs and that downstream automation can detect a
+            non-zero exit status.
+        - Individual helper methods may raise more specific exceptions (e.g., I/O,
+            network, validation errors) which will be logged by this method if not
+            intercepted earlier.
+
+        Notes and recommendations:
+        - Because this method writes to disk and may terminate the process on failure,
+            it is best invoked from top-level scripts or entry points rather than from
+            long-running services where a controlled exception-handling strategy is
+            required.
+        - For reproducible runs, supply explicit cache_dir, results_dir and settings.
+        - Use debug=True when investigating unexpected behavior; logs will contain
+            additional diagnostic detail.
         """
         self._stage = {"stage": "Start"}
 
@@ -110,39 +194,75 @@ class PocketMapper:
         """
 
         help_msg = """
-PocketMapper - A tool for mapping and analyzing protein pockets.
+    PocketMapper - A tool for mapping and analyzing protein pockets.
 
-Usage:
-    pocketmapper search [OPTIONS]
+    Usage:
+        pocketmapper search [OPTIONS]
 
-Options:
-    --query QUERY            Specify the query in 'PDB_CHAIN_CHAIN' format (e.g., 1ABC_A_B)
-    --target TARGET          Specify the target in 'PDB_CHAIN_CHAIN' format (e.g., 2XYZ_C_D)
-    --query_file FILE        Path to a TSV file listing query structures
-    --target_file FILE       Path to a TSV file listing target structures
-    --settings FILE          Path to a JSON settings file
-    --cache_dir DIR          Directory for caching intermediate files (default: pocketmapper_cache)
-    --results_dir DIR        Directory for output results (default: pocketmapper_results_<timestamp>)
-    --verbose                Enable more detailed logging
-    --debug                  Enable debug-level logging
-    --help                   Show this help message and exit
+    Primary options (passed to PocketMapper.search):
+        --query QUERY            Query identifier or path. Accepts:
+                    - 'PDB_CHAIN_CHAIN' (e.g., 1ABC_A_B)
+                    - path to a file listing PDB_CHAIN_CHAIN entries (each line)
+        --target TARGET          Target identifier or path. Accepts:
+                    - 'PDB_CHAIN_CHAIN' (e.g., 2XYZ_C_D)
+                    - path to a file listing PDB_CHAIN_CHAIN entries (each line)
+                    - special foldseek DB alias 'ted' to use the bundled Foldseek DB
+        --settings FILE          Path to a JSON settings file (overridden by explicit CLI args)
+        --cache_dir DIR          Directory for caching intermediate files (overrides settings.cache_dir)
+        --results_dir DIR        Directory for writing results (overrides settings.results_dir)
+        --verbose                Enable more detailed (info) logging
+        --debug                  Enable debug-level logging
+        --help                   Show this help message and exit
 
-Description:
-    PocketMapper orchestrates the workflow for fetching structures, calculating and comparing protein pockets,
-    and aligning structures using Foldseek. It supports both single structure and batch (file-based) modes.
+    Relevant settings (can be placed in settings JSON or passed as CLI kwargs):
+        cache_dir                Base cache directory (default: pocketmapper_cache)
+        results_dir              Results directory (default: pocketmapper_results_<timestamp>)
+        structure_dir            Directory to store downloaded/available structures
+        pocket_dir               Directory to store calculated pockets
+        pisa_dir                 Directory for PISA related files
+        divided_struct_dir       Directory for preprocessed/divided structures
+        query_dir                Temporary directory for query divided structures
+        target_dir               Temporary directory for target divided structures
+        alignment_path           Path to write alignment TSV
+        pocket_comparison_path   Path to write pocket comparison TSV
+        foldseek                 Use Foldseek for alignment (bool). If true and target == 'ted', uses bundled DB.
+        pisa_pockets             Retrieve pockets via PISA (bool)
+        structure                If set, treat inputs as raw structure files (bool)
 
-Examples:
-    pocketmapper search --query 1ABC_A_B --target 2XYZ_C_D
-    pocketmapper search --query_file queries.tsv --target_file targets.tsv --settings config.json
+    Description:
+        Orchestrates fetching/preprocessing of structures, runs local or Foldseek alignments,
+        calculates pockets (PISA), extracts atom coordinates from mmCIF files, compares pockets
+        using alignments and scoring, and writes results to the results directory.
 
-For more information, visit: https://github.com/yourorg/pocketmapper
-                """
+    Examples:
+        # Single pair using local alignment and default settings
+        pocketmapper search --query 1ABC_A_B --target 2XYZ_C_D --results_dir ./out
+
+        # Batch mode using files with one PDB_CHAIN_CHAIN per line
+        pocketmapper search --query queries.txt --target targets.txt --settings config.json
+
+        # Use Foldseek (set foldseek true). When using the built-in TED DB:
+        pocketmapper search --query 1ABC_A_B --target ted --foldseek True --results_dir ./out_fs
+
+        # Override cache and enable debug logging
+        pocketmapper search --query 1ABC_A_B --target 2XYZ_C_D --cache_dir /tmp/cache --debug
+
+    Notes:
+        - Query/target inputs are interpreted either as single PDB_CHAIN_CHAIN strings or as file paths.
+        - Boolean settings can be provided on the command line (e.g., --foldseek True).
+        - Use a settings JSON to persist complex configurations; CLI options override settings file values.
+
+    For more information, see the project README or the repository where PocketMapper is hosted.
+            """
 
         if self._help:
             print(help_msg)
             exit()
 
     def _setup_logging(self):
+        """
+        Sets up logging configuration for the PocketMapper workflow.
+        """
         self._stage = {"stage": "Logging Setup"}
         if self._debug:
             log_level = logging.DEBUG
@@ -165,7 +285,7 @@ For more information, visit: https://github.com/yourorg/pocketmapper
 
     def _configure(self, **kwargs):
         """
-        Configures settings for the PocketMapper workflow.
+        Reads and configures settings for the PocketMapper workflow.
         """
         self._stage.update({"stage": "Configuring Settings"})
 
