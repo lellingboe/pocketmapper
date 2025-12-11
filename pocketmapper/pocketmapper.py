@@ -42,6 +42,7 @@ class PocketMapper:
         verbose=False,  # makes log file more verbose
         debug=False,  # make log file even more verbose
         help=None,  # help option
+        foldseek=None,
         **kwargs,
     ):
         """
@@ -154,6 +155,7 @@ class PocketMapper:
                 results_dir=results_dir,
                 query=query,
                 target=target,
+                foldseek=foldseek,
             )
             self._determine_query_target_types()
             self._check_query_target_set()
@@ -368,9 +370,11 @@ class PocketMapper:
         if os.path.isfile(target):
             if ".txt" in target:
                 self._target_type = "file"
-        elif target.lower() == "ted":
+        elif target.lower() == "human_domains":
             self._target_type = "foldseek_db"
-            self._settings["target_dir"] = files("TED_fs").joinpath("TED")  # Overriding target dir to point to the db
+            self._settings["target_dir"] = files("human_domains").joinpath(
+                "human"
+            )  # Overriding target dir to point to the db
         else:
             self._target_type = "pdb_chain_chain"
 
@@ -644,8 +648,8 @@ class PocketMapper:
             r"[0-9A-Z]{4}_[0-9A-Za-z]\.cif\.gz",
             "--max-seqs",
             "2500",
-            "-v",
-            "0",
+            "-v",  # verbosity
+            "3",
         ]
         subprocess.run(cmd, check=True)
 
