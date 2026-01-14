@@ -11,17 +11,17 @@ Align these structures
 import fire
 import logging
 import json
-import lib
 import subprocess
 import pandas as pd
 import os
 import re
 from datetime import datetime
-import pisa
 import shutil
 import gemmi
 from importlib.resources import files
-from local_aligner import LocalAligner
+from pocketmapper import lib
+from pocketmapper import pisa
+from pocketmapper.local_aligner import LocalAligner
 
 
 class PocketMapper:

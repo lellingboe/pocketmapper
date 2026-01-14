@@ -4,7 +4,6 @@ import os
 import logging
 from urllib.request import urlcleanup, urlretrieve
 from copy import deepcopy
-
 from Bio.SVDSuperimposer import SVDSuperimposer
 from Bio.PDB import MMCIFParser
 from glob import glob
@@ -15,9 +14,9 @@ import json
 from collections import defaultdict
 import pandas as pd
 import gemmi
-import pisa
 from numpy import array
 from numpy import linalg as LA
+from pocketmapper import pisa
 
 # TODO keep phospho information
 SINGLE_AA_CODE = {
