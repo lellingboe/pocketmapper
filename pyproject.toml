@@ -46,6 +46,12 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["pocketmapper*"]
 
+[tool.setuptools.package-data]
+pocketmapper = [
+  "blosum62.bla",
+  "human_domains/*",
+]
+
 [tool.black]
 target-version = ['py312']
 skip-string-normalization = false
