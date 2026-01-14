@@ -1,6 +1,6 @@
 [project]
 name = "pocketmapper"
-version = "0.0.3-rc0"
+version = "0.0.4-rc0"
 dependencies = [
     "bio",
     "fire",
