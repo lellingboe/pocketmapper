@@ -1,7 +1,6 @@
 [project]
 name = "pocketmapper"
-#version = "0.0.2-rc0"
-dynamic = ["version"]
+version = "0.0.2-rc0"
 dependencies = [
     "bio",
     "fire",
@@ -39,7 +38,6 @@ pocketmapper_cli = "pocketmapper:main"
 [build-system]
 requires = [
     "setuptools",
-    "setuptools-scm"
 ]
 build-backend = "setuptools.build_meta"
 
@@ -62,5 +60,3 @@ exclude = '''
 [tool.flake8]
 max-line-length = 120
 exclude = "__init__.py,build,.eggs"
-
-[tool.setuptools_scm]
