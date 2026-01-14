@@ -15,6 +15,7 @@ authors = [
 description = "A tool for mapping surface pockets in PDB structures"
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
@@ -33,7 +34,7 @@ dev = [
 ]
 
 [project.scripts]
-pocketmapper_cli = "pocketmapper:main"
+pocketmapper = "pocketmapper:main"
 
 [build-system]
 requires = [
@@ -56,7 +57,3 @@ exclude = '''
   )/
 )
 '''
-
-[tool.flake8]
-max-line-length = 120
-exclude = "__init__.py,build,.eggs"
