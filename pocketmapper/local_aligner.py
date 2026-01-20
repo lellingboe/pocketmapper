@@ -29,9 +29,9 @@ class LocalAligner:
             "GLU": "E",
             "TYR": "Y",
             "MET": "M",
-            "SEP": "S",  # phospho
-            "TPO": "T",  # phospho
-            "PTR": "Y",  # phospho
+            "SEP": "S",  # phosphoserine
+            "TPO": "T",  # phosphotheonine
+            "PTR": "Y",  # phosphotyrosine
             "MSE": "M",  # selenomethionine
         }
 
@@ -61,6 +61,10 @@ class LocalAligner:
         return [peptide1_aligned, peptide2_aligned]
 
     def align_df(self, df, struct_dir):
+        """
+        TODO docstring
+        specs for df?
+        """
 
         cols = "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,lddt,qaln,taln,u,t".split(
             ","
