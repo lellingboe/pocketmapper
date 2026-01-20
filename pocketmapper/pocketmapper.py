@@ -22,6 +22,7 @@ from importlib.resources import files
 from pocketmapper import lib
 from pocketmapper import pisa
 from pocketmapper.local_aligner import LocalAligner
+from pocketmapper import human_domains
 
 
 class PocketMapper:
@@ -372,7 +373,7 @@ class PocketMapper:
                 self._target_type = "file"
         elif target.lower() == "human_domains":
             self._target_type = "foldseek_db"
-            self._settings["target_dir"] = files("human_domains").joinpath(
+            self._settings["target_dir"] = files(human_domains).joinpath(
                 "human"
             )  # Overriding target dir to point to the db
         else:
