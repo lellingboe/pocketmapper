@@ -209,7 +209,7 @@ class PocketMapper:
         --target TARGET          Target identifier or path. Accepts:
                     - 'PDB_CHAIN_CHAIN' (e.g., 2XYZ_C_D)
                     - path to a file listing PDB_CHAIN_CHAIN entries (each line)
-                    - special foldseek DB alias 'ted' to use the bundled Foldseek DB
+                    - special foldseek DB alias 'human_domains' to use the bundled Foldseek DB
         --settings FILE          Path to a JSON settings file (overridden by explicit CLI args)
         --cache_dir DIR          Directory for caching intermediate files (overrides settings.cache_dir)
         --results_dir DIR        Directory for writing results (overrides settings.results_dir)
@@ -234,7 +234,7 @@ class PocketMapper:
 
     Description:
         Orchestrates fetching/preprocessing of structures, runs local or Foldseek alignments,
-        calculates pockets (PISA), extracts atom coordinates from mmCIF files, compares pockets
+        fetches pockets (PISA), extracts atom coordinates from mmCIF files, compares pockets
         using alignments and scoring, and writes results to the results directory.
 
     Examples:
@@ -244,8 +244,8 @@ class PocketMapper:
         # Batch mode using files with one PDB_CHAIN_CHAIN per line
         pocketmapper search --query queries.txt --target targets.txt --settings config.json
 
-        # Use Foldseek (set foldseek true). When using the built-in TED DB:
-        pocketmapper search --query 1ABC_A_B --target ted --foldseek True --results_dir ./out_fs
+        # Use Foldseek (set foldseek true). When using the built-in human_domains DB:
+        pocketmapper search --query 1ABC_A_B --target human_domains --foldseek True --results_dir ./out_fs
 
         # Override cache and enable debug logging
         pocketmapper search --query 1ABC_A_B --target 2XYZ_C_D --cache_dir /tmp/cache --debug
@@ -255,7 +255,7 @@ class PocketMapper:
         - Boolean settings can be provided on the command line (e.g., --foldseek True).
         - Use a settings JSON to persist complex configurations; CLI options override settings file values.
 
-    For more information, see the project README or the repository where PocketMapper is hosted.
+    For more information, see the project README or the github repository.
             """
 
         if self._help:
