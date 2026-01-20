@@ -9,6 +9,7 @@ PocketMapper has been tested with Python 3.12 and is available on [PyPI](https:/
 ```
 # Setup conda environment for pocketmapper
 conda create --name=pocketmapper python=3.12
+conda activate pocketmapper
 
 # Pip installation of PocketMapper
 pip install pocketmapper
