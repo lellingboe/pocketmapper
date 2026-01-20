@@ -6,16 +6,17 @@ It is intended for comparative analysis of binding pockets between query and tar
 
 ## Installation
 ### Quick Start
-PocketMapper has been tested with Python 3.12 and is available on [PyPI](https://pypi.org/project/pocketmapper/).
-> conda create --name=pocketmapper python=3.12
-> pip install pocketmapper
-
-### Optional - Foldseek
-For structural alignment, PocketMapper requires [Foldseek](https://github.com/steineggerlab/foldseek).
-Foldseek is available on conda
-> # Conda installer
+PocketMapper has been tested with Python 3.12 and is available on [PyPI](https://pypi.org/project/pocketmapper/). Optionally, [Foldseek](https://github.com/steineggerlab/foldseek) can be installed to enable effecient structural alignment.
+> \# Setup conda environment for pocketmapper\
+> conda create --name=pocketmapper python=3.12\
+> \
+> \# Pip installation of PocketMapepr\
+> pip install pocketmapper\
+> \
+> \# Optional - Conda installation of Foldseek\
 > conda install -c conda-forge -c bioconda foldseek
 
+Foldseek also has precompiled binaries available at https://dev.mmseqs.com/foldseek/
 
 ## Features
 - Download and cache mmCIF files
