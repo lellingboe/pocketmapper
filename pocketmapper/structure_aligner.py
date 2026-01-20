@@ -1,9 +1,9 @@
 """
-Function for aligning a community of pockets
-    Cached and uncached version
+Code related to creating an aligned structure
 
-Inputs:
-    Path to structure folder
+Aligner:
+- align: method accessible from command line
+- align_objects: align multiple gemmi structures given transformation matrices
 
 """
 

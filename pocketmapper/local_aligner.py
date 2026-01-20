@@ -1,3 +1,7 @@
+"""
+Code related to local sequence alignment
+"""
+
 from Bio import Align
 from Bio.Align import substitution_matrices
 import os
