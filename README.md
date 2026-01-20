@@ -1,9 +1,21 @@
 # PocketMapper
 
-PocketMapper is a command-line tool to fetch protein structures, compute PISA-derived pockets,
-extract atomic coordinates from mmCIF files, perform local or Foldseek alignments, compare
-pockets across structures and write results to disk. It is intended for comparative analysis
-of binding pockets between query and target protein chains.
+PocketMapper is a command-line tool to comapre the binding surfaces of protein-protein interactions.
+To do this, PocketMapper fetches protein structures from the PDB, fetches contact residuesfrom PDBe (PISA), aligns structures based on sequence (pairwise BLOSUM62) or structure (Foldseek) alignment, and returns information about aligned surfaces including the conservation of surface residues and their RMSD.
+It is intended for comparative analysis of binding pockets between query and target protein chains.
+
+## Installation
+### Quick Start
+PocketMapper has been tested with Python 3.12 and is available on [PyPI](https://pypi.org/project/pocketmapper/).
+> conda create --name=pocketmapper python=3.12
+> pip install pocketmapper
+
+### Optional - Foldseek
+For structural alignment, PocketMapper requires [Foldseek](https://github.com/steineggerlab/foldseek).
+Foldseek is available on conda
+> # Conda installer
+> conda install -c conda-forge -c bioconda foldseek
+
 
 ## Features
 - Download and cache mmCIF files
