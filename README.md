@@ -5,12 +5,12 @@ PocketMapper fetches protein structures from the PDB, fetches contact residues f
 It is intended for comparative analysis of binding pockets between query and target protein chains.
 
 ## Installation
-PocketMapper has been tested with Python 3.12 and is available on [PyPI](https://pypi.org/project/pocketmapper/). Optionally, [Foldseek](https://github.com/steineggerlab/foldseek) can be installed to enable effecient structural alignment.
+PocketMapper has been tested with Python 3.12 and is available on [PyPI](https://pypi.org/project/pocketmapper/). Optionally, [Foldseek](https://github.com/steineggerlab/foldseek) can be installed to enable efficient structural alignment.
 ```
 # Setup conda environment for pocketmapper
 conda create --name=pocketmapper python=3.12
 
-# Pip installation of PocketMapepr
+# Pip installation of PocketMapper
 pip install pocketmapper
 
 # Optional - Conda installation of Foldseek
@@ -43,11 +43,10 @@ pocketmapper search --query 4Q5J_B_F --target human_domains --foldseek True --re
 --foldseek: If true, run Foldseek alignments (requires foldseek binary).\
 --help: Display the help message
 
-### Features
+### Features
 - Download and cache mmCIF files
-- Preprocess/mmCIF splitting using gemmi
-- Retrieve PISA interface/pocket information and store pocket data
-- Extract CA coordinates from divided structures
+- Retrieve PISA interface definition
+- Extract CA coordinates from PDB structures
 - Perform local alignments or Foldseek-based alignments
 - Compare pockets using alignment and substitution scoring (BLOSUM62)
 - Save tabular results and auxiliary JSON files to a results directory
@@ -61,3 +60,9 @@ pocketmapper search --query 4Q5J_B_F --target human_domains --foldseek True --re
 
 ## Contact / Authors
 See project repository for maintainer and contributor information.
+
+## TBD
+- Align function to generate aligned structures
+- Information on results table
+- Some sort of visual output
+- Information of querying alphafold domains with human_domains
