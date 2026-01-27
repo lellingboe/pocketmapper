@@ -182,6 +182,9 @@ class PocketMapper:
             logging.exception(str(e), extra=self._stage)
             exit(1)
 
+    def align(self):
+        pass
+
     def _search_help(self):
         """
         Displays help information for the PocketMapper tool and exits the program.
