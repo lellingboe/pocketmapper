@@ -78,9 +78,7 @@ class PocketMapper:
                 target=target,
                 foldseek=foldseek,
             )
-            self._determine_query_target_types()
-            self._check_query_target_set()
-            self._read_query_target_data()
+            self._setup_query_target()
 
             # Preparing structures for later
             self._prepare_directories()
@@ -91,7 +89,7 @@ class PocketMapper:
 
             if True:  # hack to make ATP pocket search working
                 pockets = self._retrieve_pockets()
-                pockets = self._get_atom_coords_from_cif(pockets)
+                pockets = self._get_atom_coords_from_cif(pockets)  # Adds seq_pos and cacoords to the pocket info dict
             else:
                 pc = PocketCalculator()
                 pockets = pc.atp_pocket_overlap(
@@ -300,17 +298,20 @@ class PocketMapper:
             if key not in self._settings:
                 self._settings[key] = value
 
-        logging.debug(f"\n{self._settings}", extra=self._stage)
+        logging.debug(f"\nInternal settings dictionary:\n{self._settings}", extra=self._stage)
 
-    def _determine_query_target_types(self):
+    def _setup_query_target(self):
         """
         Determining the inputs types for query and target based on the format of the provided values.
-
         """
         self._stage.update({"stage": "Determine Query/Target Types"})
 
-        self._query_type = None
-        self._target_type = None
+        # What is determined in this stage
+        self._query_type = None  # {file, pdb_chain_chain}
+        self._target_type = None  # {file, foldseek_db, pdb_chain_chain}
+        self._pdb_df = (
+            None  # DataFrame to hold all the relevant info about the query and target PDBs, chains, motifs, etc.
+        )
 
         query = self._settings.get("query")
         if os.path.isfile(query):
@@ -333,7 +334,6 @@ class PocketMapper:
         self.logger.debug(f"Determined query type: {self._query_type}", extra=self._stage)
         self.logger.debug(f"Determined target type: {self._target_type}", extra=self._stage)
 
-    def _check_query_target_set(self):
         # Checking a target and query is specified
         self._stage.update({"stage": "Input Validation"})
         if not self._settings.get("query"):
@@ -341,40 +341,30 @@ class PocketMapper:
         if not self._settings.get("target"):
             raise ValueError("No target specified. Use --target")
 
-        # Checking single pdb inputs
-
-        """input_re = re.compile(r"[A-Za-z0-9]{4}_[A-Za-z0-9]_[A-Za-z0-9]")
-        for key in ["query", "target"]:
-            value = self._settings.get(key)
-            if value and not input_re.match(value):
-                self.logger.critical(
-                    f"{key.capitalize()} '{value}' does not match required format 'PDB_CHAIN_CHAIN'.", extra=self._stage
-                )
-                exit(1)"""
-
-    def _read_query_target_data(self):
+        # Reading the data
         self._stage.update({"stage": "Reading Input Data"})
-
-        self._query_data = self._parse_inputs(self._query, self._query_type, type="query")
-        if type(self._query_data) is pd.DataFrame:
-            self.logger.debug(f"query_data:\n{self._query_data.head()}", extra=self._stage)
+        query_data = self._parse_inputs(self._query, self._query_type, type="query")
+        if type(query_data) is pd.DataFrame:
+            self.logger.debug(f"query_data:\n{query_data.head()}", extra=self._stage)
         else:
-            self.logger.debug(f"query_data:\n{self._query_data}", extra=self._stage)
+            self.logger.debug(f"query_data:\n{query_data}", extra=self._stage)
 
-        self._target_data = self._parse_inputs(self._target, self._target_type, type="target")
-        if type(self._target_data) is pd.DataFrame:
-            self.logger.debug(f"target_data:\n{self._target_data.head()}", extra=self._stage)
+        target_data = self._parse_inputs(self._target, self._target_type, type="target")
+        if type(target_data) is pd.DataFrame:
+            self.logger.debug(f"target_data:\n{target_data.head()}", extra=self._stage)
         else:
-            self.logger.debug(f"target_data:\n{self._target_data}", extra=self._stage)
+            self.logger.debug(f"target_data:\n{target_data}", extra=self._stage)
 
         """
         query_df = self._make_tq_df("query", "query_file", type="query")
         target_df = self._make_tq_df("target", "target_file", type="target")
         """
-        pdb_data = [self._query_data]
-        if type(self._target_data) is pd.DataFrame:
-            pdb_data.append(self._target_data)
+        pdb_data = [query_data]
+        if type(target_data) is pd.DataFrame:
+            pdb_data.append(target_data)
         self._pdb_df = pd.concat(pdb_data, ignore_index=True)
+
+        logging.debug(f"Combined Query/Target DataFrame:\n{self._pdb_df.head(10)}", extra=self._stage)
 
     def _parse_inputs(self, value, value_type, **kwargs):
         pdb_chain_chain_re = re.compile(r"[A-Za-z0-9]{4}_[A-Za-z0-9]_[A-Za-z0-9]")
@@ -422,13 +412,22 @@ class PocketMapper:
             )
             return df
         elif value_type == "foldseek_db":
-            # For foldseek db, we just return the path to the db
+            # For foldseek db, the value is the path to the db
             return value
         else:
             self.logger.critical(f"Unknown value_type '{value_type}'", extra=self._stage)
             exit(1)
 
     def pdb_info_to_df(self, pdbs, domains, motifs, **kwargs):
+        """
+        Docstring for pdb_info_to_df
+
+        :param self: Description
+        :param pdbs: Description
+        :param domains: Description
+        :param motifs: Description
+        :param kwargs: Description
+        """
         data = {
             "interaction_pdb": [pdb.upper() for pdb in pdbs],
             "domain_chain": domains,
@@ -463,6 +462,14 @@ class PocketMapper:
                 raise OSError(f"Error creating directory {path}: {e}")
 
     def _fetch_and_verify_structures(self):
+        """
+        1) Downloads structures for the PDB entries in self._pdb_df['interaction_pdb'].
+
+        2) Verifies that structures were found for the query and target entries (if required based on their types)
+           and logs the results. If no structures are found for either query or target when required, logs a critical
+           error and exits.
+        """
+        # Downloading structures
         self._stage.update({"stage": "Fetch Structures"})
         logging.info("Checking for mmCIF structures...", extra=self._stage)
         found_map = lib.get_mmcifs(
@@ -471,16 +478,16 @@ class PocketMapper:
         )
         self._pdb_df["structure_found"] = self._pdb_df["interaction_pdb"].map(found_map)
 
+        # Verifying enough structures were found to continue
         self._stage.update({"stage": "Verify Structures"})
-        if (
-            not self._pdb_df.query("structure_found and type == 'query'").empty
-            and self._query_type in self._requires_structures
-        ):
-            logging.info("Query structures found.", extra=self._stage)
-        else:
-            logging.critical("No query structures found locally or via download", extra=self._stage)
-            exit(1)
-
+        # Query
+        if self._query_type in self._requires_structures:
+            if not self._pdb_df.query("structure_found and type == 'query'").empty:
+                logging.info("Query structures found.", extra=self._stage)
+            else:
+                logging.critical("No query structures found locally or via download", extra=self._stage)
+                exit(1)
+        # Target
         if self._target_type in self._requires_structures:
             if not self._pdb_df.query("structure_found and type == 'target'").empty:
                 logging.info("Target structures found.", extra=self._stage)
@@ -499,14 +506,6 @@ class PocketMapper:
             target_dir=self._settings["target_dir"],
         )
         self._pdb_df["divided_struct"] = self._pdb_df["pdb_domain_motif"].map(divided_map).fillna(False)
-
-        """self._stage.update({"stage": "Verify Preprocessing"})
-        if self._pdb_df.query("divided_struct and type == 'query'").empty:
-            logging.critical("No query structure could be preprocessed", extra=self._stage)
-            exit(1)
-        if self._pdb_df.query("divided_struct and type == 'target'").empty:
-            logging.critical("No target structure could be preprocessed", extra=self._stage)
-            exit(1)"""
 
     def _retrieve_pockets(self):
         self._stage.update({"stage": "Pocket Calculation"})
