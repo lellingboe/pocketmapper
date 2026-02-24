@@ -52,7 +52,9 @@ class PocketMapper:
         Orchestrate and run the full PocketMapper search workflow.
         See pocketmapper search --help for details.
         """
-        self._stage = {"stage": "Start"}  # TODO make string not dict
+        self._stage = {
+            "stage": "Start"
+        }  # dict needed for logging extra info, can be updated throughout the process to indicate the current stage in logs
 
         # Storing input parameters
         self._query = query
@@ -204,26 +206,39 @@ class PocketMapper:
     def _setup_logging(self):
         """
         Sets up logging configuration for the PocketMapper workflow.
+        The logging level is determined based on the 'debug' and 'verbose' flags provided during initialization.
+        Logs are output to both the console and a file named 'info.log' in the current directory.
+        The log format includes the log level, stage, and message.
+
         """
-        self._stage = {"stage": "Logging Setup"}
+        self._stage = {"stage": "Logging Setup"}  # Updating stage for logging context
+
+        # Determining log level based on debug and verbose flags
         if self._debug:
             log_level = logging.DEBUG
         elif self._verbose:
             log_level = logging.INFO
         else:
             log_level = logging.WARNING
+
+        # Configuring logging to console
         fmt = "%(levelname)s: %(stage)s - %(msg)s"
         self.logger = logging.getLogger("pocketmapper")
         logging.basicConfig(level=log_level, format=fmt)
 
-        # Writing to file
+        # Configuring logging to file
+        # TODO make log file name include timestamp and maybe some info about the run (e.g., query and target)
+        # TODO allow use to specify log file name and location via settings
+        # TODO use output directory
         formatter = logging.Formatter(fmt)
-        fh = logging.FileHandler("test.log")
+        fh = logging.FileHandler("info.log")
         fh.setLevel(log_level)
         fh.setFormatter(formatter)
         self.logger.addHandler(fh)
 
-        self.logger.debug("Level set to DEBUG", extra=self._stage)
+        self.logger.debug(
+            "Level set to DEBUG", extra=self._stage
+        )  # example of how to use the logger with the stage info
 
     def _configure(self, **kwargs):
         """
