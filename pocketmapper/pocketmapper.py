@@ -44,9 +44,9 @@ class PocketMapper:
         verbose=False,  # makes log file more verbose
         debug=False,  # make log file even more verbose
         help=None,  # help option
-        foldseek=None,
         pocket_method=None,  # method to calculate pockets, default is PISA
-        align_struct=None,  # whether to align structures after pocket comparison
+        foldseek=False,  # whether to use foldseek for alignment (if false, uses local sequence alignment)
+        align_struct=False,  # whether to align structures after pocket comparison
     ):
         """
         Orchestrate and run the full PocketMapper search workflow.
@@ -65,19 +65,16 @@ class PocketMapper:
         self._verbose = verbose
         self._debug = debug
         self._help = help
+        self._foldseek = foldseek
+        self._pocket_method = pocket_method
+        self._align_struct = align_struct
 
         # Main try-except block to catch unhandled exceptions
         try:
             # Setting up things
             self._search_help()
             self._setup_logging()
-            self._configure(  # configures the settings which have already been read
-                cache_dir=cache_dir,
-                results_dir=results_dir,
-                query=query,
-                target=target,
-                foldseek=foldseek,
-            )
+            self._configure()  # configures the settings which have already been read
             self._setup_query_target()
 
             # Preparing structures for later
@@ -135,69 +132,68 @@ class PocketMapper:
             Call this method when the user requests help (e.g., via a command-line flag).
         """
 
-        help_msg = """
-    PocketMapper - A tool for mapping and analyzing protein pockets.
-
-    Usage:
-        pocketmapper search [OPTIONS]
-
-    Primary options (passed to PocketMapper.search):
-        --query QUERY            Query identifier or path. Accepts:
-                    - 'PDB_CHAIN_CHAIN' (e.g., 1ABC_A_B)
-                    - path to a file listing PDB_CHAIN_CHAIN entries (each line)
-        --target TARGET          Target identifier or path. Accepts:
-                    - 'PDB_CHAIN_CHAIN' (e.g., 2XYZ_C_D)
-                    - path to a file listing PDB_CHAIN_CHAIN entries (each line)
-                    - special foldseek DB alias 'human_domains' to use the bundled Foldseek DB
-        --settings FILE          Path to a JSON settings file (overridden by explicit CLI args)
-        --cache_dir DIR          Directory for caching intermediate files (overrides settings.cache_dir)
-        --results_dir DIR        Directory for writing results (overrides settings.results_dir)
-        --verbose                Enable more detailed (info) logging
-        --debug                  Enable debug-level logging
-        --help                   Show this help message and exit
-
-    Relevant settings (can be placed in settings JSON or passed as CLI kwargs):
-        cache_dir                Base cache directory (default: pocketmapper_cache)
-        results_dir              Results directory (default: pocketmapper_results_<timestamp>)
-        structure_dir            Directory to store downloaded/available structures
-        pocket_dir               Directory to store calculated pockets
-        pisa_dir                 Directory for PISA related files
-        divided_struct_dir       Directory for preprocessed/divided structures
-        query_dir                Temporary directory for query divided structures
-        target_dir               Temporary directory for target divided structures
-        alignment_path           Path to write alignment TSV
-        pocket_comparison_path   Path to write pocket comparison TSV
-        foldseek                 Use Foldseek for alignment (bool). If true and target == 'ted', uses bundled DB.
-        pisa_pockets             Retrieve pockets via PISA (bool)
-        structure                If set, treat inputs as raw structure files (bool)
-
-    Description:
-        Orchestrates fetching/preprocessing of structures, runs local or Foldseek alignments,
-        fetches pockets (PISA), extracts atom coordinates from mmCIF files, compares pockets
-        using alignments and scoring, and writes results to the results directory.
-
-    Examples:
-        # Single pair using local alignment and default settings
-        pocketmapper search --query 1ABC_A_B --target 2XYZ_C_D --results_dir ./out
-
-        # Batch mode using files with one PDB_CHAIN_CHAIN per line
-        pocketmapper search --query queries.txt --target targets.txt --settings config.json
-
-        # Use Foldseek (set foldseek true). When using the built-in human_domains DB:
-        pocketmapper search --query 1ABC_A_B --target human_domains --foldseek True --results_dir ./out_fs
-
-        # Override cache and enable debug logging
-        pocketmapper search --query 1ABC_A_B --target 2XYZ_C_D --cache_dir /tmp/cache --debug
-
-    Notes:
-        - Query/target inputs are interpreted either as single PDB_CHAIN_CHAIN strings or as file paths.
-        - Boolean settings can be provided on the command line (e.g., --foldseek True).
-        - Use a settings JSON to persist complex configurations; CLI options override settings file values.
-
-    For more information, see the project README or the github repository.
-            """
-
         if self._help:
+            help_msg = """
+        PocketMapper - A tool for mapping and analyzing protein pockets.
+
+        Usage:
+            pocketmapper search [OPTIONS]
+
+        Primary options (passed to PocketMapper.search):
+            --query QUERY            Query identifier or path. Accepts:
+                        - 'PDB_CHAIN_CHAIN' (e.g., 1ABC_A_B)
+                        - path to a file listing PDB_CHAIN_CHAIN entries (each line)
+            --target TARGET          Target identifier or path. Accepts:
+                        - 'PDB_CHAIN_CHAIN' (e.g., 2XYZ_C_D)
+                        - path to a file listing PDB_CHAIN_CHAIN entries (each line)
+                        - special foldseek DB alias 'human_domains' to use the bundled Foldseek DB
+            --settings FILE          Path to a JSON settings file (overridden by explicit CLI args)
+            --cache_dir DIR          Directory for caching intermediate files (overrides settings.cache_dir)
+            --results_dir DIR        Directory for writing results (overrides settings.results_dir)
+            --verbose                Enable more detailed (info) logging
+            --debug                  Enable debug-level logging
+            --help                   Show this help message and exit
+
+        Relevant settings (can be placed in settings JSON or passed as CLI kwargs):
+            cache_dir                Base cache directory (default: pocketmapper_cache)
+            results_dir              Results directory (default: pocketmapper_results_<timestamp>)
+            structure_dir            Directory to store downloaded/available structures
+            pocket_dir               Directory to store calculated pockets
+            pisa_dir                 Directory for PISA related files
+            divided_struct_dir       Directory for preprocessed/divided structures
+            query_dir                Temporary directory for query divided structures
+            target_dir               Temporary directory for target divided structures
+            alignment_path           Path to write alignment TSV
+            pocket_comparison_path   Path to write pocket comparison TSV
+            foldseek                 Use Foldseek for alignment (bool). If true and target == 'ted', uses bundled DB.
+            pisa_pockets             Retrieve pockets via PISA (bool)
+            structure                If set, treat inputs as raw structure files (bool)
+
+        Description:
+            Orchestrates fetching/preprocessing of structures, runs local or Foldseek alignments,
+            fetches pockets (PISA), extracts atom coordinates from mmCIF files, compares pockets
+            using alignments and scoring, and writes results to the results directory.
+
+        Examples:
+            # Single pair using local alignment and default settings
+            pocketmapper search --query 1ABC_A_B --target 2XYZ_C_D --results_dir ./out
+
+            # Batch mode using files with one PDB_CHAIN_CHAIN per line
+            pocketmapper search --query queries.txt --target targets.txt --settings config.json
+
+            # Use Foldseek (set foldseek true). When using the built-in human_domains DB:
+            pocketmapper search --query 1ABC_A_B --target human_domains --foldseek True --results_dir ./out_fs
+
+            # Override cache and enable debug logging
+            pocketmapper search --query 1ABC_A_B --target 2XYZ_C_D --cache_dir /tmp/cache --debug
+
+        Notes:
+            - Query/target inputs are interpreted either as single PDB_CHAIN_CHAIN strings or as file paths.
+            - Boolean settings can be provided on the command line (e.g., --foldseek True).
+            - Use a settings JSON to persist complex configurations; CLI options override settings file values.
+
+        For more information, see the project README or the github repository.
+                """
             print(help_msg)
             exit()
 
@@ -238,7 +234,7 @@ class PocketMapper:
             "Level set to DEBUG", extra=self._stage
         )  # example of how to use the logger with the stage info
 
-    def _configure(self, **kwargs):
+    def _configure(self):
         """
         Reads and configures settings for the PocketMapper workflow.
 
@@ -267,7 +263,16 @@ class PocketMapper:
                 self._settings.update(settings_data_from_file)
 
         # Override settings_file with any provided command-line arguments
-        for key, value in kwargs.items():
+        cdm_line_args = {
+            "cache_dir": self._cache_dir,
+            "results_dir": self._results_dir,
+            "query": self._query,
+            "target": self._target,
+            "foldseek": self._foldseek,
+            "pocket_method": self._pocket_method,
+            "align_struct": self._align_struct,
+        }
+        for key, value in cdm_line_args.items():
             if value is not None:
                 self._settings[key] = value
 
@@ -289,16 +294,14 @@ class PocketMapper:
             "target_dir": os.path.join(results_dir, "target_structures"),
             "alignment_path": os.path.join(results_dir, "alignment.tsv"),
             "pocket_comparison_path": os.path.join(results_dir, "pocket_comparison.tsv"),
-            # Other settings
-            "foldseek": False,
-            "pisa_pockets": True,
-            "structure": False,
         }
         for key, value in defaults.items():
             if key not in self._settings:
                 self._settings[key] = value
 
-        logging.debug(f"\nInternal settings dictionary:\n{self._settings}", extra=self._stage)
+        logging.debug("Internal settings:", extra=self._stage)
+        for k, v in self._settings.items():
+            logging.debug(f"{k}: {v}", extra=self._stage)
 
     def _setup_query_target(self):
         """
