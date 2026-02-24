@@ -10,7 +10,7 @@ from itertools import combinations
 import pandas as pd
 
 
-class LocalAligner:
+class SequenceAligner:
     def __init__(self):
         self.single_aa_code = {
             "CYS": "C",

@@ -21,7 +21,8 @@ import gemmi
 from importlib.resources import files
 from pocketmapper import lib
 from pocketmapper import pisa
-from pocketmapper.local_aligner import LocalAligner
+from pocketmapper.sequence_aligner import SequenceAligner
+from pocketmapper.pocket_calculator import PocketCalculator
 from pocketmapper import human_domains
 
 
@@ -44,96 +45,14 @@ class PocketMapper:
         debug=False,  # make log file even more verbose
         help=None,  # help option
         foldseek=None,
-        **kwargs,
+        pocket_method=None,  # method to calculate pockets, default is PISA
+        align_struct=None,  # whether to align structures after pocket comparison
     ):
         """
-         Orchestrate and run the full PocketMapper search workflow.
-
-        This method is the top-level entry point that coordinates all steps required
-        to perform a pocket mapping search. It accepts high-level inputs (query,
-        target, settings and locations for cache/results), stores them on the instance,
-        and then executes a sequence of internal operations to produce and persist
-        pocket comparison results.
-
-        Behavior and workflow steps (high-level):
-        - Store provided input parameters on the instance for access by downstream
-            methods (e.g., self._query, self._target, self._settings_file).
-        - Optionally present help and configure logging according to verbosity/debug
-            settings.
-        - Configure runtime parameters (cache and results directories, effective
-            query/target selections) via self._configure.
-        - Determine types of the query and target inputs and validate that both are set.
-        - Read and parse query/target data into internal representations.
-        - Prepare filesystem directories for caching and results.
-        - Fetch and verify structural data (e.g., download or load coordinate files).
-        - Split or divide structures into segments as required for downstream analysis.
-        - Perform structural alignment between query and target as necessary.
-        - Retrieve candidate pockets and (when applicable) extract atomic coordinates
-            from CIF files.
-        - Compare pockets across structures and persist the results to the configured
-            results directory.
-        - Clean up temporary files created during the run.
-        - Log completion and final stage information.
-
-        Side effects:
-        - Writes and updates on-disk state: creates/uses cache_dir and results_dir,
-            writes logs, may write intermediate files (temporary directories/files).
-        - Alters instance state by setting a number of attributes used by private
-            helper methods (e.g., self._stage, self._uncaught_args).
-        - Terminates the Python process with sys.exit(1) if an unexpected exception
-            occurs (after logging the error).
-
-        Parameters:
-        - query (optional): High-level specification of the query input. Can be a path,
-            identifier, or data object as supported by the class. Passed through to
-            self._configure for interpretation. If None, behavior depends on configuration
-            and other inputs.
-        - target (optional): High-level specification of the target input. Similar
-            semantics to query.
-        - settings (optional): Path or object representing configuration/settings to
-            load for this run. Stored as self._settings_file and used when configuring
-            runtime behavior.
-        - cache_dir (optional): Filesystem path to a directory used for caching
-            downloaded or intermediate files. If omitted, a default cache location will
-            be used/created by configuration routines.
-        - results_dir (optional): Filesystem path to write final results and any
-            persistent outputs. If omitted, a default results location will be used.
-        - verbose (bool, default False): When True, makes log files more verbose and
-            enables more informative console/log output.
-        - debug (bool, default False): When True, enables additional debug-level logging
-            beyond verbose, useful for troubleshooting internal steps.
-        - help (optional): If provided, triggers help/usage behavior in _search_help.
-            Exact semantics depend on the implementation of that helper.
-        - **kwargs: Any additional uncaught keyword arguments provided by callers are
-            stored on the instance as self._uncaught_args and can be used by helper
-            methods or future extensions.
-
-        Return value:
-        - None. Results and artifacts are persisted to disk (results_dir, cache_dir)
-            and logged. The method intentionally does not return computed data objects;
-            callers should read from the results directory or use other instance methods
-            to access in-memory results after the run.
-
-        Error handling:
-        - Any unhandled exception raised during the orchestration will be caught,
-            logged with traceback/context (using the current self._stage for logging
-            metadata), and the process will exit with status code 1. This ensures that
-            failures are visible in logs and that downstream automation can detect a
-            non-zero exit status.
-        - Individual helper methods may raise more specific exceptions (e.g., I/O,
-            network, validation errors) which will be logged by this method if not
-            intercepted earlier.
-
-        Notes and recommendations:
-        - Because this method writes to disk and may terminate the process on failure,
-            it is best invoked from top-level scripts or entry points rather than from
-            long-running services where a controlled exception-handling strategy is
-            required.
-        - For reproducible runs, supply explicit cache_dir, results_dir and settings.
-        - Use debug=True when investigating unexpected behavior; logs will contain
-            additional diagnostic detail.
+        Orchestrate and run the full PocketMapper search workflow.
+        See pocketmapper search --help for details.
         """
-        self._stage = {"stage": "Start"}
+        self._stage = {"stage": "Start"}  # TODO make string not dict
 
         # Storing input parameters
         self._query = query
@@ -144,7 +63,6 @@ class PocketMapper:
         self._verbose = verbose
         self._debug = debug
         self._help = help
-        self._uncaught_args = kwargs
 
         # Main try-except block to catch unhandled exceptions
         try:
@@ -169,8 +87,21 @@ class PocketMapper:
 
             self._alignment()
 
-            pockets = self._retrieve_pockets()
-            pockets = self._get_atom_coords_from_cif(pockets)
+            if True:  # hack to make ATP pocket search working
+                pockets = self._retrieve_pockets()
+                pockets = self._get_atom_coords_from_cif(pockets)
+            else:
+                pc = PocketCalculator()
+                pockets = pc.atp_pocket_overlap(
+                    r"/Users/lellingboe/Work/data/kinase_edit/atp_pocket/pocketmapper_cache/divided_structs/3BU5_A_B.cif.gz",
+                    "A",
+                    "3BU5_A_B",
+                )
+                with open(
+                    r"/Users/lellingboe/Work/data/kinase_edit/atp_pocket/pocketmapper_cache/pockets/3BU5_A_B_atp_pocket.json",
+                    "w",
+                ) as f:
+                    json.dump(pockets, f, indent=4)
 
             self._compare_pockets_and_save(pockets)
             self._delete_tmp()
@@ -183,6 +114,11 @@ class PocketMapper:
             exit(1)
 
     def align(self):
+        """
+        Docstring for align
+
+        To be implemented, allow you to aligne 2 structures with foldseek or local alignment without doing the full pocketmapper search workflow
+        """
         pass
 
     def _search_help(self):
@@ -294,11 +230,6 @@ class PocketMapper:
         Reads and configures settings for the PocketMapper workflow.
         """
         self._stage.update({"stage": "Configuring Settings"})
-
-        # Unrecognised arguments
-        if len(self._uncaught_args) > 0:
-            logging.critical(f"Unrecognised args: {list(self._uncaught_args.keys())}", extra=self._stage)
-            exit(1)
 
         # Populates settings from the settings file if provided
         if self._settings_file is not None:
@@ -658,7 +589,7 @@ class PocketMapper:
         subprocess.run(cmd, check=True)
 
     def _local_alignment(self):
-        aligner = LocalAligner()
+        aligner = SequenceAligner()
         alignment = aligner.align_df(self._pdb_df, self._settings["divided_struct_dir"])
         print(alignment)
         alignment.to_csv(self._settings["alignment_path"], index=False, sep="\t")
