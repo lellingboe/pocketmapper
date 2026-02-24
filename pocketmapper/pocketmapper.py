@@ -243,6 +243,10 @@ class PocketMapper:
     def _configure(self, **kwargs):
         """
         Reads and configures settings for the PocketMapper workflow.
+
+        1) Reads setting from provided JSON
+        2) Overrides settings with any provided as explicit keyword arguments
+        3) Sets default values for any settings not provided in either of the above steps
         """
         self._stage.update({"stage": "Configuring Settings"})
 
@@ -252,7 +256,7 @@ class PocketMapper:
             if not os.path.isfile(self._settings_file):
                 logging.critical(f"Settings file not found: {self._settings_file}", extra=self._stage)
                 exit(1)
-
+            # Try to read the settings file and update the settings dict, catching JSON parsing errors
             try:
                 with open(self._settings_file) as f:
                     settings_data_from_file = json.load(f)
@@ -269,22 +273,25 @@ class PocketMapper:
             if value is not None:
                 self._settings[key] = value
 
-        # Default settings
+        # Using defaults setting for any settings not provided by either of the above steps
         cache_dir = self._settings.get("cache_dir", "pocketmapper_cache")
         now = datetime.now().strftime("%y%m%d_%H%M%S")
         results_dir = self._settings.get("results_dir", f"pocketmapper_results_{now}")
         defaults = {
+            # Default directories stemming from cache_dir
             "cache_dir": cache_dir,
             "structure_dir": os.path.join(cache_dir, "pdb_structures"),
             "pocket_dir": os.path.join(cache_dir, "pockets"),
             "foldseek_tmp_dir": os.path.join(cache_dir, "foldseek_tmp"),
             "pisa_dir": os.path.join(cache_dir, "pisa_pockets"),
             "divided_struct_dir": os.path.join(cache_dir, "divided_structs"),
+            # Default directories and files stemming from results_dir
             "results_dir": results_dir,
             "query_dir": os.path.join(results_dir, "query_structures"),
             "target_dir": os.path.join(results_dir, "target_structures"),
             "alignment_path": os.path.join(results_dir, "alignment.tsv"),
             "pocket_comparison_path": os.path.join(results_dir, "pocket_comparison.tsv"),
+            # Other settings
             "foldseek": False,
             "pisa_pockets": True,
             "structure": False,
@@ -296,16 +303,11 @@ class PocketMapper:
         logging.debug(f"\n{self._settings}", extra=self._stage)
 
     def _determine_query_target_types(self):
+        """
+        Determining the inputs types for query and target based on the format of the provided values.
+
+        """
         self._stage.update({"stage": "Determine Query/Target Types"})
-
-        # possible types for both query and target:
-        #   pdb_chain_chain
-        #   file (pdb_chain_chain per line)
-        #   alphafold3 structure (implement later)
-
-        # possible types for target only:
-        #   foldseek database
-        #
 
         self._query_type = None
         self._target_type = None
