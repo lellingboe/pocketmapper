@@ -1,28 +1,25 @@
 """
-Functions
-given target and query structures...
-fetch the files (optional)
-calculate pockets
-store calculated pockets
-make domain only and domain-motif structures
-Align these structures
+PocketMapper: A tool for mapping and analyzing protein pockets.
+
+Author: Lachlan Ellingboe
+
 """
 
+from importlib.resources import files
 import fire
 import logging
 import json
 import subprocess
 import pandas as pd
 import os
-import re
 from datetime import datetime
 import shutil
 import gemmi
-from importlib.resources import files
 from pocketmapper import lib
 from pocketmapper import pisa
 from pocketmapper.sequence_aligner import SequenceAligner
 from pocketmapper.pocket_calculator import PocketCalculator
+from pocketmapper.qt_processor import QTProcessor
 from pocketmapper import human_domains
 
 
@@ -31,7 +28,6 @@ class PocketMapper:
         self._settings = {}
         self._stage = {"stage": "init"}
         self._requires_structures = ["pdb_chain_chain", "file"]
-        self._pdb_df = None
 
     # TODO implement caching option
     def search(
@@ -43,17 +39,18 @@ class PocketMapper:
         results_dir=None,
         verbose=False,  # makes log file more verbose
         debug=False,  # make log file even more verbose
-        help=None,  # help option
-        pocket_method=None,  # method to calculate pockets, default is PISA
-        foldseek=False,  # whether to use foldseek for alignment (if false, uses local sequence alignment)
-        align_struct=False,  # whether to align structures after pocket comparison
+        help=False,  # help option
+        query_pocket_method=None,  # method to calculate pockets, default is PISA
+        target_pocket_method=None,  # method to calculate pockets, default is PISA
+        foldseek=None,  # whether to use foldseek for alignment (if false, uses local sequence alignment)
+        align_struct=None,  # whether to align structures after pocket comparison
     ):
         """
         Orchestrate and run the full PocketMapper search workflow.
         See pocketmapper search --help for details.
         """
         self._stage = {
-            "stage": "Start"
+            "stage": "Starting Search"
         }  # dict needed for logging extra info, can be updated throughout the process to indicate the current stage in logs
 
         # Storing input parameters
@@ -66,8 +63,11 @@ class PocketMapper:
         self._debug = debug
         self._help = help
         self._foldseek = foldseek
-        self._pocket_method = pocket_method
+        self._query_pocket_method = query_pocket_method
+        self._target_pocket_method = target_pocket_method
         self._align_struct = align_struct
+
+        self.human_domains_db_path = files(human_domains).joinpath("human")
 
         # Main try-except block to catch unhandled exceptions
         try:
@@ -75,19 +75,20 @@ class PocketMapper:
             self._search_help()
             self._setup_logging()
             self._configure()  # configures the settings which have already been read
+
+            # Preprocessing/Downloading required data
             self._setup_query_target()
-
-            # Preparing structures for later
             self._prepare_directories()
-            self._fetch_and_verify_structures()
-            self._divide_structures()
+            self._fetch_pdb_structures()
+            if self._foldseek:
+                self._preprocess_structures()
 
+            # Alignment
             self._alignment()
 
-            if True:  # hack to make ATP pocket search working
-                pockets = self._retrieve_pockets()
-                pockets = self._get_atom_coords_from_cif(pockets)  # Adds seq_pos and cacoords to the pocket info dict
-            else:
+            # Pockets
+            pockets = self._get_pockets()  # Adds seq_pos and cacoords to the pocket info dict
+            if False:  # hack to make ATP pocket search working
                 pc = PocketCalculator()
                 pockets = pc.atp_pocket_overlap(
                     r"/Users/lellingboe/Work/data/kinase_edit/atp_pocket/pocketmapper_cache/divided_structs/3BU5_A_B.cif.gz",
@@ -246,11 +247,9 @@ class PocketMapper:
 
         # Populates settings from the settings file if provided
         if self._settings_file is not None:
-            # Checking that the supplied settings file exists
             if not os.path.isfile(self._settings_file):
                 logging.critical(f"Settings file not found: {self._settings_file}", extra=self._stage)
                 exit(1)
-            # Try to read the settings file and update the settings dict, catching JSON parsing errors
             try:
                 with open(self._settings_file) as f:
                     settings_data_from_file = json.load(f)
@@ -264,12 +263,13 @@ class PocketMapper:
 
         # Override settings_file with any provided command-line arguments
         cdm_line_args = {
-            "cache_dir": self._cache_dir,
-            "results_dir": self._results_dir,
             "query": self._query,
             "target": self._target,
+            "cache_dir": self._cache_dir,
+            "results_dir": self._results_dir,
             "foldseek": self._foldseek,
-            "pocket_method": self._pocket_method,
+            "query_pocket_method": self._query_pocket_method,
+            "target_pocket_method": self._target_pocket_method,
             "align_struct": self._align_struct,
         }
         for key, value in cdm_line_args.items():
@@ -294,6 +294,10 @@ class PocketMapper:
             "target_dir": os.path.join(results_dir, "target_structures"),
             "alignment_path": os.path.join(results_dir, "alignment.tsv"),
             "pocket_comparison_path": os.path.join(results_dir, "pocket_comparison.tsv"),
+            "foldseek": False,
+            "query_pocket_method": None,
+            "target_pocket_method": None,
+            "align_struct": False,
         }
         for key, value in defaults.items():
             if key not in self._settings:
@@ -309,236 +313,177 @@ class PocketMapper:
         """
         self._stage.update({"stage": "Determine Query/Target Types"})
 
-        # What is determined in this stage
-        self._query_type = None  # {file, pdb_chain_chain}
-        self._target_type = None  # {file, foldseek_db, pdb_chain_chain}
-        self._pdb_df = (
-            None  # DataFrame to hold all the relevant info about the query and target PDBs, chains, motifs, etc.
+        qtprocessor = QTProcessor(
+            query=self._query,
+            target=self._target,
+            query_pocket_method=self._settings["query_pocket_method"],
+            target_pocket_method=self._settings["target_pocket_method"],
         )
-
-        query = self._settings.get("query")
-        if os.path.isfile(query):
-            self._query_type = "file"
-        else:
-            self._query_type = "pdb_chain_chain"
-
-        target = self._settings.get("target")
-        if os.path.isfile(target):
-            if ".txt" in target:
-                self._target_type = "file"
-        elif target.lower() == "human_domains":
-            self._target_type = "foldseek_db"
-            self._settings["target_dir"] = files(human_domains).joinpath(
-                "human"
-            )  # Overriding target dir to point to the db
-        else:
-            self._target_type = "pdb_chain_chain"
-
-        self.logger.debug(f"Determined query type: {self._query_type}", extra=self._stage)
-        self.logger.debug(f"Determined target type: {self._target_type}", extra=self._stage)
-
-        # Checking a target and query is specified
-        self._stage.update({"stage": "Input Validation"})
-        if not self._settings.get("query"):
-            raise ValueError("No query specified. Use --query")
-        if not self._settings.get("target"):
-            raise ValueError("No target specified. Use --target")
-
-        # Reading the data
-        self._stage.update({"stage": "Reading Input Data"})
-        query_data = self._parse_inputs(self._query, self._query_type, type="query")
-        if type(query_data) is pd.DataFrame:
-            self.logger.debug(f"query_data:\n{query_data.head()}", extra=self._stage)
-        else:
-            self.logger.debug(f"query_data:\n{query_data}", extra=self._stage)
-
-        target_data = self._parse_inputs(self._target, self._target_type, type="target")
-        if type(target_data) is pd.DataFrame:
-            self.logger.debug(f"target_data:\n{target_data.head()}", extra=self._stage)
-        else:
-            self.logger.debug(f"target_data:\n{target_data}", extra=self._stage)
-
-        """
-        query_df = self._make_tq_df("query", "query_file", type="query")
-        target_df = self._make_tq_df("target", "target_file", type="target")
-        """
-        pdb_data = [query_data]
-        if type(target_data) is pd.DataFrame:
-            pdb_data.append(target_data)
-        self._pdb_df = pd.concat(pdb_data, ignore_index=True)
-
-        logging.debug(f"Combined Query/Target DataFrame:\n{self._pdb_df.head(10)}", extra=self._stage)
-
-    def _parse_inputs(self, value, value_type, **kwargs):
-        pdb_chain_chain_re = re.compile(r"[A-Za-z0-9]{4}_[A-Za-z0-9]_[A-Za-z0-9]")
-        if value_type == "file":
-            pdbs = []
-            domains = []
-            motifs = []
-            valid_lines = 0
-            with open(value) as f:
-                for i, line in enumerate(f.readlines()):
-                    if line[0] == "#":
-                        continue
-                    line = line.strip()
-                    if pdb_chain_chain_re.match(line):
-                        pdb, domain, motif = line.split("_")
-                        pdbs.append(pdb)
-                        domains.append(domain)
-                        motifs.append(motif)
-                        valid_lines += 1
-                    else:
-                        self.logger.warning(
-                            f"Line {i + 1} in file '{value}' does not match PDB_CHAIN_CHAIN format: {line}",
-                            extra=self._stage,
-                        )
-            if valid_lines == 0:
-                self.logger.critical(f"No valid lines found in file '{value}'.", extra=self._stage)
-                exit(1)
-            df = self.pdb_info_to_df(
-                pdbs=pdbs,
-                domains=domains,
-                motifs=motifs,
-                **kwargs,
-            )
-            return df
-        elif value_type == "pdb_chain_chain":
-            if not pdb_chain_chain_re.match(value):
-                self.logger.critical(f"'{value}' does not match required format 'PDB_CHAIN_CHAIN'.", extra=self._stage)
-                exit(1)
-            pdb, domain, motif = value.split("_")
-            df = self.pdb_info_to_df(
-                pdbs=[pdb],
-                domains=[domain],
-                motifs=[motif],
-                **kwargs,
-            )
-            return df
-        elif value_type == "foldseek_db":
-            # For foldseek db, the value is the path to the db
-            return value
-        else:
-            self.logger.critical(f"Unknown value_type '{value_type}'", extra=self._stage)
-            exit(1)
-
-    def pdb_info_to_df(self, pdbs, domains, motifs, **kwargs):
-        """
-        Docstring for pdb_info_to_df
-
-        :param self: Description
-        :param pdbs: Description
-        :param domains: Description
-        :param motifs: Description
-        :param kwargs: Description
-        """
-        data = {
-            "interaction_pdb": [pdb.upper() for pdb in pdbs],
-            "domain_chain": domains,
-            "motif_chain": motifs,
-        }
-
-        df = pd.DataFrame.from_dict(data)
-        df["pdb_domain"] = df.apply(lambda x: x.interaction_pdb + "_" + x.domain_chain, axis=1)
-        df["pdb_domain_motif"] = df.apply(lambda x: x.pdb_domain + "_" + x.motif_chain, axis=1)
-        for k, v in kwargs.items():
-            df[k] = v
-        return df
+        self._query_data, self._target_data = qtprocessor.main()
 
     def _prepare_directories(self):
         self._stage.update({"stage": "Directory Preparation"})
         dirs_to_create = [
             "structure_dir",
             "query_dir",
+            "target_dir",
             "pocket_dir",
-            "pisa_dir",
             "divided_struct_dir",
-            "results_dir",
         ]
-        if self._target_type != "foldseek_db":
-            dirs_to_create.append("target_dir")
 
         for dir_key in dirs_to_create:
             path = self._settings[dir_key]
             try:
                 os.makedirs(path, exist_ok=True)
-            except OSError as e:
-                raise OSError(f"Error creating directory {path}: {e}")
+            except OSError:
+                logging.critical(f"Error creating directory {path}", extra=self._stage)
+                exit(1)
 
-    def _fetch_and_verify_structures(self):
+    def _fetch_pdb_structures(self):
         """
         1) Downloads structures for the PDB entries in self._pdb_df['interaction_pdb'].
 
         2) Verifies that structures were found for the query and target entries (if required based on their types)
            and logs the results. If no structures are found for either query or target when required, logs a critical
            error and exits.
+
+        TODO Update to download alphafold structures if the input is a uniprot id
         """
         # Downloading structures
-        self._stage.update({"stage": "Fetch Structures"})
+        self._stage.update({"stage": "Fetching Structures"})
         logging.info("Checking for mmCIF structures...", extra=self._stage)
-        found_map = lib.get_mmcifs(
-            pdb_list=self._pdb_df["interaction_pdb"].unique(),
+
+        # List of all unique PDBs
+        query_pdbs = set(self._query_data.query("struct_type == 'pdb'")["struct_info"])
+        target_pdbs = set(self._target_data.query("struct_type == 'pdb'")["struct_info"])
+        all_pdbs = list(query_pdbs.union(target_pdbs))
+        success_map = lib.get_mmcifs(
+            pdb_list=all_pdbs,
             out_dir=self._settings["structure_dir"],
         )
-        self._pdb_df["structure_found"] = self._pdb_df["interaction_pdb"].map(found_map)
+        failed_list = [pdb for pdb, success in success_map.items() if not success]
+
+        # Logging results of structure fetching and updating query and target data with success/failure info
+        logging.info(
+            f"Finished checking for structures. Successfully found structures for {len(all_pdbs) - len(failed_list)}/{len(all_pdbs)} PDBs.",
+            extra=self._stage,
+        )
+        if len(failed_list) > 0:
+            logging.warning(
+                f"Failed to find structures for the following PDBs: {', '.join(failed_list)}", extra=self._stage
+            )
+
+        # updating success column to false if structure fetching failed and adding failure reason
+        self._query_data["success"] = ~self._query_data["struct_info"].isin(failed_list)
+        self._target_data["success"] = ~self._target_data["struct_info"].isin(failed_list)
+        self._query_data.loc[~self._query_data["success"], "failure_reason"] = "structure_not_found"
+        self._target_data.loc[~self._target_data["success"], "failure_reason"] = "structure_not_found"
+
+        # Logging the query and target data after structure fetching to verify the updates
+        self.logger.debug(f"Query data after structure fetching: \n{self._query_data.head()}", extra=self._stage)
+        self.logger.debug(f"Target data after structure fetching: \n{self._target_data.head()}", extra=self._stage)
 
         # Verifying enough structures were found to continue
-        self._stage.update({"stage": "Verify Structures"})
-        # Query
-        if self._query_type in self._requires_structures:
-            if not self._pdb_df.query("structure_found and type == 'query'").empty:
-                logging.info("Query structures found.", extra=self._stage)
-            else:
-                logging.critical("No query structures found locally or via download", extra=self._stage)
-                exit(1)
-        # Target
-        if self._target_type in self._requires_structures:
-            if not self._pdb_df.query("structure_found and type == 'target'").empty:
-                logging.info("Target structures found.", extra=self._stage)
-            else:
-                logging.critical("No target structures found locally or via download", extra=self._stage)
-                exit(1)
+        exit_flag = False
+        if self._query_data["success"].sum() < 1:
+            logging.critical("Insufficient query after fetching structures found", extra=self._stage)
+            exit_flag = True
+        if self._target_data["success"].sum() < 1:
+            logging.critical("Insufficient targets after fetching structures found", extra=self._stage)
+            exit_flag = True
+        if exit_flag:
+            exit(1)
 
-    def _divide_structures(self):
+    def _preprocess_structures(self):
+        """
+        Divides PDB structures into relevant domains and chains
+        """
         self._stage.update({"stage": "Preprocess Structures"})
         logging.info("Dividing mmCIF structures...", extra=self._stage)
-        divided_map = lib.pdb_preprocessing_gemmi(
-            df=self._pdb_df.query("structure_found"),
+        query_divided_map = lib.pdb_preprocessing_gemmi(
+            df=self._query_data.query("success and struct_type == 'pdb'"),
             ref_dir=self._settings["structure_dir"],
             cache_dir=self._settings["divided_struct_dir"],
-            query_dir=self._settings["query_dir"],
-            target_dir=self._settings["target_dir"],
+            out_dir=self._settings["query_dir"],
         )
-        self._pdb_df["divided_struct"] = self._pdb_df["pdb_domain_motif"].map(divided_map).fillna(False)
+        for index, success in query_divided_map.items():
+            if not success:
+                self._query_data.loc[index, "success"] = False
+                self._query_data.loc[index, "failure_reason"] = "structure_preprocessing_failed"
+        target_divided_map = lib.pdb_preprocessing_gemmi(
+            df=self._target_data.query("success and struct_type == 'pdb'"),
+            ref_dir=self._settings["structure_dir"],
+            cache_dir=self._settings["divided_struct_dir"],
+            out_dir=self._settings["target_dir"],
+        )
+        for index, success in target_divided_map.items():
+            if not success:
+                self._target_data.loc[index, "success"] = False
+                self._target_data.loc[index, "failure_reason"] = "structure_preprocessing_failed"
+        logging.info("Finished dividing structures", extra=self._stage)
+        logging.debug(f"Query data after structure preprocessing: \n{self._query_data.head()}", extra=self._stage)
+        logging.debug(f"Target data after structure preprocessing: \n{self._target_data.head()}", extra=self._stage)
 
-    def _retrieve_pockets(self):
-        self._stage.update({"stage": "Pocket Calculation"})
+    def _get_pockets(self):
+        """
+        Retrieves pockets for the query and target structures based on the specified pocket methods.
+        Currently only supports PISA, but can be extended in the future to support other methods.
 
-        # WRITING PISA POCKETS
+        For PISA pockets, retrieves the relevant PISA interfaces based on the query and target pocket info and
+        extracts the pocket residues and their coordinates from the mmCIF files. The extracted pocket info is then
+        stored in a dictionary for later comparison.
+        """
+        pockets = {}
+        pisa_pockets = self._retrieve_pisa_pockets()
+        pockets.update(pisa_pockets)
+        passthrough_pockets = self.retrieve_passthrough_pockets()
+        pockets.update(passthrough_pockets)
+        return pockets
+
+    def _retrieve_pisa_pockets(self):
+        self._stage.update({"stage": "Pisa Pocket Calculation"})
+        all_pisa_data = pd.concat([self._query_data, self._target_data], ignore_index=True)
+        all_pisa_data = all_pisa_data.query("success and pocket_method == 'pisa' and struct_type == 'pdb'")
+
+        # Dispatch to relevant pocket retrieval/calculation method based on the specified pocket method for the query and target (currently only PISA, but can be extended in the future)
+        pisa_pdb_list = all_pisa_data["struct_info"].unique().tolist()
+        logging.debug(f"PDBs for which to retrieve PISA pockets: {pisa_pdb_list}", extra=self._stage)
         logging.info("Retrieving PISA pockets...", extra=self._stage)
         downloader = pisa.PisaDownloader()
         downloader.get_interfaces(
-            pdb_list=self._pdb_df.query("divided_struct")["interaction_pdb"].str.lower().unique(),
+            pdb_list=pisa_pdb_list,
             summary_dir=os.path.join(self._settings["pisa_dir"], "summaries"),
             asm_dir=os.path.join(self._settings["pisa_dir"], "assemblies"),
             interface_dir=os.path.join(self._settings["pisa_dir"], "interfaces"),
         )
+
+        # for each interface in query and target extract the relevant info from the parsed pockets
+        query_pisa_pocketid_list = all_pisa_data["pocket_id"].unique().tolist()
+        all_pisa_pocket_ids = list(set(query_pisa_pocketid_list))
+        logging.debug(f"Pocket IDs for which to retrieve PISA pockets: {all_pisa_pocket_ids}", extra=self._stage)
         pisa_pockets = lib.get_pisa_pockets(
-            df=self._pdb_df.query("divided_struct"),
+            pocket_id_arr=all_pisa_pocket_ids,
             in_dir=os.path.join(self._settings["pisa_dir"], "interfaces"),
-            out_dir=self._settings["pocket_dir"],
         )
-        with open(os.path.join(self._settings["pisa_dir"], "all_pockets_1.json"), "w") as f:
+        pisa_pockets = self._add_atom_coords_to_pisa_pockets(
+            pisa_pockets
+        )  # Adds seq_pos and cacoords to the pocket info dict
+
+        with open(os.path.join(self._settings["pisa_dir"], "pisa_pockets.json"), "w") as f:
             json.dump(pisa_pockets, f)
 
         return pisa_pockets
 
-    def _get_atom_coords_from_cif(self, pockets):
+    def _add_atom_coords_to_pisa_pockets(self, pockets):
+        """
+        Adds atom coords to pisa pockets
+        """
         self._stage.update({"stage": "Getting atom coords"})
         for pocket_id, pocket in pockets.items():
             try:
-                struct_path = os.path.join(self._settings["divided_struct_dir"], f"{pocket_id[:-2]}.cif.gz")
+                struct_path = os.path.join(self._settings["structure_dir"], f"{pocket_id.split(':')[0]}.cif.gz")
                 st = gemmi.read_structure(struct_path, format=gemmi.CoorFormat.Mmcif)
-                domain_chain = st[0][pocket_id[5]]
+                domain_chain = st[0][pocket_id.split(":")[1].split("_")[0]]
                 pocket_keys = pocket.keys()
                 seq_pos = 0
                 for res in domain_chain:
@@ -568,10 +513,20 @@ class PocketMapper:
             except Exception:
                 logging.warning(f"Error getting coords for {pocket_id}", extra=self._stage)
                 pockets[pocket_id]["has_coords"] = False
-
-        with open(os.path.join(self._settings["pisa_dir"], "all_pockets_2.json"), "w") as f:
-            json.dump(pockets, f)
         return pockets
+
+    def retrieve_passthrough_pockets(self):
+        self._stage.update({"stage": "Passthrough Pocket Calculation"})
+        all_passthrough_data = pd.concat([self._query_data, self._target_data], ignore_index=True)
+        all_passthrough_data = all_passthrough_data.query(
+            "success and pocket_method == 'passthrough' and struct_type == 'pdb'"
+        )
+        passthrough_pockets = lib.passthrough_pockets(all_passthrough_data, self._settings["structure_dir"])
+
+        with open(os.path.join(self._settings["pocket_dir"], "passthrough_pockets.json"), "w") as f:
+            json.dump(passthrough_pockets, f, indent=4)
+
+        return passthrough_pockets
 
     def _alignment(self):
         self._stage.update({"stage": "Alignment"})
@@ -584,6 +539,8 @@ class PocketMapper:
 
     def _run_foldseek(self):
         """ """
+        if self._target == "human_domains":
+            self._settings["target_dir"] = self.human_domains_db_path
         self._stage.update({"stage": "Foldseek Alignment"})
         cmd = [
             "foldseek",
@@ -603,9 +560,11 @@ class PocketMapper:
             "--max-seqs",
             "2500",
             "-v",  # verbosity
-            "3",
+            "2",
         ]
+        self.logger.debug(f"Running Foldseek with command: {' '.join([str(x) for x in cmd])}", extra=self._stage)
         subprocess.run(cmd, check=True)
+        self.logger.debug("Foldseek alignment completed successfully", extra=self._stage)
 
     def _local_alignment(self):
         aligner = SequenceAligner()
@@ -619,7 +578,9 @@ class PocketMapper:
         alignment_df = pd.read_csv(self._settings["alignment_path"], sep="\t", engine="c")
         blosum_path = os.path.join(os.path.dirname(__file__), "blosum62.bla")
 
-        alphafold = self._target_type == "foldseek_db"
+        alphafold = (
+            self._target == "human_domains"
+        )  # TODO this is actually if we should trat the target as having no defnied pocket, not if we are searching alphafold
         pockets_df, unknown_alias = lib.compare_pockets(
             alignment_df, pockets, blosum_path=blosum_path, alphafold=alphafold
         )
@@ -630,15 +591,24 @@ class PocketMapper:
             with open(unknown_alias_path, "w") as f:
                 json.dump(lib.jsonify_dict(dict(unknown_alias)), f)
 
+        # Map sanitized pocket ids back to original pocket ids for output
+        sanitized_to_id_map = {}
+        for i, row in self._query_data.iterrows():
+            sanitized_to_id_map[row["sanitized_pocket_id"]] = row["pocket_id"]
+        pockets_df["pocket_1"] = pockets_df["pocket_1"].map(sanitized_to_id_map)
+
+        # Writing pocket comparison results to output file
         output_path = self._settings["pocket_comparison_path"]
         pockets_df.to_csv(output_path, index=False, sep="\t")
+        with open(os.path.join(self._settings["results_dir"], "sanitized_to_id_map.json"), "w") as f:
+            json.dump(sanitized_to_id_map, f, indent=2)
         logging.info(f"Pocket comparison results saved to {output_path}", extra=self._stage)
 
     def _delete_tmp(self):
         tmp_dirs = [
             "query_dir",
         ]
-        if self._target_type != "foldseek_db":
+        if self._target != "human_domains":  # We don't want to delete the human domains foldseek db if we used it
             tmp_dirs.append("target_dir")
         if self._settings.get("foldseek"):
             tmp_dirs.append("foldseek_tmp_dir")

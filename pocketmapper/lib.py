@@ -54,10 +54,10 @@ VDW_RADII = {"C": 1.88, "N": 1.64, "O": 1.46, "S": 1.77, "P": 1.87, "H": 1.0}
 
 def get_mmcif(pdb_code, out_dir, cache):
     stage = {"stage": "Downloading PDB File"}
-    pdb_code = pdb_code.lower()
     out_fname = os.path.join(out_dir, f"{pdb_code}.cif.gz")
+    pdb_code_lowered = pdb_code.lower()
     if not (out_fname in cache):
-        url = f"https://files.wwpdb.org/pub/pdb/data/structures/divided/mmCIF/{pdb_code[1:3]}/{pdb_code}.cif.gz"
+        url = f"https://files.wwpdb.org/pub/pdb/data/structures/divided/mmCIF/{pdb_code_lowered[1:3]}/{pdb_code_lowered}.cif.gz"
         try:
             urlcleanup()
             urlretrieve(url, out_fname)
@@ -67,15 +67,18 @@ def get_mmcif(pdb_code, out_dir, cache):
         except Exception:
             logging.warning(f"Atypical issue when downloading {pdb_code}", extra=stage)
             return (pdb_code, False)
-        # else:
-        #    with gzip.open(gz_fname, "rb") as gz:
-        #        with open(out_fname, "wb") as out:
-        #            out.writelines(gz)
-        #    os.remove(gz_fname)
     return (pdb_code, True)
 
 
 def get_mmcifs(pdb_list, out_dir):
+    """
+    Docstring for get_mmcifs
+
+    :param pdb_list: Description
+    :param out_dir: Description
+
+    returns: list of successfulls fetched pdb ids
+    """
     cache = glob(os.path.join(out_dir, "*.cif.gz"))
     with ThreadPoolExecutor(max_workers=100) as e:
         result = e.map(
@@ -84,90 +87,75 @@ def get_mmcifs(pdb_list, out_dir):
             repeat(out_dir),
             repeat(cache),
         )
-    return {x.upper(): y for x, y in result}
+    return {pdb_code: success for pdb_code, success in result}
 
 
-def pdb_preprocessing_gemmi(df, ref_dir, cache_dir, target_dir, query_dir):
+def pdb_preprocessing_gemmi(df, ref_dir, cache_dir, out_dir):
     """
-    queries: a lit of tuple of the form (pdb_id, domain_chains, motif_chains)
-        all tuple elements are strings
+    Docstring for pdb_preprocessing_gemmi
 
-    writes out .pdb files to self.pdb_directory
+    :param df: Description
+    :param ref_dir: directory for reference pdb files to be divided
+    :param cache_dir: directory for divided pdbs to be cached
+    :param out_dir: directory to be used with foldseek
     """
     status_dict = {}
     stage = {"stage": "Dividing structures"}
 
     for i, row in tqdm(df.iterrows()):
+        pdb = row["struct_info"]
+        chain_info = row["chain_info"]  # e.g. A_B or A
+        chains = chain_info.split("_")  # [A, B] or [A]
         try:
-            cache_domain_path = os.path.join(cache_dir, f"{row.pdb_domain}.cif")
-            cache_domain_path_gz = cache_domain_path + ".gz"
-            cache_motif_path = os.path.join(cache_dir, f"{row.pdb_domain_motif}.cif")
-            cache_motif_path_gz = cache_motif_path + ".gz"
-
             # Ensuring divided structure is in the cache directory
-            if not os.path.exists(cache_domain_path_gz):
-                ref_path = os.path.join(ref_dir, f"{row.interaction_pdb}.cif.gz")
-                st = gemmi.read_structure(ref_path, format=gemmi.CoorFormat.Mmcif)
+            while len(chains) > 0:
+                pdb_chains = pdb + "_" + "_".join(chains)
+                cache_path = os.path.join(cache_dir, f"{pdb_chains}.cif")
+                cache_path_gz = cache_path + ".gz"
 
-                # Taking first model and deleting the rest
-                del st[1:]
-                model = st[0]
+                if not os.path.exists(cache_path_gz):
+                    ref_path = os.path.join(ref_dir, f"{pdb}.cif.gz")
+                    st = gemmi.read_structure(ref_path, format=gemmi.CoorFormat.Mmcif)
 
-                # verify structure contains all interaction chains
-                interaction_chains = list(row.domain_chain + row.motif_chain)
-                model_chains = set([chain.name for chain in model])
-                if not set(interaction_chains).issubset(model_chains):
-                    msg = f"Preprocessing: {row.interaction_pdb}"
-                    "does not contain all interaction chains {interaction_chains}"
-                    logging.warning(
-                        msg,
-                        extra=stage,
-                    )
-                    status_dict[f"{row.pdb_domain_motif}"] = False
-                    continue
+                    # Taking first model and deleting the rest
+                    del st[1:]
+                    model = st[0]
 
-                # Detaching all non interaction chains
-                for chain_id in model_chains:
-                    if chain_id not in interaction_chains:
-                        del model[chain_id]
+                    # verify structure contains all interaction chains
+                    model_chains = set([chain.name for chain in model])
+                    if not set(chains).issubset(model_chains):
+                        msg = f"Preprocessing: {pdb} does not contain all interaction chains {chains}"
+                        logging.warning(
+                            msg,
+                            extra=stage,
+                        )
+                        status_dict[i] = False
+                        chains = []  # to skip to next pdb
+                        continue
 
-                # Output the domain and motif pdb file
-                groups = gemmi.MmcifOutputGroups(False, atoms=True, group_pdb=True)
-                st.make_mmcif_document(groups).write_file(cache_motif_path)
-                with open(cache_motif_path, "rb") as f_in:
-                    with gzip.open(cache_motif_path_gz, "wb") as f_out:
-                        shutil.copyfileobj(f_in, f_out)
-                os.remove(cache_motif_path)
+                    # Detaching all non interaction chains
+                    for chain_id in model_chains:
+                        if chain_id not in chains:
+                            del model[chain_id]
 
-                # output the domain pdb file
-                del model[row.motif_chain]
-                st.make_mmcif_document(groups).write_file(cache_domain_path)
-                with open(cache_domain_path, "rb") as f_in:
-                    with gzip.open(cache_domain_path_gz, "wb") as f_out:
-                        shutil.copyfileobj(f_in, f_out)
-                os.remove(cache_domain_path)
+                    # Output the domain and motif pdb file
+                    groups = gemmi.MmcifOutputGroups(False, atoms=True, group_pdb=True)
+                    st.make_mmcif_document(groups).write_file(cache_path)
+                    with open(cache_path, "rb") as f_in:
+                        with gzip.open(cache_path_gz, "wb") as f_out:
+                            shutil.copyfileobj(f_in, f_out)
+                    os.remove(cache_path)
 
-                status_dict[f"{row.pdb_domain_motif}"] = True
+                out_path_gz = os.path.join(out_dir, f"{pdb_chains}.cif.gz")
+                shutil.copyfile(cache_path_gz, out_path_gz)  # copying to foldseek directory
 
-            # Copying divides structures into forders for foldseek
-            if row.type == "query":
-                out_dir = query_dir
-            elif row.type == "target":
-                out_dir = target_dir
-            else:
-                logging.warning(f"row with {row.interaction_pdb} is neither target nor query", extra=stage)
-                continue
-
-            domain_out = os.path.join(out_dir, f"{row.pdb_domain}.cif.gz")
-            motif_out = os.path.join(out_dir, f"{row.pdb_domain_motif}.cif.gz")
-            shutil.copyfile(cache_domain_path_gz, domain_out)
-            shutil.copyfile(cache_motif_path_gz, motif_out)
-            status_dict[f"{row.pdb_domain_motif}"] = True
+                status_dict[i] = True
+                chains = chains[:-1]  # e.g. A_B -> A
 
         except Exception as e:
-            logging.warning(f"Could not divide {row.interaction_pdb}", extra=stage)
-            logging.debug("Exception info", exc_info=e, extra="stage")
-            status_dict[f"{row.pdb_domain_motif}"] = False
+            logging.warning(f"Could not divide {pdb} with chain info {chain_info}", extra=stage)
+            logging.debug("Exception info", exc_info=e, extra=stage)
+            status_dict[i] = False
 
     return status_dict
 
@@ -227,13 +215,13 @@ def calculate_pockets(df, target_dir, query_dir, pocket_dir):
     return pocket_dict, all_problem_atoms, all_problem_residues
 
 
-def get_pisa_pockets(df, in_dir, out_dir):
+def get_pisa_pockets(pocket_id_arr, in_dir):
     stage = {"stage": "Calculating Pockets"}
     """Takes in a path to a pdb file"""
     bond_types = ["hydrogen_bonds", "salt_bridges", "disulfide_bonds", "covalent_bonds", "other_bonds"]
     pockets = {}
-    for i, row in tqdm(df.iterrows()):
-        pdb_id = row.interaction_pdb.lower()
+    for pocket_id in pocket_id_arr:
+        pdb_id, pocket_chains = pocket_id.split(":")[:2]  # 1ABC:A_B:1,2,3 -> 1ABC, A_B
 
         # Loading PISA pocket file
         in_path = os.path.join(in_dir, f"{pdb_id}.json")
@@ -244,7 +232,7 @@ def get_pisa_pockets(df, in_dir, out_dir):
             pisa_data = json.load(f)
 
         # Extracting the relevant interface
-        interface_chains = "".join(sorted(row.domain_chain + row.motif_chain))
+        interface_chains = "".join(sorted(pocket_chains.split("_")))
         if interface_chains not in pisa_data:
             logging.warning(f"No PISA data for {pdb_id} interface {interface_chains}", extra=stage)
             continue
@@ -258,7 +246,7 @@ def get_pisa_pockets(df, in_dir, out_dir):
         # Getting the molecule id for the domain chain
         pocket_mol_id = None
         for mol in pisa_data["molecules"]:
-            if mol["chain_id"] == row.domain_chain:
+            if mol["chain_id"] == pocket_chains.split("_")[0]:  # Assuming first chain is the domain chain
                 pocket_mol_id = mol["molecule_id"]
                 break
         if pocket_mol_id is None:
@@ -293,7 +281,7 @@ def get_pisa_pockets(df, in_dir, out_dir):
 
         # Making JSON serializable
         pocket = jsonify_dict(pocket)
-        pockets[row.pdb_domain_motif] = pocket
+        pockets[pocket_id] = pocket
 
     return pockets
 
@@ -438,7 +426,7 @@ def compare_pockets(
     # {pdb_domain_motif: info} -> {pdb_domain: {motif1: info, motif2:info}}
     domain_pocket_dict = defaultdict(dict)
     for k, v in pocket_dict.items():
-        domain_pocket_dict[k[:6]][k[7]] = v
+        domain_pocket_dict[k[:6].replace(":", "_")][k[7:]] = v
 
     # Setting up vars for use later
     existing_calcs = set()
@@ -471,7 +459,6 @@ def compare_pockets(
             # Check that both pockets are loaded:
             pockets_1 = domain_pocket_dict.get(domain_1)
             if not pockets_1:
-                logging.debug(f"domain:{domain_1}", extra=stage)
                 continue
             if alphafold:
                 pockets_2 = {
@@ -748,3 +735,42 @@ def read_blast_similarity_matrix(similarity_matrix_path, delimiter=" "):
 def download_pisa_info(pdb_list, summary_dir, assembly_dir, interface_dir):
     downloader = pisa.PisaDownloader()
     downloader.get_interfaces(pdb_list, summary_dir, assembly_dir, interface_dir)
+
+
+def passthrough_pockets(df, structure_dir):
+    passthrough_pockets = {}
+    for _, row in df.iterrows():
+        pocket_residues = [
+            int(x) for x in row["residue_info"].split(",")
+        ]  # To make it easier to use in file names, etc.
+        st = gemmi.read_structure(
+            os.path.join(structure_dir, f"{row['struct_info']}.cif.gz"), format=gemmi.CoorFormat.Mmcif
+        )
+        domain_chain = st[0][row["chain_info"][0]]
+        pocket = {"res_auth_ids": [], "id_pos_codes_match": True, "pocket_exists": True, "has_coords": True}
+        logging.warning("pocket_residues: " + str(pocket_residues), extra={"stage": "Passthrough Pockets"})
+
+        for i, res in enumerate(domain_chain.get_polymer()):
+            res_id = res.seqid.num
+            if res_id in pocket_residues:
+                pocket["res_auth_ids"].append(str(res_id))
+                ca_atom = res.get_ca()
+                if ca_atom is not None:
+                    pocket[str(res_id)] = {
+                        "res_code": res.name,
+                        "res_code_single": SINGLE_AA_CODE.get(res.name, "X"),
+                        "seq_pos": i,  # We don't have the info to map this to a seq pos, but we can still use it in the comparison based on res_id
+                        "ca_coords": list(ca_atom.pos),
+                    }
+                else:
+                    msg = (
+                        f"Pocket residue {res_id} in {row['aln_name']} "
+                        "does not have CA coords and will be excluded from the comparison"
+                    )
+                    logging.warning(
+                        msg,
+                        extra={"stage": "Passthrough Pockets"},
+                    )
+
+        passthrough_pockets[row["sanitized_pocket_id"]] = pocket
+    return passthrough_pockets

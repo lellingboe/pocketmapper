@@ -23,7 +23,7 @@ class PisaDownloader:
             os.makedirs(dir, exist_ok=True)
 
         existing_files = glob(r"*.json", root_dir=interface_dir)
-        missing_pdbs = [x for x in pdb_list if f"{x.lower()}.json" not in existing_files]
+        missing_pdbs = [x.lower() for x in pdb_list if f"{x.lower()}.json" not in existing_files]
 
         self._stage = {"stage": "Checking cache for interfaces"}
         if len(missing_pdbs) > 0:
@@ -71,6 +71,7 @@ class PisaDownloader:
                 fname = os.path.join(summary_dir, f"{pdb_code}.json")
                 with open(fname) as f:
                     data = json.load(f)
+                logging.debug(f"Summary data for {pdb_code}: {data}", extra=self._stage)
                 if len(data[pdb_code]) != 1:
                     logging.critical(f"More than one entry in summary for {pdb_code}", extra=self._stage)
                     continue
