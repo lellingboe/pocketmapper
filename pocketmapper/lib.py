@@ -510,8 +510,8 @@ def compare_pockets(
 
                 # Calculated Metrics
                 # pocket 1
-                p1_adj = 1 - row[6]
-                p1_fs_len = row[7] - row[6] + 1
+                p1_adj = 1 - row[6]  # row[6] is qstart
+                p1_fs_len = row[7] - row[6] + 1  # row[7] is qend
                 p1_in_aln_region_count = 0
                 p1["foldseek_pos"] = []
                 for res in p1["res_auth_ids"]:
