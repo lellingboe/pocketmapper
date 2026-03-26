@@ -67,7 +67,7 @@ class PocketMapper:
         self._target_pocket_method = target_pocket_method
         self._align_struct = align_struct
 
-        self.human_domains_db_path = files(human_domains).joinpath("human")
+        self.human_domains_db_path = files(human_domains).joinpath("human_260310")
 
         # Main try-except block to catch unhandled exceptions
         try:
