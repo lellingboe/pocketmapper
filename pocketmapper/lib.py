@@ -750,27 +750,36 @@ def passthrough_pockets(df, structure_dir):
         pocket = {"res_auth_ids": [], "id_pos_codes_match": True, "pocket_exists": True, "has_coords": True}
         logging.warning("pocket_residues: " + str(pocket_residues), extra={"stage": "Passthrough Pockets"})
 
-        for i, res in enumerate(domain_chain.get_polymer()):
+        counter = 0
+        for res in domain_chain:
+            # Checking if the residue is in the pocket
             res_id = res.seqid.num
-            if res_id in pocket_residues:
-                pocket["res_auth_ids"].append(str(res_id))
-                ca_atom = res.get_ca()
+            ca_atom = res.get_ca()
+            if res_id not in pocket_residues:
                 if ca_atom is not None:
-                    pocket[str(res_id)] = {
-                        "res_code": res.name,
-                        "res_code_single": SINGLE_AA_CODE.get(res.name, "X"),
-                        "seq_pos": i,  # We don't have the info to map this to a seq pos, but we can still use it in the comparison based on res_id
-                        "ca_coords": list(ca_atom.pos),
-                    }
-                else:
-                    msg = (
-                        f"Pocket residue {res_id} in {row['aln_name']} "
-                        "does not have CA coords and will be excluded from the comparison"
-                    )
-                    logging.warning(
-                        msg,
-                        extra={"stage": "Passthrough Pockets"},
-                    )
+                    counter += 1
+                continue
+            pocket["res_auth_ids"].append(str(res_id))
+
+            # Getting CA coords
+            ca_atom = res.get_ca()
+            if ca_atom is not None:
+                pocket[str(res_id)] = {
+                    "res_code": res.name,
+                    "res_code_single": SINGLE_AA_CODE.get(res.name, "X"),
+                    "seq_pos": counter,  # We don't have the info to map this to a seq pos, but we can still use it in the comparison based on res_id
+                    "ca_coords": list(ca_atom.pos),
+                }
+                counter += 1
+            else:
+                msg = (
+                    f"Pocket residue {res_id} in {row['aln_name']} "
+                    "does not have CA coords and will be excluded from the comparison"
+                )
+                logging.warning(
+                    msg,
+                    extra={"stage": "Passthrough Pockets"},
+                )
 
         passthrough_pockets[row["sanitized_pocket_id"]] = pocket
     return passthrough_pockets
