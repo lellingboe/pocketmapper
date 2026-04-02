@@ -14,12 +14,12 @@ import pandas as pd
 import os
 from datetime import datetime
 import shutil
-import gemmi
 from pocketmapper import lib
 from pocketmapper import pisa
 from pocketmapper.sequence_aligner import SequenceAligner
 from pocketmapper.pocket_calculator import PocketCalculator
 from pocketmapper.qt_processor import QTProcessor
+from pocketmapper.lib_struct import parse_pocket_from_struct
 from pocketmapper import human_domains
 
 
@@ -160,7 +160,6 @@ class PocketMapper:
             results_dir              Results directory (default: pocketmapper_results_<timestamp>)
             structure_dir            Directory to store downloaded/available structures
             pocket_dir               Directory to store calculated pockets
-            pisa_dir                 Directory for PISA related files
             divided_struct_dir       Directory for preprocessed/divided structures
             query_dir                Temporary directory for query divided structures
             target_dir               Temporary directory for target divided structures
@@ -286,7 +285,6 @@ class PocketMapper:
             "structure_dir": os.path.join(cache_dir, "pdb_structures"),
             "pocket_dir": os.path.join(cache_dir, "pockets"),
             "foldseek_tmp_dir": os.path.join(cache_dir, "foldseek_tmp"),
-            "pisa_dir": os.path.join(cache_dir, "pisa_pockets"),
             "divided_struct_dir": os.path.join(cache_dir, "divided_structs"),
             # Default directories and files stemming from results_dir
             "results_dir": results_dir,
@@ -433,87 +431,57 @@ class PocketMapper:
         extracts the pocket residues and their coordinates from the mmCIF files. The extracted pocket info is then
         stored in a dictionary for later comparison.
         """
-        pockets = {}
         pisa_pockets = self._retrieve_pisa_pockets()
-        pockets.update(pisa_pockets)
         passthrough_pockets = self.retrieve_passthrough_pockets()
-        pockets.update(passthrough_pockets)
+        pockets = pisa_pockets | passthrough_pockets
         return pockets
 
     def _retrieve_pisa_pockets(self):
-        self._stage.update({"stage": "Pisa Pocket Calculation"})
-        all_pisa_data = pd.concat([self._query_data, self._target_data], ignore_index=True)
-        all_pisa_data = all_pisa_data.query("success and pocket_method == 'pisa' and struct_type == 'pdb'")
+        """
+        Determines the PISA interfaces from query and targets,
+        Retrives the pisa data from the PISA API,
+        Parses coordinates for the pockets from the mmCIF files,
+        Stores the pocket info in a dict for later comparison
+        """
 
+        self._stage.update({"stage": "Pisa Pocket Calculation"})
+        all_pisa_df = pd.concat([self._query_data, self._target_data], ignore_index=True).query(
+            "success and pocket_method == 'pisa'"
+        )
+
+        pisa_response_dir = os.path.join(self._settings["pocket_dir"], "pisa_responses")
         # Dispatch to relevant pocket retrieval/calculation method based on the specified pocket method for the query and target (currently only PISA, but can be extended in the future)
-        pisa_pdb_list = all_pisa_data["struct_info"].unique().tolist()
+        pisa_pdb_list = all_pisa_df["struct_info"].unique().tolist()
         logging.debug(f"PDBs for which to retrieve PISA pockets: {pisa_pdb_list}", extra=self._stage)
         logging.info("Retrieving PISA pockets...", extra=self._stage)
         downloader = pisa.PisaDownloader()
         downloader.get_interfaces(
             pdb_list=pisa_pdb_list,
-            summary_dir=os.path.join(self._settings["pisa_dir"], "summaries"),
-            asm_dir=os.path.join(self._settings["pisa_dir"], "assemblies"),
-            interface_dir=os.path.join(self._settings["pisa_dir"], "interfaces"),
+            summary_dir=os.path.join(pisa_response_dir, "summaries"),
+            asm_dir=os.path.join(pisa_response_dir, "assemblies"),
+            interface_dir=os.path.join(pisa_response_dir, "interfaces"),
         )
 
         # for each interface in query and target extract the relevant info from the parsed pockets
-        query_pisa_pocketid_list = all_pisa_data["pocket_id"].unique().tolist()
-        all_pisa_pocket_ids = list(set(query_pisa_pocketid_list))
-        logging.debug(f"Pocket IDs for which to retrieve PISA pockets: {all_pisa_pocket_ids}", extra=self._stage)
+        pisa_pocketids = all_pisa_df["sanitized_pocket_id"].unique().tolist()
+        logging.debug(f"Pocket IDs for which to retrieve PISA pockets: {pisa_pocketids}", extra=self._stage)
         pisa_pockets = lib.get_pisa_pockets(
-            pocket_id_arr=all_pisa_pocket_ids,
-            in_dir=os.path.join(self._settings["pisa_dir"], "interfaces"),
+            pocket_id_arr=pisa_pocketids,
+            in_dir=os.path.join(pisa_response_dir, "interfaces"),
         )
-        pisa_pockets = self._add_atom_coords_to_pisa_pockets(
-            pisa_pockets
-        )  # Adds seq_pos and cacoords to the pocket info dict
+        logging.debug(f"Extracted PISA pockets: {pisa_pockets}", extra=self._stage)
+        for _, row in all_pisa_df.iterrows():
+            pisa_pockets[row["sanitized_pocket_id"]] = parse_pocket_from_struct(
+                struct=os.path.join(self._settings["structure_dir"], f"{row['struct_info']}.cif.gz"),
+                chain_id=row["chain_info"].split("_")[0],
+                pocket_residues=[int(x) for x in pisa_pockets[row["sanitized_pocket_id"]]["res_auth_ids"]],
+                pocket=pisa_pockets[row["sanitized_pocket_id"]],
+            )
 
-        with open(os.path.join(self._settings["pisa_dir"], "pisa_pockets.json"), "w") as f:
+        with open(os.path.join(self._settings["pocket_dir"], "pisa_pockets.json"), "w") as f:
             json.dump(pisa_pockets, f)
 
         return pisa_pockets
-
-    def _add_atom_coords_to_pisa_pockets(self, pockets):
-        """
-        Adds atom coords to pisa pockets
-        """
-        self._stage.update({"stage": "Getting atom coords"})
-        for pocket_id, pocket in pockets.items():
-            try:
-                struct_path = os.path.join(self._settings["structure_dir"], f"{pocket_id.split(':')[0]}.cif.gz")
-                st = gemmi.read_structure(struct_path, format=gemmi.CoorFormat.Mmcif)
-                domain_chain = st[0][pocket_id.split(":")[1].split("_")[0]]
-                pocket_keys = pocket.keys()
-                seq_pos = 0
-                for res in domain_chain:
-                    # mapping ca_seq position
-                    ca_atom = res.get_ca()
-                    res_id = str(res.seqid.num)
-
-                    # If the residue has a CA atom specified, save the info to the pocket and
-                    if ca_atom is not None:
-                        if res_id in pocket_keys:
-                            pockets[pocket_id][res_id]["seq_pos"] = seq_pos
-                            pockets[pocket_id][res_id]["ca_coords"] = list(res.get_ca().pos)
-                        seq_pos += 1
-                    else:
-                        if res_id in pocket_keys:
-                            msg = (
-                                f"Pocket residue {res_id} in {pocket_id} "
-                                "does not have CA coords and will be excluded from the comparison"
-                            )
-                            logging.warning(
-                                msg,
-                                extra=self._stage,
-                            )
-                            pockets[pocket_id][res_id]["seq_pos"] = -1  # Removes it from later comparison
-                pockets[pocket_id]["has_coords"] = True
-
-            except Exception:
-                logging.warning(f"Error getting coords for {pocket_id}", extra=self._stage)
-                pockets[pocket_id]["has_coords"] = False
-        return pockets
 
     def retrieve_passthrough_pockets(self):
         self._stage.update({"stage": "Passthrough Pocket Calculation"})
@@ -521,8 +489,17 @@ class PocketMapper:
         all_passthrough_data = all_passthrough_data.query(
             "success and pocket_method == 'passthrough' and struct_type == 'pdb'"
         )
-        passthrough_pockets = lib.passthrough_pockets(all_passthrough_data, self._settings["structure_dir"])
 
+        # for each pocket in query and target parse pocket info from the structure and store in a dict
+        passthrough_pockets = {}
+        for _, row in all_passthrough_data.iterrows():
+            pocket_residues = [int(x) for x in row["residue_info"].split(",")]
+            pocket = parse_pocket_from_struct(
+                struct=os.path.join(self._settings["structure_dir"], f"{row['struct_info']}.cif.gz"),
+                chain_id=row["chain_info"].split("_")[0],
+                pocket_residues=pocket_residues,
+            )
+            passthrough_pockets[row["sanitized_pocket_id"]] = pocket
         with open(os.path.join(self._settings["pocket_dir"], "passthrough_pockets.json"), "w") as f:
             json.dump(passthrough_pockets, f, indent=4)
 
