@@ -18,38 +18,7 @@ from numpy import array
 from numpy import linalg as LA
 from pocketmapper import pisa
 
-# TODO keep phospho information
-SINGLE_AA_CODE = {
-    "CYS": "C",
-    "ASP": "D",
-    "SER": "S",
-    "GLN": "Q",
-    "LYS": "K",
-    "ILE": "I",
-    "PRO": "P",
-    "THR": "T",
-    "PHE": "F",
-    "ASN": "N",
-    "GLY": "G",
-    "HIS": "H",
-    "LEU": "L",
-    "ARG": "R",
-    "TRP": "W",
-    "ALA": "A",
-    "VAL": "V",
-    "GLU": "E",
-    "TYR": "Y",
-    "MET": "M",
-    "SEP": "S",  # phospho
-    "TPO": "T",  # phospho
-    "PTR": "Y",  # phospho
-    "MSE": "M",  # selenomethionine
-}
-TRIPLE_AA_CODE = defaultdict(list)
-for k, v in SINGLE_AA_CODE.items():
-    TRIPLE_AA_CODE[v].append(k)
-VDW_RADII = {"C": 1.88, "N": 1.64, "O": 1.46, "S": 1.77, "P": 1.87, "H": 1.0}
-# https://www.cgl.ucsf.edu/chimerax/docs/user/commands/clashes.html
+from pocketmapper.constants import SINGLE_AA_CODE, VDW_RADII
 
 
 def get_mmcif(pdb_code, out_dir, cache):
@@ -221,7 +190,7 @@ def get_pisa_pockets(pocket_id_arr, in_dir):
     bond_types = ["hydrogen_bonds", "salt_bridges", "disulfide_bonds", "covalent_bonds", "other_bonds"]
     pockets = {}
     for pocket_id in pocket_id_arr:
-        pdb_id, pocket_chains = pocket_id.split(":")[:2]  # 1ABC:A_B:1,2,3 -> 1ABC, A_B
+        pdb_id, pocket_chains = pocket_id.split("_", maxsplit=1)  # 1ABC:A_B:1,2,3 -> 1ABC, A_B
 
         # Loading PISA pocket file
         in_path = os.path.join(in_dir, f"{pdb_id}.json")
@@ -418,7 +387,7 @@ def compare_pockets(
     Compare two pockets based on foldseek alignment
     """
 
-    stage = {"stage": "Pocket Comparison"}
+    # stage = {"stage": "Pocket Comparison"}
     blosum_similarity_matrix = read_blast_similarity_matrix(blosum_path)
 
     unknown_ids = defaultdict(lambda: defaultdict(set))
@@ -459,7 +428,7 @@ def compare_pockets(
             # Check that both pockets are loaded:
             pockets_1 = domain_pocket_dict.get(domain_1)
             if not pockets_1:
-                continue
+                raise ValueError(f"domain:{domain_1} not found in pocket dict")
             if alphafold:
                 pockets_2 = {
                     "A": {
@@ -473,8 +442,7 @@ def compare_pockets(
             else:
                 pockets_2 = domain_pocket_dict.get(domain_2)
                 if not pockets_2:
-                    logging.debug(f"domain:{domain_2}", extra=stage)
-                    continue
+                    raise ValueError(f"domain:{domain_2} not found in pocket dict")
 
             # Iterating through aligned pairs
             for motif_1, motif_2 in product(pockets_1.keys(), pockets_2.keys()):
@@ -642,6 +610,7 @@ def compare_pockets(
                 output_rows.append(output)
 
         except KeyError:
+            raise
             logging.warning(
                 f"Uncontrolled KeyError calculating {domain_1}_{motif_1} and {domain_2}_{motif_2}",
                 extra={"stage": "Pocket Comparison"},
@@ -735,51 +704,3 @@ def read_blast_similarity_matrix(similarity_matrix_path, delimiter=" "):
 def download_pisa_info(pdb_list, summary_dir, assembly_dir, interface_dir):
     downloader = pisa.PisaDownloader()
     downloader.get_interfaces(pdb_list, summary_dir, assembly_dir, interface_dir)
-
-
-def passthrough_pockets(df, structure_dir):
-    passthrough_pockets = {}
-    for _, row in df.iterrows():
-        pocket_residues = [
-            int(x) for x in row["residue_info"].split(",")
-        ]  # To make it easier to use in file names, etc.
-        st = gemmi.read_structure(
-            os.path.join(structure_dir, f"{row['struct_info']}.cif.gz"), format=gemmi.CoorFormat.Mmcif
-        )
-        domain_chain = st[0][row["chain_info"][0]]
-        pocket = {"res_auth_ids": [], "id_pos_codes_match": True, "pocket_exists": True, "has_coords": True}
-        logging.warning("pocket_residues: " + str(pocket_residues), extra={"stage": "Passthrough Pockets"})
-
-        counter = 0
-        for res in domain_chain:
-            # Checking if the residue is in the pocket
-            res_id = res.seqid.num
-            ca_atom = res.get_ca()
-            if res_id not in pocket_residues:
-                if ca_atom is not None:
-                    counter += 1
-                continue
-            pocket["res_auth_ids"].append(str(res_id))
-
-            # Getting CA coords
-            ca_atom = res.get_ca()
-            if ca_atom is not None:
-                pocket[str(res_id)] = {
-                    "res_code": res.name,
-                    "res_code_single": SINGLE_AA_CODE.get(res.name, "X"),
-                    "seq_pos": counter,  # We don't have the info to map this to a seq pos, but we can still use it in the comparison based on res_id
-                    "ca_coords": list(ca_atom.pos),
-                }
-                counter += 1
-            else:
-                msg = (
-                    f"Pocket residue {res_id} in {row['aln_name']} "
-                    "does not have CA coords and will be excluded from the comparison"
-                )
-                logging.warning(
-                    msg,
-                    extra={"stage": "Passthrough Pockets"},
-                )
-
-        passthrough_pockets[row["sanitized_pocket_id"]] = pocket
-    return passthrough_pockets
