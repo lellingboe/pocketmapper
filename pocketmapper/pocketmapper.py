@@ -25,9 +25,40 @@ from pocketmapper import human_domains
 
 class PocketMapper:
     def __init__(self):
-        self._settings = {}
-        self._stage = {"stage": "init"}
-        self._requires_structures = ["pdb_chain_chain", "file"]
+        self._log_extra = {"stage": "init"}
+        self.human_domains_db_path = files(human_domains).joinpath("human_260310")
+        self._setup_basic_logging()  # Initialize logging in the constructor so that we can log messages during the configuration stage
+
+    def _setup_basic_logging(self):
+        """
+        Sets up basic logging configuration for the PocketMapper class.
+        """
+        self.log_fmt = "%(levelname)s: %(stage)s - %(msg)s"
+        self.logger = logging.getLogger("pocketmapper")
+        logging.basicConfig(level=logging.CRITICAL, format=self.log_fmt)
+
+    def _configure_logging(self, settings):
+        self._log_extra.update({"stage": "Configuring Logging"})
+
+        # Set log level based on verbosity setting (default to INFO if not set)
+        if settings["verbosity"] == 4:
+            self.log_level = logging.DEBUG
+        elif settings["verbosity"] == 3:
+            self.log_level = logging.INFO
+        elif settings["verbosity"] == 2:
+            self.log_level = logging.WARNING
+        else:
+            self.log_level = logging.CRITICAL
+
+        # Update log level of existing handler
+        self.logger.setLevel(self.log_level)
+
+        # Add file handler to logger with the specified log level and format
+        formatter = logging.Formatter(self.log_fmt)
+        fh = logging.FileHandler(settings["log_path"])
+        fh.setLevel(self.log_level)
+        fh.setFormatter(formatter)
+        self.logger.addHandler(fh)
 
     # TODO implement caching option
     def search(
@@ -37,11 +68,8 @@ class PocketMapper:
         settings=None,
         cache_dir=None,
         results_dir=None,
-        verbose=False,  # makes log file more verbose
-        debug=False,  # make log file even more verbose
-        help=False,  # help option
-        query_pocket_method=None,  # method to calculate pockets, default is PISA
-        target_pocket_method=None,  # method to calculate pockets, default is PISA
+        verbosity=None,  # set verbosity level (see pocketmapper search --help for details)
+        help=None,  # help option
         foldseek=None,  # whether to use foldseek for alignment (if false, uses local sequence alignment)
         align_struct=None,  # whether to align structures after pocket comparison
     ):
@@ -49,7 +77,7 @@ class PocketMapper:
         Orchestrate and run the full PocketMapper search workflow.
         See pocketmapper search --help for details.
         """
-        self._stage = {
+        self._log_extra = {
             "stage": "Starting Search"
         }  # dict needed for logging extra info, can be updated throughout the process to indicate the current stage in logs
 
@@ -59,22 +87,15 @@ class PocketMapper:
         self._settings_file = settings
         self._cache_dir = cache_dir
         self._results_dir = results_dir
-        self._verbose = verbose
-        self._debug = debug
+        self._verbosity = verbosity
         self._help = help
         self._foldseek = foldseek
-        self._query_pocket_method = query_pocket_method
-        self._target_pocket_method = target_pocket_method
         self._align_struct = align_struct
-
-        self.human_domains_db_path = files(human_domains).joinpath("human_260310")
 
         # Main try-except block to catch unhandled exceptions
         try:
-            # Setting up things
-            self._search_help()
-            self._setup_logging()
-            self._configure()  # configures the settings which have already been read
+            self._help_search()  # checks if help flag is set and if so prints the help message and exits
+            self._setup_settings()  # configures the settings which have already been read
 
             # Preprocessing/Downloading required data
             self._setup_query_target()
@@ -108,18 +129,10 @@ class PocketMapper:
 
         # Unhandled exception stops the process and logs the error
         except Exception as e:
-            logging.exception(str(e), extra=self._stage)
+            logging.exception(str(e), extra=self._log_extra)
             exit(1)
 
-    def align(self):
-        """
-        Docstring for align
-
-        To be implemented, allow you to aligne 2 structures with foldseek or local alignment without doing the full pocketmapper search workflow
-        """
-        pass
-
-    def _search_help(self):
+    def _help_search(self):
         """
         Displays help information for the PocketMapper tool and exits the program.
 
@@ -149,6 +162,7 @@ class PocketMapper:
                         - path to a file listing PDB_CHAIN_CHAIN entries (each line)
                         - special foldseek DB alias 'human_domains' to use the bundled Foldseek DB
             --settings FILE          Path to a JSON settings file (overridden by explicit CLI args)
+            --dump_settings FILE     Path to dump the finalized JSON configuration to
             --cache_dir DIR          Directory for caching intermediate files (overrides settings.cache_dir)
             --results_dir DIR        Directory for writing results (overrides settings.results_dir)
             --verbose                Enable more detailed (info) logging
@@ -197,119 +211,118 @@ class PocketMapper:
             print(help_msg)
             exit()
 
-    def _setup_logging(self):
-        """
-        Sets up logging configuration for the PocketMapper workflow.
-        The logging level is determined based on the 'debug' and 'verbose' flags provided during initialization.
-        Logs are output to both the console and a file named 'info.log' in the current directory.
-        The log format includes the log level, stage, and message.
-
-        """
-        self._stage = {"stage": "Logging Setup"}  # Updating stage for logging context
-
-        # Determining log level based on debug and verbose flags
-        if self._debug:
-            log_level = logging.DEBUG
-        elif self._verbose:
-            log_level = logging.INFO
-        else:
-            log_level = logging.WARNING
-
-        # Configuring logging to console
-        fmt = "%(levelname)s: %(stage)s - %(msg)s"
-        self.logger = logging.getLogger("pocketmapper")
-        logging.basicConfig(level=log_level, format=fmt)
-
-        # Configuring logging to file
-        # TODO make log file name include timestamp and maybe some info about the run (e.g., query and target)
-        # TODO allow use to specify log file name and location via settings
-        # TODO use output directory
-        formatter = logging.Formatter(fmt)
-        fh = logging.FileHandler("info.log")
-        fh.setLevel(log_level)
-        fh.setFormatter(formatter)
-        self.logger.addHandler(fh)
-
-        self.logger.debug(
-            "Level set to DEBUG", extra=self._stage
-        )  # example of how to use the logger with the stage info
-
-    def _configure(self):
+    def _setup_settings(self):
         """
         Reads and configures settings for the PocketMapper workflow.
 
-        1) Reads setting from provided JSON
-        2) Overrides settings with any provided as explicit keyword arguments
-        3) Sets default values for any settings not provided in either of the above steps
+        1) Sets base defaults
+        2) Overrides with provided JSON settings file
+        3) Overrides with explicitly passed CLI arguments
+        4) Computes derived paths based on the finalized cache/results directories
+        5) Dumps configuration to a JSON file in the results directory for record-keeping
         """
-        self._stage.update({"stage": "Configuring Settings"})
+        self._log_extra.update({"stage": "Configuring Settings"})
 
-        # Populates settings from the settings file if provided
+        # 1. Base defaults
+        now = datetime.now().strftime("%y%m%d_%H%M%S")
+        self._settings = {
+            "cache_dir": "pocketmapper_cache",
+            "results_dir": f"pocketmapper_results_{now}",
+            "query_pocket_method": None,
+            "target_pocket_method": None,
+            "query": None,
+            "target": None,
+            "foldseek": False,
+            "align_struct": False,
+            "verbosity": 3,  # default to info level logging
+        }
+
+        # 2. Populate settings from the settings file if provided
         if self._settings_file is not None:
             if not os.path.isfile(self._settings_file):
-                logging.critical(f"Settings file not found: {self._settings_file}", extra=self._stage)
+                logging.critical(f"Settings file not found: {self._settings_file}", extra=self._log_extra)
                 exit(1)
             try:
                 with open(self._settings_file) as f:
                     settings_data_from_file = json.load(f)
+                    self._settings.update(settings_data_from_file)
             except Exception:
-                logging.exception(
-                    f"Error reading settings file: {self._settings_file}. Is it in JSON format?", extra=self._stage
+                logging.critical(
+                    f"Error reading settings file: {self._settings_file}. Is it in JSON format?", extra=self._log_extra
                 )
                 exit(1)
-            finally:
-                self._settings.update(settings_data_from_file)
 
-        # Override settings_file with any provided command-line arguments
-        cdm_line_args = {
+        # 3. Override settings with explicit command-line arguments
+        # Using a mapping of settings keys to the instance attributes
+        cli_args_mapping = {
             "query": self._query,
             "target": self._target,
             "cache_dir": self._cache_dir,
             "results_dir": self._results_dir,
             "foldseek": self._foldseek,
-            "query_pocket_method": self._query_pocket_method,
-            "target_pocket_method": self._target_pocket_method,
             "align_struct": self._align_struct,
+            "verbosity": self._verbosity,
         }
-        for key, value in cdm_line_args.items():
+        for key, value in cli_args_mapping.items():
             if value is not None:
                 self._settings[key] = value
 
-        # Using defaults setting for any settings not provided by either of the above steps
-        cache_dir = self._settings.get("cache_dir", "pocketmapper_cache")
-        now = datetime.now().strftime("%y%m%d_%H%M%S")
-        results_dir = self._settings.get("results_dir", f"pocketmapper_results_{now}")
-        defaults = {
+        # Update self properties from settings so they're accessible everywhere consistently
+        self._query = self._settings.get("query")
+        self._target = self._settings.get("target")
+
+        # 4. Computed paths
+        cache_dir = self._settings["cache_dir"]
+        results_dir = self._settings["results_dir"]
+
+        derived_paths = {
             # Default directories stemming from cache_dir
-            "cache_dir": cache_dir,
             "structure_dir": os.path.join(cache_dir, "pdb_structures"),
             "pocket_dir": os.path.join(cache_dir, "pockets"),
             "foldseek_tmp_dir": os.path.join(cache_dir, "foldseek_tmp"),
             "divided_struct_dir": os.path.join(cache_dir, "divided_structs"),
             # Default directories and files stemming from results_dir
-            "results_dir": results_dir,
             "query_dir": os.path.join(results_dir, "query_structures"),
             "target_dir": os.path.join(results_dir, "target_structures"),
             "alignment_path": os.path.join(results_dir, "alignment.tsv"),
             "pocket_comparison_path": os.path.join(results_dir, "pocket_comparison.tsv"),
-            "foldseek": False,
-            "query_pocket_method": None,
-            "target_pocket_method": None,
-            "align_struct": False,
+            "job_settings_path": os.path.join(results_dir, "job_settings.json"),
+            "log_path": os.path.join(results_dir, "info.log"),
         }
-        for key, value in defaults.items():
-            if key not in self._settings:
-                self._settings[key] = value
 
-        logging.debug("Internal settings:", extra=self._stage)
-        for k, v in self._settings.items():
-            logging.debug(f"{k}: {v}", extra=self._stage)
+        # Only overwrite paths if they were not explicitly provided via the settings file
+        for key, path_val in derived_paths.items():
+            if key not in self._settings:
+                self._settings[key] = path_val
+
+        # Log the finalized settings for debugging purposes
+        try:
+            os.makedirs(os.path.dirname(self._settings["log_path"]), exist_ok=True)
+        except OSError:
+            logging.critical(
+                f"Error creating directory for log file: {self._settings['log_path']}", extra=self._log_extra
+            )
+        self._configure_logging(self._settings)
+        logging.debug(f"Finalized settings: {json.dumps(self._settings, indent=4)}", extra=self._log_extra)
+
+        # 5. Output dump
+        try:
+            os.makedirs(os.path.dirname(self._settings["job_settings_path"]), exist_ok=True)
+            with open(self._settings["job_settings_path"], "w") as f:
+                json.dump(self._settings, f, indent=4)
+            logging.info(
+                f"Settings successfully dumped to {self._settings['job_settings_path']}", extra=self._log_extra
+            )
+        except Exception as e:
+            logging.error(
+                f"Failed to dump settings to {self._settings['job_settings_path']}: {e}", extra=self._log_extra
+            )
 
     def _setup_query_target(self):
         """
         Determining the inputs types for query and target based on the format of the provided values.
         """
-        self._stage.update({"stage": "Determine Query/Target Types"})
+        self._log_extra.update({"stage": "Determine Query/Target Types"})
 
         qtprocessor = QTProcessor(
             query=self._query,
@@ -320,7 +333,7 @@ class PocketMapper:
         self._query_data, self._target_data = qtprocessor.main()
 
     def _prepare_directories(self):
-        self._stage.update({"stage": "Directory Preparation"})
+        self._log_extra.update({"stage": "Directory Preparation"})
         dirs_to_create = [
             "structure_dir",
             "query_dir",
@@ -334,7 +347,7 @@ class PocketMapper:
             try:
                 os.makedirs(path, exist_ok=True)
             except OSError:
-                logging.critical(f"Error creating directory {path}", extra=self._stage)
+                logging.critical(f"Error creating directory {path}", extra=self._log_extra)
                 exit(1)
 
     def _fetch_pdb_structures(self):
@@ -348,8 +361,8 @@ class PocketMapper:
         TODO Update to download alphafold structures if the input is a uniprot id
         """
         # Downloading structures
-        self._stage.update({"stage": "Fetching Structures"})
-        logging.info("Checking for mmCIF structures...", extra=self._stage)
+        self._log_extra.update({"stage": "Fetching Structures"})
+        logging.info("Checking for mmCIF structures...", extra=self._log_extra)
 
         # List of all unique PDBs
         query_pdbs = set(self._query_data.query("struct_type == 'pdb'")["struct_info"])
@@ -364,11 +377,11 @@ class PocketMapper:
         # Logging results of structure fetching and updating query and target data with success/failure info
         logging.info(
             f"Finished checking for structures. Successfully found structures for {len(all_pdbs) - len(failed_list)}/{len(all_pdbs)} PDBs.",
-            extra=self._stage,
+            extra=self._log_extra,
         )
         if len(failed_list) > 0:
             logging.warning(
-                f"Failed to find structures for the following PDBs: {', '.join(failed_list)}", extra=self._stage
+                f"Failed to find structures for the following PDBs: {', '.join(failed_list)}", extra=self._log_extra
             )
 
         # updating success column to false if structure fetching failed and adding failure reason
@@ -378,16 +391,16 @@ class PocketMapper:
         self._target_data.loc[~self._target_data["success"], "failure_reason"] = "structure_not_found"
 
         # Logging the query and target data after structure fetching to verify the updates
-        self.logger.debug(f"Query data after structure fetching: \n{self._query_data.head()}", extra=self._stage)
-        self.logger.debug(f"Target data after structure fetching: \n{self._target_data.head()}", extra=self._stage)
+        self.logger.debug(f"Query data after structure fetching: \n{self._query_data.head()}", extra=self._log_extra)
+        self.logger.debug(f"Target data after structure fetching: \n{self._target_data.head()}", extra=self._log_extra)
 
         # Verifying enough structures were found to continue
         exit_flag = False
         if self._query_data["success"].sum() < 1:
-            logging.critical("Insufficient query after fetching structures found", extra=self._stage)
+            logging.critical("Insufficient query after fetching structures found", extra=self._log_extra)
             exit_flag = True
         if self._target_data["success"].sum() < 1:
-            logging.critical("Insufficient targets after fetching structures found", extra=self._stage)
+            logging.critical("Insufficient targets after fetching structures found", extra=self._log_extra)
             exit_flag = True
         if exit_flag:
             exit(1)
@@ -396,8 +409,8 @@ class PocketMapper:
         """
         Divides PDB structures into relevant domains and chains
         """
-        self._stage.update({"stage": "Preprocess Structures"})
-        logging.info("Dividing mmCIF structures...", extra=self._stage)
+        self._log_extra.update({"stage": "Preprocess Structures"})
+        logging.info("Dividing mmCIF structures...", extra=self._log_extra)
         query_divided_map = lib.pdb_preprocessing_gemmi(
             df=self._query_data.query("success and struct_type == 'pdb'"),
             ref_dir=self._settings["structure_dir"],
@@ -418,9 +431,9 @@ class PocketMapper:
             if not success:
                 self._target_data.loc[index, "success"] = False
                 self._target_data.loc[index, "failure_reason"] = "structure_preprocessing_failed"
-        logging.info("Finished dividing structures", extra=self._stage)
-        logging.debug(f"Query data after structure preprocessing: \n{self._query_data.head()}", extra=self._stage)
-        logging.debug(f"Target data after structure preprocessing: \n{self._target_data.head()}", extra=self._stage)
+        logging.info("Finished dividing structures", extra=self._log_extra)
+        logging.debug(f"Query data after structure preprocessing: \n{self._query_data.head()}", extra=self._log_extra)
+        logging.debug(f"Target data after structure preprocessing: \n{self._target_data.head()}", extra=self._log_extra)
 
     def _get_pockets(self):
         """
@@ -444,7 +457,7 @@ class PocketMapper:
         Stores the pocket info in a dict for later comparison
         """
 
-        self._stage.update({"stage": "Pisa Pocket Calculation"})
+        self._log_extra.update({"stage": "Pisa Pocket Calculation"})
         all_pisa_df = pd.concat([self._query_data, self._target_data], ignore_index=True).query(
             "success and pocket_method == 'pisa'"
         )
@@ -452,8 +465,8 @@ class PocketMapper:
         pisa_response_dir = os.path.join(self._settings["pocket_dir"], "pisa_responses")
         # Dispatch to relevant pocket retrieval/calculation method based on the specified pocket method for the query and target (currently only PISA, but can be extended in the future)
         pisa_pdb_list = all_pisa_df["struct_info"].unique().tolist()
-        logging.debug(f"PDBs for which to retrieve PISA pockets: {pisa_pdb_list}", extra=self._stage)
-        logging.info("Retrieving PISA pockets...", extra=self._stage)
+        logging.debug(f"PDBs for which to retrieve PISA pockets: {pisa_pdb_list}", extra=self._log_extra)
+        logging.info("Retrieving PISA pockets...", extra=self._log_extra)
         downloader = pisa.PisaDownloader()
         downloader.get_interfaces(
             pdb_list=pisa_pdb_list,
@@ -464,13 +477,13 @@ class PocketMapper:
 
         # for each interface in query and target extract the relevant info from the parsed pockets
         pisa_pocketids = all_pisa_df["sanitized_pocket_id"].unique().tolist()
-        logging.debug(f"Pocket IDs for which to retrieve PISA pockets: {pisa_pocketids}", extra=self._stage)
+        logging.debug(f"Pocket IDs for which to retrieve PISA pockets: {pisa_pocketids}", extra=self._log_extra)
         pisa_pockets = lib.get_pisa_pockets(
             pocket_id_arr=pisa_pocketids,
             in_dir=os.path.join(pisa_response_dir, "interfaces"),
         )
-        logging.warning(f"pockets example: {list(pisa_pockets.items())[:2]}", extra=self._stage)
-        logging.debug(f"Extracted PISA pockets: {pisa_pockets}", extra=self._stage)
+        logging.warning(f"pockets example: {list(pisa_pockets.items())[:2]}", extra=self._log_extra)
+        logging.debug(f"Extracted PISA pockets: {pisa_pockets}", extra=self._log_extra)
         for _, row in all_pisa_df.iterrows():
             if row["sanitized_pocket_id"] in pisa_pockets:
                 pisa_pockets[row["sanitized_pocket_id"]] = parse_pocket_from_struct(
@@ -486,7 +499,7 @@ class PocketMapper:
         return pisa_pockets
 
     def retrieve_passthrough_pockets(self):
-        self._stage.update({"stage": "Passthrough Pocket Calculation"})
+        self._log_extra.update({"stage": "Passthrough Pocket Calculation"})
         all_passthrough_data = pd.concat([self._query_data, self._target_data], ignore_index=True)
         all_passthrough_data = all_passthrough_data.query(
             "success and pocket_method == 'passthrough' and struct_type == 'pdb'"
@@ -508,20 +521,20 @@ class PocketMapper:
         return passthrough_pockets
 
     def _alignment(self):
-        self._stage.update({"stage": "Alignment"})
+        self._log_extra.update({"stage": "Alignment"})
         if self._settings["foldseek"]:
             # if not os.path.isfile(self._settings["alignment_path"]):
-            logging.info("Running Foldseek easy-search...", extra=self._stage)
+            logging.info("Running Foldseek easy-search...", extra=self._log_extra)
             self._run_foldseek()
         else:
-            logging.info("Running local alignments...", extra=self._stage)
+            logging.info("Running local alignments...", extra=self._log_extra)
             self._local_alignment()
 
     def _run_foldseek(self):
         """ """
         if self._target == "human_domains":
             self._settings["target_dir"] = self.human_domains_db_path
-        self._stage.update({"stage": "Foldseek Alignment"})
+        self._log_extra.update({"stage": "Foldseek Alignment"})
         cmd = [
             "foldseek",
             "easy-search",
@@ -542,9 +555,9 @@ class PocketMapper:
             "-v",  # verbosity
             "2",
         ]
-        self.logger.debug(f"Running Foldseek with command: {' '.join([str(x) for x in cmd])}", extra=self._stage)
+        self.logger.debug(f"Running Foldseek with command: {' '.join([str(x) for x in cmd])}", extra=self._log_extra)
         subprocess.run(cmd, check=True)
-        self.logger.debug("Foldseek alignment completed successfully", extra=self._stage)
+        self.logger.debug("Foldseek alignment completed successfully", extra=self._log_extra)
 
     def _local_alignment(self):
         aligner = SequenceAligner()
@@ -553,8 +566,8 @@ class PocketMapper:
         alignment.to_csv(self._settings["alignment_path"], index=False, sep="\t")
 
     def _compare_pockets_and_save(self, pockets):
-        self._stage.update({"stage": "Pocket Comparison"})
-        logging.info("Comparing pockets...", extra=self._stage)
+        self._log_extra.update({"stage": "Pocket Comparison"})
+        logging.info("Comparing pockets...", extra=self._log_extra)
         alignment_df = pd.read_csv(self._settings["alignment_path"], sep="\t", engine="c")
         blosum_path = os.path.join(os.path.dirname(__file__), "blosum62.bla")
 
@@ -567,13 +580,15 @@ class PocketMapper:
 
         if len(unknown_alias) > 0:
             unknown_alias_path = os.path.join(self._settings["results_dir"], "unknown_ids.json")
-            logging.warning("Unknown Foldseek Alias, see unknown_alias.json in results directory", extra=self._stage)
+            logging.warning(
+                "Unknown Foldseek Alias, see unknown_alias.json in results directory", extra=self._log_extra
+            )
             with open(unknown_alias_path, "w") as f:
                 json.dump(lib.jsonify_dict(dict(unknown_alias)), f)
 
         if len(incorrect_mapping) > 0:
             incorrect_mapping_path = os.path.join(self._settings["results_dir"], "incorrect_mapping.json")
-            logging.warning("Foldseek mapping with low sequence identity to parsed structure", extra=self._stage)
+            logging.warning("Foldseek mapping with low sequence identity to parsed structure", extra=self._log_extra)
             with open(incorrect_mapping_path, "w") as f:
                 json.dump(lib.jsonify_dict(dict(incorrect_mapping)), f)
 
@@ -588,7 +603,7 @@ class PocketMapper:
         pockets_df.to_csv(output_path, index=False, sep="\t")
         with open(os.path.join(self._settings["results_dir"], "sanitized_to_id_map.json"), "w") as f:
             json.dump(sanitized_to_id_map, f, indent=2)
-        logging.info(f"Pocket comparison results saved to {output_path}", extra=self._stage)
+        logging.info(f"Pocket comparison results saved to {output_path}", extra=self._log_extra)
 
     def _delete_tmp(self):
         tmp_dirs = [
