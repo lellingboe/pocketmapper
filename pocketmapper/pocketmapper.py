@@ -94,20 +94,20 @@ class PocketMapper:
 
         # Main try-except block to catch unhandled exceptions
         try:
-            self._help_search()  # checks if help flag is set and if so prints the help message and exits
-            self._setup()  # configures the settings which have already been read
+            self._check_help_search()  # checks if help flag is set and if so prints the help message and exits
+            self._configure_workflow()  # configures the settings which have already been read
+            self._parse_and_setup_query_and_target()  # parses the query and target inputs to determine their types and sets up the relevant data structures for each entry
+            self._fetch_structures()  # Fetch any missing structures
 
-            # Preprocessing/Downloading required data
-            self._setup_query_target()
-            self._fetch_pdb_structures()
-            if self._foldseek:
+            # TODO put preprocessing in alignment call
+            if self._settings[
+                "foldseek"
+            ]:  # If using foldseek we need to preprocess the structures to divide them into chains/domains for better foldseek performance, if not using foldseek we can just use the full structures for alignment
                 self._preprocess_structures()
-
-            # Alignment
-            self._alignment()
-
-            # Pockets
+            self._alignment()  # Align the query and target structures using either local sequence alignment or foldseek based on the settings
             pockets = self._get_pockets()  # Adds seq_pos and cacoords to the pocket info dict
+
+            # TODO Remove this hack after preserving the method
             if False:  # hack to make ATP pocket search working
                 pc = PocketCalculator()
                 pockets = pc.atp_pocket_overlap(
@@ -121,7 +121,7 @@ class PocketMapper:
                 ) as f:
                     json.dump(pockets, f, indent=4)
 
-            self._compare_pockets_and_save(pockets)
+            self._compare_pockets_based_on_alignment(pockets)
             self._delete_tmp()
 
             logging.info("PocketMapper search completed successfully.", extra={"stage": "End"})
@@ -131,7 +131,7 @@ class PocketMapper:
             logging.exception(str(e), extra=self._log_extra)
             exit(1)
 
-    def _help_search(self):
+    def _check_help_search(self):
         """
         Displays help information for the PocketMapper tool and exits the program.
 
@@ -210,7 +210,7 @@ class PocketMapper:
             print(help_msg)
             exit()
 
-    def _setup(self):
+    def _configure_workflow(self):
         """
         Reads and configures settings for the PocketMapper workflow.
 
@@ -315,6 +315,7 @@ class PocketMapper:
 
         # 5. Output dump
         try:
+            os.makedirs(os.path.dirname(self._settings["job_settings_path"]), exist_ok=True)
             with open(self._settings["job_settings_path"], "w") as f:
                 json.dump(self._settings, f, indent=4)
             logging.info(
@@ -325,7 +326,7 @@ class PocketMapper:
                 f"Failed to dump settings to {self._settings['job_settings_path']}: {e}", extra=self._log_extra
             )
 
-    def _setup_query_target(self):
+    def _parse_and_setup_query_and_target(self):
         """
         Determining the inputs types for query and target based on the format of the provided values.
         """
@@ -342,7 +343,7 @@ class PocketMapper:
     def _prepare_directories(self):
         self._log_extra.update({"stage": "Directory Preparation"})
 
-    def _fetch_pdb_structures(self):
+    def _fetch_structures(self):
         """
         1) Downloads structures for the PDB entries in self._pdb_df['interaction_pdb'].
 
@@ -557,7 +558,7 @@ class PocketMapper:
         print(alignment)
         alignment.to_csv(self._settings["alignment_path"], index=False, sep="\t")
 
-    def _compare_pockets_and_save(self, pockets):
+    def _compare_pockets_based_on_alignment(self, pockets):
         self._log_extra.update({"stage": "Pocket Comparison"})
         logging.info("Comparing pockets...", extra=self._log_extra)
         alignment_df = pd.read_csv(self._settings["alignment_path"], sep="\t", engine="c")
