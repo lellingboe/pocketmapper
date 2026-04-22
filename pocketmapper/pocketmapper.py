@@ -95,11 +95,10 @@ class PocketMapper:
         # Main try-except block to catch unhandled exceptions
         try:
             self._help_search()  # checks if help flag is set and if so prints the help message and exits
-            self._setup_settings()  # configures the settings which have already been read
+            self._setup()  # configures the settings which have already been read
 
             # Preprocessing/Downloading required data
             self._setup_query_target()
-            self._prepare_directories()
             self._fetch_pdb_structures()
             if self._foldseek:
                 self._preprocess_structures()
@@ -211,7 +210,7 @@ class PocketMapper:
             print(help_msg)
             exit()
 
-    def _setup_settings(self):
+    def _setup(self):
         """
         Reads and configures settings for the PocketMapper workflow.
 
@@ -295,19 +294,27 @@ class PocketMapper:
             if key not in self._settings:
                 self._settings[key] = path_val
 
-        # Log the finalized settings for debugging purposes
-        try:
-            os.makedirs(os.path.dirname(self._settings["log_path"]), exist_ok=True)
-        except OSError:
-            logging.critical(
-                f"Error creating directory for log file: {self._settings['log_path']}", extra=self._log_extra
-            )
+        # Ensure all necessary directories exist before proceeding, creating them if needed
+        dirs_to_create = [
+            "structure_dir",
+            "query_dir",
+            "target_dir",
+            "pocket_dir",
+            "divided_struct_dir",
+        ]
+        for dir_key in dirs_to_create:
+            path = self._settings[dir_key]
+            try:
+                os.makedirs(path, exist_ok=True)
+            except OSError:
+                logging.critical(f"Error creating directory {path}", extra=self._log_extra)
+                exit(1)
+
         self._configure_logging(self._settings)
         logging.debug(f"Finalized settings: {json.dumps(self._settings, indent=4)}", extra=self._log_extra)
 
         # 5. Output dump
         try:
-            os.makedirs(os.path.dirname(self._settings["job_settings_path"]), exist_ok=True)
             with open(self._settings["job_settings_path"], "w") as f:
                 json.dump(self._settings, f, indent=4)
             logging.info(
@@ -334,21 +341,6 @@ class PocketMapper:
 
     def _prepare_directories(self):
         self._log_extra.update({"stage": "Directory Preparation"})
-        dirs_to_create = [
-            "structure_dir",
-            "query_dir",
-            "target_dir",
-            "pocket_dir",
-            "divided_struct_dir",
-        ]
-
-        for dir_key in dirs_to_create:
-            path = self._settings[dir_key]
-            try:
-                os.makedirs(path, exist_ok=True)
-            except OSError:
-                logging.critical(f"Error creating directory {path}", extra=self._log_extra)
-                exit(1)
 
     def _fetch_pdb_structures(self):
         """
