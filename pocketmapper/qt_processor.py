@@ -112,7 +112,7 @@ class QTProcessor:
         Daterming structure type based on regex pattern matching
         returns one of {"local_file", "pdb", "alphafold"}
         """
-        pdb_regex = r"[a-zA-Z1-9]{4}"
+        pdb_regex = r"[a-zA-Z0-9]{4}"
         uniprot_regex = r"[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}"  # https://www.uniprot.org/help/accession_numbers
         if os.path.isfile(struct_str):
             return "local_file"

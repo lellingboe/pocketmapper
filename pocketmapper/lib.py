@@ -377,6 +377,29 @@ def pocket_overlap(structure, domain_chain, motif_chain):
     return pocket, problem_atoms, problem_residues
 
 
+"""
+Foldseek output format used for comparison:
+0 query
+1 target
+2 fident
+3 alnlen
+4 mismatch
+5 gapopen
+6 qstart
+7 qend
+8 tstart
+9 tend
+10 evalue
+11 lddt
+12 qaln
+13 taln
+14 u
+15 t
+16 qseq
+17 tseq
+"""
+
+
 def compare_pockets(
     alignment_df,
     pocket_dict,
@@ -390,7 +413,8 @@ def compare_pockets(
     # stage = {"stage": "Pocket Comparison"}
     blosum_similarity_matrix = read_blast_similarity_matrix(blosum_path)
 
-    unknown_ids = defaultdict(lambda: defaultdict(set))
+    unknown_ids = defaultdict(lambda: defaultdict(set))  # for saving tri-code ids which are unknown
+    incorrect_mapping = defaultdict(dict)  # for saving cases where foldseek mapping doesn't match pocketmapper sequence
 
     # {pdb_domain_motif: info} -> {pdb_domain: {motif1: info, motif2:info}}
     domain_pocket_dict = defaultdict(dict)
@@ -428,7 +452,8 @@ def compare_pockets(
             # Check that both pockets are loaded:
             pockets_1 = domain_pocket_dict.get(domain_1)
             if not pockets_1:
-                raise ValueError(f"domain:{domain_1} not found in pocket dict")
+                continue
+                # raise ValueError(f"domain:{domain_1} not found in pocket dict")
             if alphafold:
                 pockets_2 = {
                     "A": {
@@ -436,13 +461,15 @@ def compare_pockets(
                         "id_pos_codes_match": True,
                         "pocket_exists": True,
                         "has_coords": False,
+                        "ca_sequence": row[17],
                     }
                 }
                 pockets_2["A"].update({str(k): {"seq_pos": k} for k in range(row[9])})
             else:
                 pockets_2 = domain_pocket_dict.get(domain_2)
                 if not pockets_2:
-                    raise ValueError(f"domain:{domain_2} not found in pocket dict")
+                    continue
+                    # raise ValueError(f"domain:{domain_2} not found in pocket dict")
 
             # Iterating through aligned pairs
             for motif_1, motif_2 in product(pockets_1.keys(), pockets_2.keys()):
@@ -462,6 +489,9 @@ def compare_pockets(
                     continue
                 existing_calcs.add((interaction_1, interaction_2))
 
+                if interaction_1 in incorrect_mapping or interaction_2 in incorrect_mapping:
+                    continue
+
                 # Starting the output list
                 output = {
                     "pocket_1": domain_1 + "_" + motif_1,
@@ -475,6 +505,22 @@ def compare_pockets(
                 p2 = deepcopy(pockets_2.get(motif_2))
                 if not p1["pocket_exists"] or not p2["pocket_exists"]:
                     continue
+
+                p1_seq_identity = sum(map(str.__eq__, row[16], p1["ca_sequence"])) / len(p1["ca_sequence"])
+                if p1_seq_identity < 0.8:
+                    incorrect_mapping[interaction_1] = {
+                        "p1_seq_identity": p1_seq_identity,
+                        "p1_seq": p1["ca_sequence"],
+                        "fs_seq": row[16],
+                    }
+
+                p2_seq_identity = sum(map(str.__eq__, row[17], p2["ca_sequence"])) / len(p2["ca_sequence"])
+                if p2_seq_identity < 0.8:
+                    incorrect_mapping[interaction_2] = {
+                        "p2_seq_identity": p2_seq_identity,
+                        "p2_seq": p2["ca_sequence"],
+                        "fs_seq": row[17],
+                    }
 
                 # Calculated Metrics
                 # pocket 1
@@ -610,19 +656,19 @@ def compare_pockets(
                 output_rows.append(output)
 
         except KeyError:
-            raise
             logging.warning(
                 f"Uncontrolled KeyError calculating {domain_1}_{motif_1} and {domain_2}_{motif_2}",
                 extra={"stage": "Pocket Comparison"},
             )
+            raise
         except Exception:
             logging.exception(
                 f"Uncontrolled error calculating {domain_1}_{motif_1} and {domain_2}_{motif_2}",
                 extra={"stage": "Pocket Comparison"},
             )
-            exit(1)
+            raise
 
-    return pd.DataFrame.from_dict(output_rows), unknown_ids
+    return pd.DataFrame.from_dict(output_rows), unknown_ids, incorrect_mapping
 
 
 def binary_similarity(seqA, seqB, similarity_matrix):
