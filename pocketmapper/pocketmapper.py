@@ -340,9 +340,6 @@ class PocketMapper:
         )
         self._query_data, self._target_data = qtprocessor.main()
 
-    def _prepare_directories(self):
-        self._log_extra.update({"stage": "Directory Preparation"})
-
     def _fetch_missing_structures(self):
         """
         1) Downloads structures for the PDB entries in self._pdb_df['interaction_pdb'].
