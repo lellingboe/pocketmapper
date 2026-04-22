@@ -96,8 +96,8 @@ class PocketMapper:
         try:
             self._check_help_search()  # checks if help flag is set and if so prints the help message and exits
             self._configure_workflow()  # configures the settings which have already been read
-            self._parse_and_setup_query_and_target()  # parses the query and target inputs to determine their types and sets up the relevant data structures for each entry
-            self._fetch_structures()  # Fetch any missing structures
+            self._configure_query_target()  # parses the query and target inputs to determine their types and sets up the relevant data structures for each entry
+            self._fetch_missing_structures()  # Fetch any missing structures
 
             # TODO put preprocessing in alignment call
             if self._settings[
@@ -326,7 +326,7 @@ class PocketMapper:
                 f"Failed to dump settings to {self._settings['job_settings_path']}: {e}", extra=self._log_extra
             )
 
-    def _parse_and_setup_query_and_target(self):
+    def _configure_query_target(self):
         """
         Determining the inputs types for query and target based on the format of the provided values.
         """
@@ -343,7 +343,7 @@ class PocketMapper:
     def _prepare_directories(self):
         self._log_extra.update({"stage": "Directory Preparation"})
 
-    def _fetch_structures(self):
+    def _fetch_missing_structures(self):
         """
         1) Downloads structures for the PDB entries in self._pdb_df['interaction_pdb'].
 
