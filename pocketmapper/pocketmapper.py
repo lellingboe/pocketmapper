@@ -469,14 +469,16 @@ class PocketMapper:
             pocket_id_arr=pisa_pocketids,
             in_dir=os.path.join(pisa_response_dir, "interfaces"),
         )
+        logging.warning(f"pockets example: {list(pisa_pockets.items())[:2]}", extra=self._stage)
         logging.debug(f"Extracted PISA pockets: {pisa_pockets}", extra=self._stage)
         for _, row in all_pisa_df.iterrows():
-            pisa_pockets[row["sanitized_pocket_id"]] = parse_pocket_from_struct(
-                struct=os.path.join(self._settings["structure_dir"], f"{row['struct_info']}.cif.gz"),
-                chain_id=row["chain_info"].split("_")[0],
-                pocket_residues=[int(x) for x in pisa_pockets[row["sanitized_pocket_id"]]["res_auth_ids"]],
-                pocket=pisa_pockets[row["sanitized_pocket_id"]],
-            )
+            if row["sanitized_pocket_id"] in pisa_pockets:
+                pisa_pockets[row["sanitized_pocket_id"]] = parse_pocket_from_struct(
+                    struct=os.path.join(self._settings["structure_dir"], f"{row['struct_info']}.cif.gz"),
+                    chain_id=row["chain_info"].split("_")[0],
+                    pocket_residues=[int(x) for x in pisa_pockets[row["sanitized_pocket_id"]]["res_auth_ids"]],
+                    pocket=pisa_pockets[row["sanitized_pocket_id"]],
+                )
 
         with open(os.path.join(self._settings["pocket_dir"], "pisa_pockets.json"), "w") as f:
             json.dump(pisa_pockets, f)
@@ -508,6 +510,7 @@ class PocketMapper:
     def _alignment(self):
         self._stage.update({"stage": "Alignment"})
         if self._settings["foldseek"]:
+            # if not os.path.isfile(self._settings["alignment_path"]):
             logging.info("Running Foldseek easy-search...", extra=self._stage)
             self._run_foldseek()
         else:
@@ -527,7 +530,7 @@ class PocketMapper:
             self._settings["alignment_path"],
             self._settings["foldseek_tmp_dir"],
             "--format-output",
-            "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,lddt,qaln,taln,u,t",
+            "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,lddt,qaln,taln,u,t,qseq,tseq",
             "--format-mode",
             "4",
             "-e",
@@ -558,7 +561,7 @@ class PocketMapper:
         alphafold = (
             self._target == "human_domains"
         )  # TODO this is actually if we should trat the target as having no defnied pocket, not if we are searching alphafold
-        pockets_df, unknown_alias = lib.compare_pockets(
+        pockets_df, unknown_alias, incorrect_mapping = lib.compare_pockets(
             alignment_df, pockets, blosum_path=blosum_path, alphafold=alphafold
         )
 
@@ -567,6 +570,12 @@ class PocketMapper:
             logging.warning("Unknown Foldseek Alias, see unknown_alias.json in results directory", extra=self._stage)
             with open(unknown_alias_path, "w") as f:
                 json.dump(lib.jsonify_dict(dict(unknown_alias)), f)
+
+        if len(incorrect_mapping) > 0:
+            incorrect_mapping_path = os.path.join(self._settings["results_dir"], "incorrect_mapping.json")
+            logging.warning("Foldseek mapping with low sequence identity to parsed structure", extra=self._stage)
+            with open(incorrect_mapping_path, "w") as f:
+                json.dump(lib.jsonify_dict(dict(incorrect_mapping)), f)
 
         # Map sanitized pocket ids back to original pocket ids for output
         sanitized_to_id_map = {}
