@@ -19,6 +19,8 @@ from pocketmapper import pisa
 from pocketmapper.sequence_aligner import SequenceAligner
 from pocketmapper.pocket_calculator import PocketCalculator
 from pocketmapper.qt_processor import QTProcessor
+from pocketmapper.structure_fetcher import StructureFetcher
+from pocketmapper.structure_preprocessor import StructurePreprocessor
 from pocketmapper.lib_struct import parse_pocket_from_struct
 from pocketmapper import human_domains
 
@@ -27,18 +29,13 @@ class PocketMapper:
     def __init__(self):
         self._log_extra = {"stage": "init"}
         self.human_domains_db_path = files(human_domains).joinpath("human_260310")
-        self._setup_basic_logging()  # Initialize logging in the constructor so that we can log messages during the configuration stage
-
-    def _setup_basic_logging(self):
-        """
-        Sets up basic logging configuration for the PocketMapper class.
-        """
         self.log_fmt = "%(levelname)s: %(stage)s - %(msg)s"
-        self.logger = logging.getLogger("pocketmapper")
+        self.logger = logging.getLogger(__name__)
         logging.basicConfig(level=logging.CRITICAL, format=self.log_fmt)
 
     def _configure_logging(self, settings):
         self._log_extra.update({"stage": "Configuring Logging"})
+        self.log_level
 
         # Set log level based on verbosity setting (default to INFO if not set)
         if settings["verbosity"] == 4:
@@ -93,43 +90,35 @@ class PocketMapper:
         self._align_struct = align_struct
 
         # Main try-except block to catch unhandled exceptions
-        try:
-            self._check_help_search()  # checks if help flag is set and if so prints the help message and exits
-            self._configure_workflow()  # configures the settings which have already been read
-            self._configure_query_target()  # parses the query and target inputs to determine their types and sets up the relevant data structures for each entry
-            self._fetch_missing_structures()  # Fetch any missing structures
+        self._check_help_search()  # checks if help flag is set and if so prints the help message and exits
+        self._configure_workflow()  # configures the settings which have already been read
+        self._configure_query_target()  # parses the query and target inputs to determine their types and sets up the relevant data structures for each entry
+        self._fetch_missing_structures()  # Fetch any missing structures
 
-            # TODO put preprocessing in alignment call
-            if self._settings[
-                "foldseek"
-            ]:  # If using foldseek we need to preprocess the structures to divide them into chains/domains for better foldseek performance, if not using foldseek we can just use the full structures for alignment
-                self._preprocess_structures()
-            self._alignment()  # Align the query and target structures using either local sequence alignment or foldseek based on the settings
-            pockets = self._get_pockets()  # Adds seq_pos and cacoords to the pocket info dict
+        # TODO put preprocessing in alignment call
+        if self._settings["foldseek"]:
+            self._preprocess_structures()
+        self._alignment()  # Align the query and target structures using either local sequence alignment or foldseek based on the settings
+        pockets = self._get_pockets()  # Adds seq_pos and cacoords to the pocket info dict
 
-            # TODO Remove this hack after preserving the method
-            if False:  # hack to make ATP pocket search working
-                pc = PocketCalculator()
-                pockets = pc.atp_pocket_overlap(
-                    r"/Users/lellingboe/Work/data/kinase_edit/atp_pocket/pocketmapper_cache/divided_structs/3BU5_A_B.cif.gz",
-                    "A",
-                    "3BU5_A_B",
-                )
-                with open(
-                    r"/Users/lellingboe/Work/data/kinase_edit/atp_pocket/pocketmapper_cache/pockets/3BU5_A_B_atp_pocket.json",
-                    "w",
-                ) as f:
-                    json.dump(pockets, f, indent=4)
+        # TODO Remove this hack after preserving the method
+        if False:  # hack to make ATP pocket search working
+            pc = PocketCalculator()
+            pockets = pc.atp_pocket_overlap(
+                r"/Users/lellingboe/Work/data/kinase_edit/atp_pocket/pocketmapper_cache/divided_structs/3BU5_A_B.cif.gz",
+                "A",
+                "3BU5_A_B",
+            )
+            with open(
+                r"/Users/lellingboe/Work/data/kinase_edit/atp_pocket/pocketmapper_cache/pockets/3BU5_A_B_atp_pocket.json",
+                "w",
+            ) as f:
+                json.dump(pockets, f, indent=4)
 
-            self._compare_pockets_based_on_alignment(pockets)
-            self._delete_tmp()
+        self._compare_pockets_based_on_alignment(pockets)
+        self._delete_tmp()
 
-            logging.info("PocketMapper search completed successfully.", extra={"stage": "End"})
-
-        # Unhandled exception stops the process and logs the error
-        except Exception as e:
-            logging.exception(str(e), extra=self._log_extra)
-            exit(1)
+        self.logger.info("PocketMapper search completed successfully.", extra={"stage": "End"})
 
     def _check_help_search(self):
         """
@@ -173,7 +162,7 @@ class PocketMapper:
             results_dir              Results directory (default: pocketmapper_results_<timestamp>)
             structure_dir            Directory to store downloaded/available structures
             pocket_dir               Directory to store calculated pockets
-            divided_struct_dir       Directory for preprocessed/divided structures
+            foldseek_preprocessed_struct_dir       Directory for preprocessed/divided structures
             query_dir                Temporary directory for query divided structures
             target_dir               Temporary directory for target divided structures
             alignment_path           Path to write alignment TSV
@@ -239,14 +228,14 @@ class PocketMapper:
         # 2. Populate settings from the settings file if provided
         if self._settings_file is not None:
             if not os.path.isfile(self._settings_file):
-                logging.critical(f"Settings file not found: {self._settings_file}", extra=self._log_extra)
+                self.logger.critical(f"Settings file not found: {self._settings_file}", extra=self._log_extra)
                 exit(1)
             try:
                 with open(self._settings_file) as f:
                     settings_data_from_file = json.load(f)
                     self._settings.update(settings_data_from_file)
             except Exception:
-                logging.critical(
+                self.logger.critical(
                     f"Error reading settings file: {self._settings_file}. Is it in JSON format?", extra=self._log_extra
                 )
                 exit(1)
@@ -276,10 +265,10 @@ class PocketMapper:
 
         derived_paths = {
             # Default directories stemming from cache_dir
-            "structure_dir": os.path.join(cache_dir, "pdb_structures"),
+            "structure_dir": os.path.join(cache_dir, "ref_structures"),
             "pocket_dir": os.path.join(cache_dir, "pockets"),
             "foldseek_tmp_dir": os.path.join(cache_dir, "foldseek_tmp"),
-            "divided_struct_dir": os.path.join(cache_dir, "divided_structs"),
+            "foldseek_preprocessed_structure_dir": os.path.join(cache_dir, "foldseek_preprocessed_structures"),
             # Default directories and files stemming from results_dir
             "query_dir": os.path.join(results_dir, "query_structures"),
             "target_dir": os.path.join(results_dir, "target_structures"),
@@ -300,29 +289,29 @@ class PocketMapper:
             "query_dir",
             "target_dir",
             "pocket_dir",
-            "divided_struct_dir",
+            "foldseek_preprocessed_structure_dir",
         ]
         for dir_key in dirs_to_create:
             path = self._settings[dir_key]
             try:
                 os.makedirs(path, exist_ok=True)
             except OSError:
-                logging.critical(f"Error creating directory {path}", extra=self._log_extra)
+                self.logger.critical(f"Error creating directory {path}", extra=self._log_extra)
                 exit(1)
 
         self._configure_logging(self._settings)
-        logging.debug(f"Finalized settings: {json.dumps(self._settings, indent=4)}", extra=self._log_extra)
+        self.logger.debug(f"Settings: {json.dumps(self._settings, indent=4)}", extra=self._log_extra)
 
         # 5. Output dump
         try:
             os.makedirs(os.path.dirname(self._settings["job_settings_path"]), exist_ok=True)
             with open(self._settings["job_settings_path"], "w") as f:
                 json.dump(self._settings, f, indent=4)
-            logging.info(
+            self.logger.info(
                 f"Settings successfully dumped to {self._settings['job_settings_path']}", extra=self._log_extra
             )
         except Exception as e:
-            logging.error(
+            self.logger.error(
                 f"Failed to dump settings to {self._settings['job_settings_path']}: {e}", extra=self._log_extra
             )
 
@@ -339,6 +328,8 @@ class PocketMapper:
             target_pocket_method=self._settings["target_pocket_method"],
         )
         self._query_data, self._target_data = qtprocessor.main()
+        self.logger.debug(f"Query data after processing: \n{self._query_data.head()}", extra=self._log_extra)
+        self.logger.debug(f"Target data after processing: \n{self._target_data.head()}", extra=self._log_extra)
 
     def _fetch_missing_structures(self):
         """
@@ -351,32 +342,30 @@ class PocketMapper:
         TODO Update to download alphafold structures if the input is a uniprot id
         """
         # Downloading structures
-        self._log_extra.update({"stage": "Fetching Structures"})
-        logging.info("Checking for mmCIF structures...", extra=self._log_extra)
+        self._log_extra.update({"stage": "Fetching Missing Structures"})
+        self.logger.info("Starting", extra=self._log_extra)
 
-        # List of all unique PDBs
-        query_pdbs = set(self._query_data.query("struct_type == 'pdb'")["struct_info"])
-        target_pdbs = set(self._target_data.query("struct_type == 'pdb'")["struct_info"])
-        all_pdbs = list(query_pdbs.union(target_pdbs))
-        success_map = lib.get_mmcifs(
-            pdb_list=all_pdbs,
-            out_dir=self._settings["structure_dir"],
-        )
-        failed_list = [pdb for pdb, success in success_map.items() if not success]
+        structure_fetcher = StructureFetcher(out_dir=self._settings["structure_dir"])
+        records = pd.concat([self._query_data, self._target_data]).to_dict(orient="records")
+        results = structure_fetcher.get_structures(records)
+        self.logger.debug(f"Structure fetcher results: {results}", extra=self._log_extra)
+
+        success_list = [pdb for pdb, success in results.items() if success]
+        failed_list = [pdb for pdb, success in results.items() if not success]
 
         # Logging results of structure fetching and updating query and target data with success/failure info
-        logging.info(
-            f"Finished checking for structures. Successfully found structures for {len(all_pdbs) - len(failed_list)}/{len(all_pdbs)} PDBs.",
+        self.logger.info(
+            f"Finished checking for structures. Successfully found structures for {len(success_list)}/{len(results)} PDBs.",
             extra=self._log_extra,
         )
         if len(failed_list) > 0:
-            logging.warning(
+            self.logger.warning(
                 f"Failed to find structures for the following PDBs: {', '.join(failed_list)}", extra=self._log_extra
             )
 
         # updating success column to false if structure fetching failed and adding failure reason
-        self._query_data["success"] = ~self._query_data["struct_info"].isin(failed_list)
-        self._target_data["success"] = ~self._target_data["struct_info"].isin(failed_list)
+        self._query_data["success"] = self._query_data["struct_info"].map(results).fillna(False)
+        self._target_data["success"] = self._target_data["struct_info"].map(results).fillna(False)
         self._query_data.loc[~self._query_data["success"], "failure_reason"] = "structure_not_found"
         self._target_data.loc[~self._target_data["success"], "failure_reason"] = "structure_not_found"
 
@@ -387,10 +376,10 @@ class PocketMapper:
         # Verifying enough structures were found to continue
         exit_flag = False
         if self._query_data["success"].sum() < 1:
-            logging.critical("Insufficient query after fetching structures found", extra=self._log_extra)
+            self.logger.critical("Insufficient query structures after fetching", extra=self._log_extra)
             exit_flag = True
         if self._target_data["success"].sum() < 1:
-            logging.critical("Insufficient targets after fetching structures found", extra=self._log_extra)
+            self.logger.critical("Insufficient target structures after fetching", extra=self._log_extra)
             exit_flag = True
         if exit_flag:
             exit(1)
@@ -400,30 +389,30 @@ class PocketMapper:
         Divides PDB structures into relevant domains and chains
         """
         self._log_extra.update({"stage": "Preprocess Structures"})
-        logging.info("Dividing mmCIF structures...", extra=self._log_extra)
-        query_divided_map = lib.pdb_preprocessing_gemmi(
-            df=self._query_data.query("success and struct_type == 'pdb'"),
-            ref_dir=self._settings["structure_dir"],
-            cache_dir=self._settings["divided_struct_dir"],
-            out_dir=self._settings["query_dir"],
+
+        structure_preprocessor = StructurePreprocessor(
+            source_dir=self._settings["structure_dir"], out_dir=self._settings["foldseek_preprocessed_structure_dir"]
         )
-        for index, success in query_divided_map.items():
-            if not success:
-                self._query_data.loc[index, "success"] = False
-                self._query_data.loc[index, "failure_reason"] = "structure_preprocessing_failed"
-        target_divided_map = lib.pdb_preprocessing_gemmi(
-            df=self._target_data.query("success and struct_type == 'pdb'"),
-            ref_dir=self._settings["structure_dir"],
-            cache_dir=self._settings["divided_struct_dir"],
-            out_dir=self._settings["target_dir"],
+        qt_iter = zip(
+            [self._query_data, self._target_data], [self._settings["query_dir"], self._settings["target_dir"]]
         )
-        for index, success in target_divided_map.items():
-            if not success:
-                self._target_data.loc[index, "success"] = False
-                self._target_data.loc[index, "failure_reason"] = "structure_preprocessing_failed"
-        logging.info("Finished dividing structures", extra=self._log_extra)
-        logging.debug(f"Query data after structure preprocessing: \n{self._query_data.head()}", extra=self._log_extra)
-        logging.debug(f"Target data after structure preprocessing: \n{self._target_data.head()}", extra=self._log_extra)
+
+        for df, search_dir in qt_iter:
+            records = df.drop_duplicates(subset=["struct_info", "chain_info"]).to_dict(orient="records")
+            self.logger.debug(f"Records to preprocess: {records}", extra=self._log_extra)
+            results = structure_preprocessor.preprocess_records(records=records, search_dir=search_dir)
+            self.logger.debug(f"Preprocessing results: {results}", extra=self._log_extra)
+
+            df.set_index("pocket_id", inplace=True)
+            for index, success in results.items():
+                if not success:
+                    df.loc[index, "success"] = False
+                    df.loc[index, "failure_reason"] = "structure_preprocessing_failed"
+            df.reset_index(inplace=True)
+
+        self.logger.info("Finished preprocessing structures", extra=self._log_extra)
+        self.logger.debug(f"Query data after preprocessing: \n{self._query_data.head()}", extra=self._log_extra)
+        self.logger.debug(f"Target data after preprocessing: \n{self._target_data.head()}", extra=self._log_extra)
 
     def _get_pockets(self):
         """
@@ -434,9 +423,11 @@ class PocketMapper:
         extracts the pocket residues and their coordinates from the mmCIF files. The extracted pocket info is then
         stored in a dictionary for later comparison.
         """
+        self._log_extra.update({"stage": "Get Pockets"})
         pisa_pockets = self._retrieve_pisa_pockets()
         passthrough_pockets = self.retrieve_passthrough_pockets()
         pockets = pisa_pockets | passthrough_pockets
+        self.logger.debug(f"Combined pockets: {pockets}", extra=self._log_extra)
         return pockets
 
     def _retrieve_pisa_pockets(self):
@@ -539,19 +530,20 @@ class PocketMapper:
             "-e",
             "0.001",
             "--file-include",
-            r"[0-9A-Z]{4}_[0-9A-Za-z]\.cif\.gz",
+            r".*_[0-9A-Za-z]\.cif\.gz",
             "--max-seqs",
             "2500",
             "-v",  # verbosity
-            "2",
+            "2",  # str(min(3, self._settings["verbosity"])),  # cap foldseek verbosity at 3 (info level) since it can be very verbose at higher levels and we already have our own logging verbosity control
         ]
         self.logger.debug(f"Running Foldseek with command: {' '.join([str(x) for x in cmd])}", extra=self._log_extra)
         subprocess.run(cmd, check=True)
         self.logger.debug("Foldseek alignment completed successfully", extra=self._log_extra)
 
     def _local_alignment(self):
+        # TODO fix local calignment with work with query/target data
         aligner = SequenceAligner()
-        alignment = aligner.align_df(self._pdb_df, self._settings["divided_struct_dir"])
+        alignment = aligner.align_df(self._pdb_df, self._settings["foldseek_preprocessed_structure_dir"])
         print(alignment)
         alignment.to_csv(self._settings["alignment_path"], index=False, sep="\t")
 
