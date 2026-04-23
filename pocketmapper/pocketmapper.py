@@ -8,6 +8,7 @@ Author: Lachlan Ellingboe
 from importlib.resources import files
 import fire
 import logging
+import logging.config
 import json
 import subprocess
 import pandas as pd
@@ -30,32 +31,49 @@ class PocketMapper:
         self._log_extra = {"stage": "init"}
         self.human_domains_db_path = files(human_domains).joinpath("human_260310")
         self.log_fmt = "%(levelname)s: %(stage)s - %(msg)s"
-        self.logger = logging.getLogger(__name__)
+        logging.getLogger(__name__)
         logging.basicConfig(level=logging.CRITICAL, format=self.log_fmt)
 
     def _configure_logging(self, settings):
         self._log_extra.update({"stage": "Configuring Logging"})
-        self.log_level
 
         # Set log level based on verbosity setting (default to INFO if not set)
+        log_level = None
         if settings["verbosity"] == 4:
-            self.log_level = logging.DEBUG
+            log_level = "DEBUG"
         elif settings["verbosity"] == 3:
-            self.log_level = logging.INFO
+            log_level = "INFO"
         elif settings["verbosity"] == 2:
-            self.log_level = logging.WARNING
+            log_level = "WARNING"
         else:
-            self.log_level = logging.CRITICAL
+            log_level = "ERROR"
 
-        # Update log level of existing handler
-        self.logger.setLevel(self.log_level)
-
-        # Add file handler to logger with the specified log level and format
-        formatter = logging.Formatter(self.log_fmt)
-        fh = logging.FileHandler(settings["log_path"])
-        fh.setLevel(self.log_level)
-        fh.setFormatter(formatter)
-        self.logger.addHandler(fh)
+        log_config = {
+            "version": 1,
+            "formatters": {
+                "standard": {"format": self.log_fmt},
+            },
+            "handlers": {
+                "console": {
+                    "class": "logging.StreamHandler",
+                    "level": log_level,
+                    "formatter": "standard",
+                    "stream": "ext://sys.stdout",
+                },
+                "file": {
+                    "class": "logging.FileHandler",
+                    "level": log_level,
+                    "formatter": "standard",
+                    "filename": settings["log_path"],
+                },
+            },
+            "root": {
+                "handlers": ["console", "file"],
+                "level": log_level,
+                "propagate": True,
+            },
+        }
+        logging.config.dictConfig(log_config)
 
     # TODO implement caching option
     def search(
@@ -118,7 +136,7 @@ class PocketMapper:
         self._compare_pockets_based_on_alignment(pockets)
         self._delete_tmp()
 
-        self.logger.info("PocketMapper search completed successfully.", extra={"stage": "End"})
+        logging.info("PocketMapper search completed successfully.", extra={"stage": "End"})
 
     def _check_help_search(self):
         """
@@ -228,14 +246,14 @@ class PocketMapper:
         # 2. Populate settings from the settings file if provided
         if self._settings_file is not None:
             if not os.path.isfile(self._settings_file):
-                self.logger.critical(f"Settings file not found: {self._settings_file}", extra=self._log_extra)
+                logging.critical(f"Settings file not found: {self._settings_file}", extra=self._log_extra)
                 exit(1)
             try:
                 with open(self._settings_file) as f:
                     settings_data_from_file = json.load(f)
                     self._settings.update(settings_data_from_file)
             except Exception:
-                self.logger.critical(
+                logging.critical(
                     f"Error reading settings file: {self._settings_file}. Is it in JSON format?", extra=self._log_extra
                 )
                 exit(1)
@@ -296,22 +314,22 @@ class PocketMapper:
             try:
                 os.makedirs(path, exist_ok=True)
             except OSError:
-                self.logger.critical(f"Error creating directory {path}", extra=self._log_extra)
+                logging.critical(f"Error creating directory {path}", extra=self._log_extra)
                 exit(1)
 
         self._configure_logging(self._settings)
-        self.logger.debug(f"Settings: {json.dumps(self._settings, indent=4)}", extra=self._log_extra)
+        logging.debug(f"Settings: {json.dumps(self._settings, indent=4)}", extra=self._log_extra)
 
         # 5. Output dump
         try:
             os.makedirs(os.path.dirname(self._settings["job_settings_path"]), exist_ok=True)
             with open(self._settings["job_settings_path"], "w") as f:
                 json.dump(self._settings, f, indent=4)
-            self.logger.info(
+            logging.info(
                 f"Settings successfully dumped to {self._settings['job_settings_path']}", extra=self._log_extra
             )
         except Exception as e:
-            self.logger.error(
+            logging.error(
                 f"Failed to dump settings to {self._settings['job_settings_path']}: {e}", extra=self._log_extra
             )
 
@@ -328,8 +346,8 @@ class PocketMapper:
             target_pocket_method=self._settings["target_pocket_method"],
         )
         self._query_data, self._target_data = qtprocessor.main()
-        self.logger.debug(f"Query data after processing: \n{self._query_data.head()}", extra=self._log_extra)
-        self.logger.debug(f"Target data after processing: \n{self._target_data.head()}", extra=self._log_extra)
+        logging.debug(f"Query data after processing: \n{self._query_data.head()}", extra=self._log_extra)
+        logging.debug(f"Target data after processing: \n{self._target_data.head()}", extra=self._log_extra)
 
     def _fetch_missing_structures(self):
         """
@@ -343,23 +361,23 @@ class PocketMapper:
         """
         # Downloading structures
         self._log_extra.update({"stage": "Fetching Missing Structures"})
-        self.logger.info("Starting", extra=self._log_extra)
+        logging.info("Starting", extra=self._log_extra)
 
         structure_fetcher = StructureFetcher(out_dir=self._settings["structure_dir"])
         records = pd.concat([self._query_data, self._target_data]).to_dict(orient="records")
         results = structure_fetcher.get_structures(records)
-        self.logger.debug(f"Structure fetcher results: {results}", extra=self._log_extra)
+        logging.debug(f"Structure fetcher results: {results}", extra=self._log_extra)
 
         success_list = [pdb for pdb, success in results.items() if success]
         failed_list = [pdb for pdb, success in results.items() if not success]
 
         # Logging results of structure fetching and updating query and target data with success/failure info
-        self.logger.info(
+        logging.info(
             f"Finished checking for structures. Successfully found structures for {len(success_list)}/{len(results)} PDBs.",
             extra=self._log_extra,
         )
         if len(failed_list) > 0:
-            self.logger.warning(
+            logging.warning(
                 f"Failed to find structures for the following PDBs: {', '.join(failed_list)}", extra=self._log_extra
             )
 
@@ -370,16 +388,16 @@ class PocketMapper:
         self._target_data.loc[~self._target_data["success"], "failure_reason"] = "structure_not_found"
 
         # Logging the query and target data after structure fetching to verify the updates
-        self.logger.debug(f"Query data after structure fetching: \n{self._query_data.head()}", extra=self._log_extra)
-        self.logger.debug(f"Target data after structure fetching: \n{self._target_data.head()}", extra=self._log_extra)
+        logging.debug(f"Query data after structure fetching: \n{self._query_data.head()}", extra=self._log_extra)
+        logging.debug(f"Target data after structure fetching: \n{self._target_data.head()}", extra=self._log_extra)
 
         # Verifying enough structures were found to continue
         exit_flag = False
         if self._query_data["success"].sum() < 1:
-            self.logger.critical("Insufficient query structures after fetching", extra=self._log_extra)
+            logging.critical("Insufficient query structures after fetching", extra=self._log_extra)
             exit_flag = True
         if self._target_data["success"].sum() < 1:
-            self.logger.critical("Insufficient target structures after fetching", extra=self._log_extra)
+            logging.critical("Insufficient target structures after fetching", extra=self._log_extra)
             exit_flag = True
         if exit_flag:
             exit(1)
@@ -399,9 +417,9 @@ class PocketMapper:
 
         for df, search_dir in qt_iter:
             records = df.drop_duplicates(subset=["struct_info", "chain_info"]).to_dict(orient="records")
-            self.logger.debug(f"Records to preprocess: {records}", extra=self._log_extra)
+            logging.debug(f"Records to preprocess: {records}", extra=self._log_extra)
             results = structure_preprocessor.preprocess_records(records=records, search_dir=search_dir)
-            self.logger.debug(f"Preprocessing results: {results}", extra=self._log_extra)
+            logging.debug(f"Preprocessing results: {results}", extra=self._log_extra)
 
             df.set_index("pocket_id", inplace=True)
             for index, success in results.items():
@@ -410,9 +428,9 @@ class PocketMapper:
                     df.loc[index, "failure_reason"] = "structure_preprocessing_failed"
             df.reset_index(inplace=True)
 
-        self.logger.info("Finished preprocessing structures", extra=self._log_extra)
-        self.logger.debug(f"Query data after preprocessing: \n{self._query_data.head()}", extra=self._log_extra)
-        self.logger.debug(f"Target data after preprocessing: \n{self._target_data.head()}", extra=self._log_extra)
+        logging.info("Finished preprocessing structures", extra=self._log_extra)
+        logging.debug(f"Query data after preprocessing: \n{self._query_data.head()}", extra=self._log_extra)
+        logging.debug(f"Target data after preprocessing: \n{self._target_data.head()}", extra=self._log_extra)
 
     def _get_pockets(self):
         """
@@ -427,7 +445,7 @@ class PocketMapper:
         pisa_pockets = self._retrieve_pisa_pockets()
         passthrough_pockets = self.retrieve_passthrough_pockets()
         pockets = pisa_pockets | passthrough_pockets
-        self.logger.debug(f"Combined pockets: {pockets}", extra=self._log_extra)
+        logging.debug(f"Combined pockets: {pockets}", extra=self._log_extra)
         return pockets
 
     def _retrieve_pisa_pockets(self):
@@ -536,9 +554,9 @@ class PocketMapper:
             "-v",  # verbosity
             "2",  # str(min(3, self._settings["verbosity"])),  # cap foldseek verbosity at 3 (info level) since it can be very verbose at higher levels and we already have our own logging verbosity control
         ]
-        self.logger.debug(f"Running Foldseek with command: {' '.join([str(x) for x in cmd])}", extra=self._log_extra)
+        logging.debug(f"Running Foldseek with command: {' '.join([str(x) for x in cmd])}", extra=self._log_extra)
         subprocess.run(cmd, check=True)
-        self.logger.debug("Foldseek alignment completed successfully", extra=self._log_extra)
+        logging.debug("Foldseek alignment completed successfully", extra=self._log_extra)
 
     def _local_alignment(self):
         # TODO fix local calignment with work with query/target data
