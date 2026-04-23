@@ -2,13 +2,11 @@ import gzip
 import shutil
 import os
 import logging
-from urllib.request import urlcleanup, urlretrieve
 from copy import deepcopy
 from Bio.SVDSuperimposer import SVDSuperimposer
 from Bio.PDB import MMCIFParser
 from glob import glob
-from concurrent.futures import ThreadPoolExecutor
-from itertools import repeat, product
+from itertools import product
 from tqdm import tqdm
 import json
 from collections import defaultdict
@@ -19,44 +17,6 @@ from numpy import linalg as LA
 from pocketmapper import pisa
 
 from pocketmapper.constants import SINGLE_AA_CODE, VDW_RADII
-
-
-def get_mmcif(pdb_code, out_dir, cache):
-    stage = {"stage": "Downloading PDB File"}
-    out_fname = os.path.join(out_dir, f"{pdb_code}.cif.gz")
-    pdb_code_lowered = pdb_code.lower()
-    if not (out_fname in cache):
-        url = f"https://files.wwpdb.org/pub/pdb/data/structures/divided/mmCIF/{pdb_code_lowered[1:3]}/{pdb_code_lowered}.cif.gz"
-        try:
-            urlcleanup()
-            urlretrieve(url, out_fname)
-        except OSError:
-            logging.warning(f"get_mmcif: Could not download {pdb_code}", extra=stage)
-            return (pdb_code, False)
-        except Exception:
-            logging.warning(f"Atypical issue when downloading {pdb_code}", extra=stage)
-            return (pdb_code, False)
-    return (pdb_code, True)
-
-
-def get_mmcifs(pdb_list, out_dir):
-    """
-    Docstring for get_mmcifs
-
-    :param pdb_list: Description
-    :param out_dir: Description
-
-    returns: list of successfulls fetched pdb ids
-    """
-    cache = glob(os.path.join(out_dir, "*.cif.gz"))
-    with ThreadPoolExecutor(max_workers=100) as e:
-        result = e.map(
-            get_mmcif,
-            pdb_list,
-            repeat(out_dir),
-            repeat(cache),
-        )
-    return {pdb_code: success for pdb_code, success in result}
 
 
 def pdb_preprocessing_gemmi(df, ref_dir, cache_dir, out_dir):
