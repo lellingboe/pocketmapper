@@ -26,7 +26,7 @@ class QTProcessor:
         self.logger = logging.getLogger(__name__)
         self._log_extra = {"stage": "QTProcessor Initialization"}
         self.logger.debug(
-            f"query: {query}, target: {target}, query_pocket_method: {query_pocket_method}, target_pocket_method: {target_pocket_method}",
+            f"\n  query: {query}\n  target: {target}\n  query_pocket_method: {query_pocket_method}\n  target_pocket_method: {target_pocket_method}",
             extra=self._log_extra,
         )
 
@@ -43,6 +43,7 @@ class QTProcessor:
         query and target, processing the input data accordingly, and preparing it for downstream analysis.
         """
         self._log_extra.update({"stage": "Main QT Processing"})
+        self.logger.debug("Starting main", extra=self._log_extra)
 
         # Processing query/target
         processed_query = self.process_qt_cmdline_input(self._query, pocket_method=self._query_pocket_method)
@@ -59,6 +60,7 @@ class QTProcessor:
         qt_input: input from parsing query/target on command line
         """
         self._log_extra.update({"stage": "Processing Query/Target"})
+        self.logger.debug("Starting process_qt_cmdline_input", extra=self._log_extra)
 
         data = []
         if os.path.isfile(qt_input):  # if it's a file, process each line as a separate query/target
@@ -125,7 +127,7 @@ class QTProcessor:
         elif re.match(uniprot_regex, struct_str):
             return "alphafold"
         else:
-            logging.critical(f"Could not determine structure type for {struct_str}", extra=self._log_extra)
+            self.logger.critical(f"Could not determine structure type for {struct_str}", extra=self._log_extra)
             exit(1)
 
     def default_pocket_method(self, qt_str):
@@ -136,7 +138,9 @@ class QTProcessor:
         pocket_info_str = qt_str.split(":", 1)[1]  # Assuming pocket info is always after the first ":"
         pisa_regex = r"^[A-Za-z0-9]_[A-Za-z0-9]$"  # pattern like "A_B"
         chain_chain_regex = r"^[A-Za-z0-9](_[A-Za-z0-9])?\:(\d+\,?)+$"  # pattern like "A_B:1,2,3 or A:1,2,3"
-        logging.debug(f"Determining pocket method for {pocket_info_str} using regex patterns", extra=self._log_extra)
+        self.logger.debug(
+            f"Determining pocket method for {pocket_info_str} using regex patterns", extra=self._log_extra
+        )
         if re.match(pisa_regex, pocket_info_str):
             return "pisa"
         elif re.match(chain_chain_regex, pocket_info_str):
