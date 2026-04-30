@@ -2,6 +2,8 @@ import os
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from urllib.request import urlcleanup, urlretrieve
+import shutil
+import gzip
 
 
 class StructureFetcher:
@@ -61,20 +63,28 @@ class StructureFetcher:
                 )
                 return (query["struct_info"], False)
 
-    def get_alphafold(self, uniprot_acc):
+    def get_alphafold(self, uniprot_acc, version="v6"):
         stage = {"stage": "Downloading AlphaFold File"}
-        out_fname = f"{uniprot_acc}.cif"
+        out_fname = f"{uniprot_acc}.cif.gz"
+        temp_fname = f"{uniprot_acc}.cif"
         if not (out_fname in self.cache):
-            url = f"https://alphafold.ebi.ac.uk/files/AF-{uniprot_acc}-F1-model_v6.cif"
+            url = f"https://alphafold.ebi.ac.uk/files/AF-{uniprot_acc}-F1-model_{version}.cif"
             try:
                 urlcleanup()
-                urlretrieve(url, os.path.join(self.out_dir, out_fname))
+                urlretrieve(url, os.path.join(self.out_dir, temp_fname))
             except OSError:
                 self.logger.warning(f"OSError when downloading {uniprot_acc}", extra=stage)
                 return (uniprot_acc, False)
             except Exception:
                 self.logger.warning(f"Atypical error when downloading {uniprot_acc}", extra=stage)
                 return (uniprot_acc, False)
+
+            # Compressing the downloaded cif file to gz format and removing the original cif file to save space
+            with open(os.path.join(self.out_dir, temp_fname), "rb") as f_in:
+                with gzip.open(os.path.join(self.out_dir, out_fname), "wb") as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+            os.remove(os.path.join(self.out_dir, temp_fname))
+
         return (uniprot_acc, True)
 
     def get_mmcif(self, pdb_code):
@@ -83,6 +93,7 @@ class StructureFetcher:
         pdb_code_lowered = pdb_code.lower()
         if not (out_fname in self.cache):
             url = f"https://files.wwpdb.org/pub/pdb/data/structures/divided/mmCIF/{pdb_code_lowered[1:3]}/{pdb_code_lowered}.cif.gz"
+            self.logger.debug(f"Attempting to download {pdb_code} from {url}", extra=stage)
             try:
                 urlcleanup()
                 urlretrieve(url, os.path.join(self.out_dir, out_fname))
