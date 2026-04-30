@@ -2,10 +2,12 @@
 Code for processing query/target pairs and orchestrating the workflow
 """
 
+# TODO Folder input - iterate through files in folder with correct format
+
 import logging
 import os
-import pandas as pd
 import re
+import pandas as pd
 
 
 class QTProcessor:
@@ -37,7 +39,7 @@ class QTProcessor:
             )
             exit(1)
 
-    def main(self):
+    def process_qt(self):
         """
         Main method to process the query and target data. This includes determining the types of
         query and target, processing the input data accordingly, and preparing it for downstream analysis.
@@ -78,7 +80,7 @@ class QTProcessor:
 
     def parse_individual_qt(self, qt, pocket_method=None):
         """
-        Parses input of the form "struct:pocket_info" and returns a dictionary with
+        Parses input of the form "struct_info:chain_info:residues" and returns a dictionary with
         structured information about the structure and pocket. If pocket_method is not provided,
         it will attempt to determine a default pocket method
         """
@@ -90,7 +92,7 @@ class QTProcessor:
             "struct_type": None,
             "pocket_method": None,
             "success": True,
-            "failure_reason": None,
+            "failure_reason": "",
             "sanitized_pocket_id": qt.replace(":", "_").replace(",", "_"),  # For use in file names, etc.
         }
 
@@ -115,8 +117,14 @@ class QTProcessor:
 
     def determine_struct_type(self, struct_str):
         """
-        Daterming structure type based on regex pattern matching
-        returns one of {"local_file", "pdb", "alphafold"}
+        If structur_str is a file:
+            return "local_file"
+        If struct_str matches a PDB ID regex pattern:
+            return "pdb"
+        If struct_str matches a Uniprot ID regex pattern:
+            return "alphafold"
+        else:
+            log critical error and exit
         """
         pdb_regex = r"[a-zA-Z0-9]{4}$"
         uniprot_regex = r"([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})$"  # https://www.uniprot.org/help/accession_numbers

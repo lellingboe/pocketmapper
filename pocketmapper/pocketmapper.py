@@ -107,15 +107,12 @@ class PocketMapper:
         self._foldseek = foldseek
         self._align_struct = align_struct
 
-        # Main try-except block to catch unhandled exceptions
-        self._check_help_search()  # checks if help flag is set and if so prints the help message and exits
+        self._check_help_search()  # Checks if help flag is set and if so prints the help message and exits
         self._configure_workflow()  # configures the settings which have already been read
         self._configure_query_target()  # parses the query and target inputs to determine their types and sets up the relevant data structures for each entry
         self._fetch_missing_structures()  # Fetch any missing structures
 
-        # TODO put preprocessing in alignment call
-        if self._settings["foldseek"]:
-            self._preprocess_structures()
+        self._preprocess_structures()
         self._alignment()  # Align the query and target structures using either local sequence alignment or foldseek based on the settings
         pockets = self._get_pockets()  # Adds seq_pos and cacoords to the pocket info dict
 
@@ -273,10 +270,6 @@ class PocketMapper:
             if value is not None:
                 self._settings[key] = value
 
-        # Update self properties from settings so they're accessible everywhere consistently
-        self._query = self._settings.get("query")
-        self._target = self._settings.get("target")
-
         # 4. Computed paths
         cache_dir = self._settings["cache_dir"]
         results_dir = self._settings["results_dir"]
@@ -340,14 +333,14 @@ class PocketMapper:
         self._log_extra.update({"stage": "Determine Query/Target Types"})
 
         qtprocessor = QTProcessor(
-            query=self._query,
-            target=self._target,
+            query=self._settings["query"],
+            target=self._settings["target"],
             query_pocket_method=self._settings["query_pocket_method"],
             target_pocket_method=self._settings["target_pocket_method"],
         )
-        self._query_data, self._target_data = qtprocessor.main()
-        logging.debug(f"Query data after processing: \n{self._query_data.head()}", extra=self._log_extra)
-        logging.debug(f"Target data after processing: \n{self._target_data.head()}", extra=self._log_extra)
+        self._query_df, self._target_df = qtprocessor.process_qt()
+        logging.debug(f"Query data after processing: \n{self._query_df.head()}", extra=self._log_extra)
+        logging.debug(f"Target data after processing: \n{self._target_df.head()}", extra=self._log_extra)
 
     def _fetch_missing_structures(self):
         """
@@ -356,47 +349,41 @@ class PocketMapper:
         2) Verifies that structures were found for the query and target entries (if required based on their types)
            and logs the results. If no structures are found for either query or target when required, logs a critical
            error and exits.
-
-        TODO Update to download alphafold structures if the input is a uniprot id
         """
         # Downloading structures
         self._log_extra.update({"stage": "Fetching Missing Structures"})
         logging.info("Starting", extra=self._log_extra)
-
         structure_fetcher = StructureFetcher(out_dir=self._settings["structure_dir"])
-        records = pd.concat([self._query_data, self._target_data]).to_dict(orient="records")
-        results = structure_fetcher.get_structures(records)
-        logging.debug(f"Structure fetcher results: {results}", extra=self._log_extra)
 
-        success_list = [pdb for pdb, success in results.items() if success]
-        failed_list = [pdb for pdb, success in results.items() if not success]
+        for name, df in [("query", self._query_df), ("target", self._target_df)]:
+            logging.debug(f"{name.capitalize()} data before fetching structures: \n{df.head()}", extra=self._log_extra)
+            records = df.drop_duplicates(subset=["struct_info", "struct_type"]).to_dict(orient="records")
+            results = structure_fetcher.get_structures(records)
+            logging.debug(f"Structure fetcher results: {results}", extra=self._log_extra)
 
-        # Logging results of structure fetching and updating query and target data with success/failure info
-        logging.info(
-            f"Finished checking for structures. Successfully found structures for {len(success_list)}/{len(results)} PDBs.",
-            extra=self._log_extra,
-        )
-        if len(failed_list) > 0:
-            logging.warning(
-                f"Failed to find structures for the following PDBs: {', '.join(failed_list)}", extra=self._log_extra
+            df["success"] = df["struct_info"].map(results).fillna(False)
+            df.loc[~df["success"], "failure_reason"] = "structure_not_found"
+
+            # Logging results of structure fetching and updating query and target data with success/failure info
+            logging.info(
+                f"{sum(results.values())}/{len(results)} {name} required structures available",
+                extra=self._log_extra,
             )
-
-        # updating success column to false if structure fetching failed and adding failure reason
-        self._query_data["success"] = self._query_data["struct_info"].map(results).fillna(False)
-        self._target_data["success"] = self._target_data["struct_info"].map(results).fillna(False)
-        self._query_data.loc[~self._query_data["success"], "failure_reason"] = "structure_not_found"
-        self._target_data.loc[~self._target_data["success"], "failure_reason"] = "structure_not_found"
-
-        # Logging the query and target data after structure fetching to verify the updates
-        logging.debug(f"Query data after structure fetching: \n{self._query_data.head()}", extra=self._log_extra)
-        logging.debug(f"Target data after structure fetching: \n{self._target_data.head()}", extra=self._log_extra)
+            if len(df.query("success == False")) > 0:
+                logging.warning(
+                    f"Missing structures for {name}(s): {', '.join(df.loc[~df['success'], 'pocket_id'].unique().tolist())}",
+                    extra=self._log_extra,
+                )
+                logging.debug(
+                    f"{name.capitalize()} data after structure fetching: \n{df.head()}", extra=self._log_extra
+                )
 
         # Verifying enough structures were found to continue
         exit_flag = False
-        if self._query_data["success"].sum() < 1:
+        if self._query_df["success"].sum() < 1:
             logging.critical("Insufficient query structures after fetching", extra=self._log_extra)
             exit_flag = True
-        if self._target_data["success"].sum() < 1:
+        if self._target_df["success"].sum() < 1:
             logging.critical("Insufficient target structures after fetching", extra=self._log_extra)
             exit_flag = True
         if exit_flag:
@@ -406,20 +393,22 @@ class PocketMapper:
         """
         Divides PDB structures into relevant domains and chains
         """
-        self._log_extra.update({"stage": "Preprocess Structures"})
+        stage = {"stage": "Preprocessing Structures"}
 
         structure_preprocessor = StructurePreprocessor(
-            source_dir=self._settings["structure_dir"], out_dir=self._settings["foldseek_preprocessed_structure_dir"]
+            source_dir=self._settings["structure_dir"],
+            out_dir=self._settings["foldseek_preprocessed_structure_dir"],
         )
         qt_iter = zip(
-            [self._query_data, self._target_data], [self._settings["query_dir"], self._settings["target_dir"]]
+            [self._query_df, self._target_df],
+            [self._settings["query_dir"], self._settings["target_dir"]],
         )
 
         for df, search_dir in qt_iter:
             records = df.drop_duplicates(subset=["struct_info", "chain_info"]).to_dict(orient="records")
-            logging.debug(f"Records to preprocess: {records}", extra=self._log_extra)
+            logging.debug(f"Records to preprocess: {records}", extra=stage)
             results = structure_preprocessor.preprocess_records(records=records, search_dir=search_dir)
-            logging.debug(f"Preprocessing results: {results}", extra=self._log_extra)
+            logging.debug(f"Preprocessing results: {results}", extra=stage)
 
             df.set_index("pocket_id", inplace=True)
             for index, success in results.items():
@@ -428,9 +417,9 @@ class PocketMapper:
                     df.loc[index, "failure_reason"] = "structure_preprocessing_failed"
             df.reset_index(inplace=True)
 
-        logging.info("Finished preprocessing structures", extra=self._log_extra)
-        logging.debug(f"Query data after preprocessing: \n{self._query_data.head()}", extra=self._log_extra)
-        logging.debug(f"Target data after preprocessing: \n{self._target_data.head()}", extra=self._log_extra)
+        logging.info("Finished preprocessing structures", extra=stage)
+        logging.debug(f"Query data after preprocessing: \n{self._query_df.head()}", extra=stage)
+        logging.debug(f"Target data after preprocessing: \n{self._target_df.head()}", extra=stage)
 
     def _get_pockets(self):
         """
@@ -440,12 +429,17 @@ class PocketMapper:
         For PISA pockets, retrieves the relevant PISA interfaces based on the query and target pocket info and
         extracts the pocket residues and their coordinates from the mmCIF files. The extracted pocket info is then
         stored in a dictionary for later comparison.
+
+        TODO - rewrite
+        - split record arr by pocket method
+        - pass in each array to the get method for that poket method
+        - check for clashes and combine
         """
-        self._log_extra.update({"stage": "Get Pockets"})
+        stage = {"stage": "Get Pockets"}
         pisa_pockets = self._retrieve_pisa_pockets()
         passthrough_pockets = self.retrieve_passthrough_pockets()
         pockets = pisa_pockets | passthrough_pockets
-        logging.debug(f"Combined pockets: {pockets}", extra=self._log_extra)
+        logging.debug(f"Combined pockets: {pockets}", extra=stage)
         return pockets
 
     def _retrieve_pisa_pockets(self):
@@ -457,7 +451,7 @@ class PocketMapper:
         """
 
         self._log_extra.update({"stage": "Pisa Pocket Calculation"})
-        all_pisa_df = pd.concat([self._query_data, self._target_data], ignore_index=True).query(
+        all_pisa_df = pd.concat([self._query_df, self._target_df], ignore_index=True).query(
             "success and pocket_method == 'pisa'"
         )
 
@@ -499,10 +493,9 @@ class PocketMapper:
 
     def retrieve_passthrough_pockets(self):
         self._log_extra.update({"stage": "Passthrough Pocket Calculation"})
-        all_passthrough_data = pd.concat([self._query_data, self._target_data], ignore_index=True)
-        all_passthrough_data = all_passthrough_data.query(
-            "success and pocket_method == 'passthrough' and struct_type == 'pdb'"
-        )
+        all_passthrough_data = pd.concat([self._query_df, self._target_df], ignore_index=True)
+        all_passthrough_data = all_passthrough_data.query("success and pocket_method == 'passthrough'")
+        logging.debug(f"Data for passthrough pockets: \n{all_passthrough_data}", extra=self._log_extra)
 
         # for each pocket in query and target parse pocket info from the structure and store in a dict
         passthrough_pockets = {}
@@ -523,17 +516,19 @@ class PocketMapper:
         self._log_extra.update({"stage": "Alignment"})
         if self._settings["foldseek"]:
             # if not os.path.isfile(self._settings["alignment_path"]):
+            logging.info("Preprocessing structures for Foldseek...", extra=self._log_extra)
+            self._preprocess_structures()
             logging.info("Running Foldseek easy-search...", extra=self._log_extra)
             self._run_foldseek()
         else:
-            logging.info("Running local alignments...", extra=self._log_extra)
+            logging.info("Running local pairwise aligner...", extra=self._log_extra)
             self._local_alignment()
 
     def _run_foldseek(self):
         """ """
-        if self._target == "human_domains":
-            self._settings["target_dir"] = self.human_domains_db_path
         self._log_extra.update({"stage": "Foldseek Alignment"})
+        if self._settings["target"] == "human_domains":
+            self._settings["target_dir"] = self.human_domains_db_path
         cmd = [
             "foldseek",
             "easy-search",
@@ -567,10 +562,11 @@ class PocketMapper:
 
     def _compare_pockets_based_on_alignment(self, pockets):
         self._log_extra.update({"stage": "Pocket Comparison"})
-        logging.info("Comparing pockets...", extra=self._log_extra)
+        logging.info("Reading alignment results...", extra=self._log_extra)
         alignment_df = pd.read_csv(self._settings["alignment_path"], sep="\t", engine="c")
         blosum_path = os.path.join(os.path.dirname(__file__), "blosum62.bla")
-
+        logging.info(f"{len(alignment_df)} alignment pairs to compare", extra=self._log_extra)
+        logging.debug(f"Alignment pairs: \n{alignment_df.head()}", extra=self._log_extra)
         alphafold = (
             self._target == "human_domains"
         )  # TODO this is actually if we should trat the target as having no defnied pocket, not if we are searching alphafold
@@ -594,7 +590,7 @@ class PocketMapper:
 
         # Map sanitized pocket ids back to original pocket ids for output
         sanitized_to_id_map = {}
-        for i, row in self._query_data.iterrows():
+        for i, row in self._query_df.iterrows():
             sanitized_to_id_map[row["sanitized_pocket_id"]] = row["pocket_id"]
         pockets_df["pocket_1"] = pockets_df["pocket_1"].map(sanitized_to_id_map)
 

@@ -381,6 +381,8 @@ def compare_pockets(
     for k, v in pocket_dict.items():
         domain_pocket_dict[k[:6].replace(":", "_")][k[7:]] = v
 
+    logging.debug(f"Domain pocket dict: {domain_pocket_dict}", extra={"stage": "Pocket Comparison"})
+
     # Setting up vars for use later
     existing_calcs = set()
     output_rows = []
