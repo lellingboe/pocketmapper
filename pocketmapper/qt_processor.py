@@ -90,6 +90,7 @@ class QTProcessor:
             "chain_info": None,
             "residue_info": None,
             "struct_type": None,
+            "preprocess_name": None,
             "pocket_method": None,
             "success": True,
             "failure_reason": "",
@@ -106,6 +107,9 @@ class QTProcessor:
         categories = ["struct_info", "chain_info", "residue_info"]
         for x, y in zip(categories, qt.split(":")):
             data[x] = y
+
+        input_fname = os.path.basename(data["struct_info"]).split(".")[0]
+        data["preprocess_name"] = input_fname + "_" + data["chain_info"][0]  # e.g., "P12345_A" or "1ABC_A"
 
         # determining structure info
         data["struct_type"] = self.determine_struct_type(data["struct_info"])

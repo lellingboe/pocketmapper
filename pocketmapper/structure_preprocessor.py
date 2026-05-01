@@ -42,8 +42,7 @@ class StructurePreprocessor:
             chain_info = record["chain_info"]  # e.g., A_B or A
             chain = chain_info[0]  # e.g., "A"
             # Ensuring divided structure is in the cache directory
-            out_struct_name = struct_info + "_" + chain
-            out_path = os.path.join(self.out_dir, f"{out_struct_name}.cif")
+            out_path = os.path.join(self.out_dir, f"{record['preprocess_name']}.cif")
             out_path_gz = out_path + ".gz"
 
             if not (out_path_gz in self.cache):
@@ -53,8 +52,7 @@ class StructurePreprocessor:
                     case "pdb":
                         ref_path = os.path.join(self.source_dir, f"{struct_info}.cif.gz")
                     case "local_file":
-                        # TODO Implement local file handling
-                        raise NotImplementedError("Local file handling not implemented yet")
+                        ref_path = struct_info
                     case _:
                         self.logger.warning(
                             f"Unknown structure type {record['struct_type']} for struct_info {struct_info}",
@@ -91,7 +89,7 @@ class StructurePreprocessor:
                         shutil.copyfileobj(f_in, f_out)
                 os.remove(out_path)
 
-            search_path = os.path.join(search_dir, f"{out_struct_name}.cif.gz")
+            search_path = os.path.join(search_dir, f"{record['preprocess_name']}.cif.gz")
             shutil.copyfile(out_path_gz, search_path)  # copying to foldseek directory
 
             status_dict[record["pocket_id"]] = True
