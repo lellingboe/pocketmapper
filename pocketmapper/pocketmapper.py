@@ -111,10 +111,8 @@ class PocketMapper:
         self._configure_workflow()  # configures the settings which have already been read
         self._configure_query_target()  # parses the query and target inputs to determine their types and sets up the relevant data structures for each entry
         self._fetch_missing_structures()  # Fetch any missing structures
-
-        self._preprocess_structures()
         self._alignment()  # Align the query and target structures using either local sequence alignment or foldseek based on the settings
-        pockets = self._get_pockets()  # Adds seq_pos and cacoords to the pocket info dict
+        pockets = self._get_pockets()  # Adds seq_pos and ca-coords to the pocket info dict
 
         # TODO Remove this hack after preserving the method
         if False:  # hack to make ATP pocket search working
