@@ -39,6 +39,15 @@ class QTProcessor:
             )
             exit(1)
 
+        # TODO regexes for validating output when pocket_method is specified
+        # setting regex patterns for determining default structure types
+        self.pdb_regex = r"[a-zA-Z0-9]{4}$"
+        self.uniprot_regex = r"([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})$"  # https://www.uniprot.org/help/accession_numbers
+        # setting regex patterns for determining default pocket methods
+        self.pisa_regex = r"^[A-Za-z0-9]_[A-Za-z0-9]$"  # pattern like "A_B"
+        self.passthrough_regex = r"^[A-Za-z0-9](\:(\d+\,?)*)?$"  # pattern like "A(:1,2,3)"
+        self.vdw_regex = r"^[A-Za-z0-9](_[A-Za-z0-9])?(\:(\d+\,?)*)?$"  # pattern like "A_B:1,2,3"
+
     def process_qt(self):
         """
         Main method to process the query and target data. This includes determining the types of
@@ -76,6 +85,7 @@ class QTProcessor:
         else:
             data.append(self.parse_individual_qt(qt_input, pocket_method=pocket_method))
 
+        data = [x for x in data if x is not None]  # removing any None entries that may have been added due to errors
         return pd.DataFrame.from_dict(data)
 
     def parse_individual_qt(self, qt, pocket_method=None):
@@ -107,21 +117,32 @@ class QTProcessor:
         categories = ["struct_info", "chain_info", "residue_info"]
         for x, y in zip(categories, qt.split(":")):
             data[x] = y
+        if data["chain_info"] is None:
+            self.logger.warning(f"Chain info not specified in {qt}", extra=self._log_extra)
+            return None
 
         input_fname = os.path.basename(data["struct_info"]).split(".")[0]
         data["preprocess_name"] = input_fname + "_" + data["chain_info"][0]  # e.g., "P12345_A" or "1ABC_A"
 
         # determining structure info
         data["struct_type"] = self.determine_struct_type(data["struct_info"])
+        if data["struct_type"] is None:
+            self.logger.warning(f"Could not determine structure type for {qt}", extra=self._log_extra)
+            return None
+
         if pocket_method is not None:
             data["pocket_method"] = pocket_method
         else:
-            data["pocket_method"] = self.default_pocket_method(qt)
+            data["pocket_method"] = self.determine_pocket_method(qt, data["struct_type"])
+        if data["pocket_method"] is None:
+            self.logger.warning(f"Could not determine pocket method for {qt}", extra=self._log_extra)
+            return None
+
         return data
 
     def determine_struct_type(self, struct_str):
         """
-        If structur_str is a file:
+        If struct_str is a file:
             return "local_file"
         If struct_str matches a PDB ID regex pattern:
             return "pdb"
@@ -130,33 +151,45 @@ class QTProcessor:
         else:
             log critical error and exit
         """
-        pdb_regex = r"[a-zA-Z0-9]{4}$"
-        uniprot_regex = r"([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})$"  # https://www.uniprot.org/help/accession_numbers
         if os.path.isfile(struct_str):
             return "local_file"
-        elif re.match(pdb_regex, struct_str):
+        elif re.match(self.pdb_regex, struct_str):
             return "pdb"
-        elif re.match(uniprot_regex, struct_str):
+        elif re.match(self.uniprot_regex, struct_str):
             return "alphafold"
         else:
-            self.logger.critical(f"Could not determine structure type for {struct_str}", extra=self._log_extra)
-            exit(1)
+            return None
 
-    def default_pocket_method(self, qt_str):
+    def determine_pocket_method(self, qt_str, struct_type):
         """
         Daterming pocket method based on regex pattern matching
         returns one of {"pisa", "foldseek", "contact", "other"}
         """
         pocket_info_str = qt_str.split(":", 1)[1]  # Assuming pocket info is always after the first ":"
-        pisa_regex = r"^[A-Za-z0-9]_[A-Za-z0-9]$"  # pattern like "A_B"
-        chain_chain_regex = r"^[A-Za-z0-9](_[A-Za-z0-9])?\:(\d+\,?)+$"  # pattern like "A_B:1,2,3 or A:1,2,3"
         self.logger.debug(
             f"Determining pocket method for {pocket_info_str} using regex patterns", extra=self._log_extra
         )
-        if re.match(pisa_regex, pocket_info_str):
-            return "pisa"
-        elif re.match(chain_chain_regex, pocket_info_str):
-            return "passthrough"
-        else:
-            self.logger.critical(f"Could not determine pocket method for {pocket_info_str}", extra=self._log_extra)
-            exit(1)
+        match struct_type:
+            case "alphafold":
+                if re.match(self.passthrough_regex, pocket_info_str):
+                    return "passthrough"
+                else:
+                    return None
+            case "pdb":
+                if re.match(self.pisa_regex, pocket_info_str):
+                    return "pisa"
+                elif re.match(self.passthrough_regex, pocket_info_str):
+                    return "passthrough"
+                elif re.match(self.vdw_regex, pocket_info_str):
+                    return "vdw"
+                else:
+                    return None
+            case "local_file":
+                if re.match(self.passthrough_regex, pocket_info_str):
+                    return "passthrough"
+                elif re.match(self.vdw_regex, pocket_info_str):
+                    return "vdw"
+                else:
+                    return None
+            case _:
+                return None
