@@ -75,7 +75,6 @@ class PocketMapper:
         }
         logging.config.dictConfig(log_config)
 
-    # TODO implement caching option
     def search(
         self,
         query=None,  # settings passed to configure
@@ -389,6 +388,18 @@ class PocketMapper:
         if exit_flag:
             exit(1)
 
+    def _alignment(self):
+        self._log_extra.update({"stage": "Alignment"})
+        if self._settings["foldseek"]:
+            # if not os.path.isfile(self._settings["alignment_path"]):
+            logging.info("Preprocessing structures for Foldseek...", extra=self._log_extra)
+            self._preprocess_structures()
+            logging.info("Running Foldseek easy-search...", extra=self._log_extra)
+            self._run_foldseek()
+        else:
+            logging.info("Running local pairwise aligner...", extra=self._log_extra)
+            self._local_alignment()
+
     def _preprocess_structures(self):
         """
         Divides PDB structures into relevant domains and chains
@@ -405,11 +416,12 @@ class PocketMapper:
         )
 
         for df, search_dir in qt_iter:
-            records = df.drop_duplicates(subset=["struct_info", "chain_info"]).to_dict(orient="records")
+            records = df.drop_duplicates(subset=["preprocess_name", "chain_info"]).to_dict(orient="records")
             logging.debug(f"Records to preprocess: {records}", extra=stage)
             results = structure_preprocessor.preprocess_records(records=records, search_dir=search_dir)
             logging.debug(f"Preprocessing results: {results}", extra=stage)
 
+            # Updating success and failure cols based on preprocessing results
             df.set_index("pocket_id", inplace=True)
             for index, success in results.items():
                 if not success:
@@ -420,6 +432,44 @@ class PocketMapper:
         logging.info("Finished preprocessing structures", extra=stage)
         logging.debug(f"Query data after preprocessing: \n{self._query_df.head()}", extra=stage)
         logging.debug(f"Target data after preprocessing: \n{self._target_df.head()}", extra=stage)
+
+    def _run_foldseek(self):
+        """ """
+        stage = {"stage": "Foldseek Alignment"}
+        if self._settings["target"] == "human_domains":
+            self._settings["target_dir"] = self.human_domains_db_path
+        cmd = [
+            "foldseek",
+            "easy-search",
+            self._settings["query_dir"],
+            self._settings["target_dir"],
+            self._settings["alignment_path"],
+            self._settings["foldseek_tmp_dir"],
+            "--format-output",
+            "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,lddt,qaln,taln,u,t,qseq,tseq",
+            "--format-mode",
+            "4",
+            "-e",
+            "0.001",
+            "--file-include",
+            r".*_[0-9A-Za-z]\.cif\.gz",
+            "--max-seqs",
+            "2500",
+            "-v",  # verbosity
+            str(
+                min(3, self._settings["verbosity"])
+            ),  # cap foldseek verbosity at 3 (info level) since it can be very verbose at higher levels and we already have our own logging verbosity control
+        ]
+        logging.debug(f"Running Foldseek with command: {' '.join([str(x) for x in cmd])}", extra=stage)
+        subprocess.run(cmd, check=True)
+        logging.debug("Foldseek alignment completed successfully", extra=stage)
+
+    def _local_alignment(self):
+        # TODO fix local alignment with work with query/target data
+        aligner = SequenceAligner()
+        alignment = aligner.align_df(self._pdb_df, self._settings["foldseek_preprocessed_structure_dir"])
+        print(alignment)
+        alignment.to_csv(self._settings["alignment_path"], index=False, sep="\t")
 
     def _get_pockets(self):
         """
@@ -511,54 +561,6 @@ class PocketMapper:
             json.dump(passthrough_pockets, f, indent=4)
 
         return passthrough_pockets
-
-    def _alignment(self):
-        self._log_extra.update({"stage": "Alignment"})
-        if self._settings["foldseek"]:
-            # if not os.path.isfile(self._settings["alignment_path"]):
-            logging.info("Preprocessing structures for Foldseek...", extra=self._log_extra)
-            self._preprocess_structures()
-            logging.info("Running Foldseek easy-search...", extra=self._log_extra)
-            self._run_foldseek()
-        else:
-            logging.info("Running local pairwise aligner...", extra=self._log_extra)
-            self._local_alignment()
-
-    def _run_foldseek(self):
-        """ """
-        self._log_extra.update({"stage": "Foldseek Alignment"})
-        if self._settings["target"] == "human_domains":
-            self._settings["target_dir"] = self.human_domains_db_path
-        cmd = [
-            "foldseek",
-            "easy-search",
-            self._settings["query_dir"],
-            self._settings["target_dir"],
-            self._settings["alignment_path"],
-            self._settings["foldseek_tmp_dir"],
-            "--format-output",
-            "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,lddt,qaln,taln,u,t,qseq,tseq",
-            "--format-mode",
-            "4",
-            "-e",
-            "0.001",
-            "--file-include",
-            r".*_[0-9A-Za-z]\.cif\.gz",
-            "--max-seqs",
-            "2500",
-            "-v",  # verbosity
-            "2",  # str(min(3, self._settings["verbosity"])),  # cap foldseek verbosity at 3 (info level) since it can be very verbose at higher levels and we already have our own logging verbosity control
-        ]
-        logging.debug(f"Running Foldseek with command: {' '.join([str(x) for x in cmd])}", extra=self._log_extra)
-        subprocess.run(cmd, check=True)
-        logging.debug("Foldseek alignment completed successfully", extra=self._log_extra)
-
-    def _local_alignment(self):
-        # TODO fix local calignment with work with query/target data
-        aligner = SequenceAligner()
-        alignment = aligner.align_df(self._pdb_df, self._settings["foldseek_preprocessed_structure_dir"])
-        print(alignment)
-        alignment.to_csv(self._settings["alignment_path"], index=False, sep="\t")
 
     def _compare_pockets_based_on_alignment(self, pockets):
         self._log_extra.update({"stage": "Pocket Comparison"})
