@@ -98,7 +98,7 @@ class StructureFetcher:
                 urlcleanup()
                 urlretrieve(url, os.path.join(self.out_dir, out_fname))
             except OSError:
-                self.logger.warning(f"OSError when downloading {pdb_code}", extra=stage)
+                self.logger.warning(f"Unable to download {pdb_code}", extra=stage)
                 return (pdb_code, False)
             except Exception:
                 self.logger.warning(f"Atypical error when downloading {pdb_code}", extra=stage)
