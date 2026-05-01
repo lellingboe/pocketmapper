@@ -14,7 +14,7 @@ import pandas as pd
 import gemmi
 from numpy import array
 from numpy import linalg as LA
-from pocketmapper import pisa
+from pocketmapper import pisa_downloader
 
 from pocketmapper.constants import SINGLE_AA_CODE, VDW_RADII
 
@@ -142,77 +142,6 @@ def calculate_pockets(df, target_dir, query_dir, pocket_dir):
         pocket_dict[row.pdb_domain_motif] = pocket
 
     return pocket_dict, all_problem_atoms, all_problem_residues
-
-
-def get_pisa_pockets(pocket_id_arr, in_dir):
-    stage = {"stage": "Calculating Pockets"}
-    """Takes in a path to a pdb file"""
-    bond_types = ["hydrogen_bonds", "salt_bridges", "disulfide_bonds", "covalent_bonds", "other_bonds"]
-    pockets = {}
-    for pocket_id in pocket_id_arr:
-        pdb_id, pocket_chains = pocket_id.split("_", maxsplit=1)  # 1ABC:A_B:1,2,3 -> 1ABC, A_B
-
-        # Loading PISA pocket file
-        in_path = os.path.join(in_dir, f"{pdb_id}.json")
-        if not os.path.exists(in_path):
-            logging.warning(f"Could not load PISA data for {pdb_id}", extra=stage)
-            continue
-        with open(in_path, "r") as f:
-            pisa_data = json.load(f)
-
-        # Extracting the relevant interface
-        interface_chains = "".join(sorted(pocket_chains.split("_")))
-        if interface_chains not in pisa_data:
-            logging.warning(f"No PISA data for {pdb_id} interface {interface_chains}", extra=stage)
-            continue
-        pisa_data = pisa_data[interface_chains]
-
-        # Checking the interfaces features 2 molecules
-        if not len(pisa_data["molecules"]) == 2:
-            logging.warning(f"More than two molecules in {pdb_id} interface {interface_chains}", extra=stage)
-            continue
-
-        # Getting the molecule id for the domain chain
-        pocket_mol_id = None
-        for mol in pisa_data["molecules"]:
-            if mol["chain_id"] == pocket_chains.split("_")[0]:  # Assuming first chain is the domain chain
-                pocket_mol_id = mol["molecule_id"]
-                break
-        if pocket_mol_id is None:
-            logging.warning(f"Could not find domain chain in {pdb_id} interface {interface_chains}", extra=stage)
-            continue
-
-        # Making output pocket
-        pocket = {
-            "res_auth_ids": set(),
-            "id_pos_codes_match": True,
-        }
-
-        # Getting the pocket residues
-        for bond_type in bond_types:
-            bonds_dict = pisa_data[bond_type]
-            res_auth_ids = bonds_dict[f"atom_site_{pocket_mol_id}_seq_nums"]
-            pocket["res_auth_ids"].update(set(res_auth_ids))
-            for i, res_auth_id in enumerate(res_auth_ids):
-                if res_auth_id not in pocket:  # initializing dict
-                    pocket[res_auth_id] = {}
-                res_dict = {}
-                res_dict["res_code"] = bonds_dict[f"atom_site_{pocket_mol_id}_residues"][i]
-                res_dict["res_code_single"] = SINGLE_AA_CODE.get(res_dict["res_code"], "X")
-                res_dict["uniprot_pos"] = bonds_dict[f"atom_site_{pocket_mol_id}_unp_nums"][i]
-
-                pocket[res_auth_id] = res_dict
-
-        sorted_res_auth_ids = [str(x) for x in sorted([int(x) for x in pocket["res_auth_ids"]])]
-        pocket["res_auth_ids"] = sorted_res_auth_ids
-        if len(pocket["res_auth_ids"]) > 0:
-            pocket["pocket_exists"] = True
-
-        # Making JSON serializable
-        pocket = jsonify_dict(pocket)
-        pockets[pocket_id] = pocket
-
-    return pockets
 
 
 def jsonify_dict(item):
@@ -363,6 +292,7 @@ Foldseek output format used for comparison:
 def compare_pockets(
     alignment_df,
     pocket_dict,
+    preproc_to_ids,
     blosum_path=r"/home/data/motif_aligner/blosum62.bla",
     alphafold=False,
 ):
@@ -376,13 +306,6 @@ def compare_pockets(
     unknown_ids = defaultdict(lambda: defaultdict(set))  # for saving tri-code ids which are unknown
     incorrect_mapping = defaultdict(dict)  # for saving cases where foldseek mapping doesn't match pocketmapper sequence
 
-    # {pdb_domain_motif: info} -> {pdb_domain: {motif1: info, motif2:info}}
-    domain_pocket_dict = defaultdict(dict)
-    for k, v in pocket_dict.items():
-        domain_pocket_dict[k[:6].replace(":", "_")][k[7:]] = v
-
-    logging.debug(f"Domain pocket dict: {domain_pocket_dict}", extra={"stage": "Pocket Comparison"})
-
     # Setting up vars for use later
     existing_calcs = set()
     output_rows = []
@@ -393,8 +316,8 @@ def compare_pockets(
         domain_1 = row[0]
         domain_2 = row[1]
         try:
-            # % non-gaps to gaps each way, similarity
 
+            # MAPPING SEQUENCE POSITION TO ALIGNMENT POSITION #####
             p1_seq_to_aln = {}
             i = 0
             for j, res in enumerate(row[12]):
@@ -411,14 +334,17 @@ def compare_pockets(
                     i += 1
             # p2_aln_to_seq = {v: k for k, v in p2_seq_to_aln.items()}
 
-            # Check that both pockets are loaded:
-            pockets_1 = domain_pocket_dict.get(domain_1)
-            if not pockets_1:
+            # GETTING POCKETS WHICH CORRESPOND TO THE FOLDSEEK NAME
+            pockets_1 = {}
+            for pocket_id in preproc_to_ids.get(domain_1):
+                if pocket_id in pocket_dict:
+                    pockets_1[pocket_id] = pocket_dict[pocket_id]
+            if len(pockets_1) == 0:
                 continue
-                # raise ValueError(f"domain:{domain_1} not found in pocket dict")
+
             if alphafold:
                 pockets_2 = {
-                    "A": {
+                    domain_2: {
                         "res_auth_ids": [str(k) for k in range(row[9])],
                         "id_pos_codes_match": True,
                         "pocket_exists": True,
@@ -426,51 +352,47 @@ def compare_pockets(
                         "ca_sequence": row[17],
                     }
                 }
-                pockets_2["A"].update({str(k): {"seq_pos": k} for k in range(row[9])})
+                pockets_2[domain_2].update({str(k): {"seq_pos": k} for k in range(row[9])})
             else:
-                pockets_2 = domain_pocket_dict.get(domain_2)
-                if not pockets_2:
+                pockets_2 = {}
+                for pocket_id in preproc_to_ids.get(domain_2):
+                    if pocket_id in pocket_dict:
+                        pockets_2[pocket_id] = pocket_dict[pocket_id]
+                if len(pockets_2) == 0:
                     continue
-                    # raise ValueError(f"domain:{domain_2} not found in pocket dict")
 
             # Iterating through aligned pairs
-            for motif_1, motif_2 in product(pockets_1.keys(), pockets_2.keys()):
-                # Defining interaction names
-                interaction_1 = domain_1 + "_" + motif_1
-                if alphafold:
-                    interaction_2 = domain_2
-                else:
-                    interaction_2 = domain_2 + "_" + motif_2
+            for pocket_id_1, pocket_id_2 in product(pockets_1.keys(), pockets_2.keys()):
 
                 # No self comparisons
                 # if interaction_1 == interaction_2:
                 #    continue
 
                 # Checking for A-B comparison if B-A has already been calculated
-                if (interaction_2, interaction_1) in existing_calcs:
+                if (pocket_id_1, pocket_id_2) in existing_calcs:
                     continue
-                existing_calcs.add((interaction_1, interaction_2))
+                existing_calcs.add((pocket_id_1, pocket_id_2))
 
-                if interaction_1 in incorrect_mapping or interaction_2 in incorrect_mapping:
+                if pocket_id_1 in incorrect_mapping or pocket_id_2 in incorrect_mapping:
                     continue
 
                 # Starting the output list
                 output = {
-                    "pocket_1": domain_1 + "_" + motif_1,
-                    "pocket_2": domain_2 + "_" + motif_2,
+                    "pocket_1": pocket_id_1,
+                    "pocket_2": pocket_id_2,
                     "evalue": row[10],
                     "lddt": row[11],
                 }
 
                 # Getting the pockets
-                p1 = deepcopy(pockets_1.get(motif_1))
-                p2 = deepcopy(pockets_2.get(motif_2))
+                p1 = deepcopy(pockets_1.get(pocket_id_1))
+                p2 = deepcopy(pockets_2.get(pocket_id_2))
                 if not p1["pocket_exists"] or not p2["pocket_exists"]:
                     continue
 
                 p1_seq_identity = sum(map(str.__eq__, row[16], p1["ca_sequence"])) / len(p1["ca_sequence"])
                 if p1_seq_identity < 0.8:
-                    incorrect_mapping[interaction_1] = {
+                    incorrect_mapping[pocket_id_1] = {
                         "p1_seq_identity": p1_seq_identity,
                         "p1_seq": p1["ca_sequence"],
                         "fs_seq": row[16],
@@ -478,7 +400,7 @@ def compare_pockets(
 
                 p2_seq_identity = sum(map(str.__eq__, row[17], p2["ca_sequence"])) / len(p2["ca_sequence"])
                 if p2_seq_identity < 0.8:
-                    incorrect_mapping[interaction_2] = {
+                    incorrect_mapping[pocket_id_2] = {
                         "p2_seq_identity": p2_seq_identity,
                         "p2_seq": p2["ca_sequence"],
                         "fs_seq": row[17],
@@ -504,7 +426,7 @@ def compare_pockets(
                         # Checking fs single res code and pocektmapper single res codes match
                         if p1[res]["fs_res_code"] != p1[res]["res_code_single"]:
                             unknown_ids[p1[res]["fs_res_code"]][p1[res]["res_code"]].add(
-                                ",".join([interaction_2, interaction_1, res])
+                                ",".join([pocket_id_2, pocket_id_1, res])
                             )
 
                 output["pocket_1_res_ids"] = ",".join(p1["res_auth_ids"])
@@ -531,7 +453,7 @@ def compare_pockets(
                         # Checking fs single res code and pocektmapper single res codes match
 
                         if not alphafold and (p2[res]["fs_res_code"] != p2[res]["res_code_single"]):
-                            debug_id = ",".join([interaction_1, interaction_2, res])
+                            debug_id = ",".join([pocket_id_1, pocket_id_2, res])
                             unknown_ids[p2[res]["fs_res_code"]][p2[res]["res_code"]].add(debug_id)
 
                 if not alphafold:
@@ -619,13 +541,13 @@ def compare_pockets(
 
         except KeyError:
             logging.warning(
-                f"Uncontrolled KeyError calculating {domain_1}_{motif_1} and {domain_2}_{motif_2}",
+                f"Uncontrolled KeyError calculating {domain_1} and {domain_2}",
                 extra={"stage": "Pocket Comparison"},
             )
             raise
         except Exception:
             logging.exception(
-                f"Uncontrolled error calculating {domain_1}_{motif_1} and {domain_2}_{motif_2}",
+                f"Uncontrolled error calculating {domain_1} and {domain_2}",
                 extra={"stage": "Pocket Comparison"},
             )
             raise
@@ -710,5 +632,5 @@ def read_blast_similarity_matrix(similarity_matrix_path, delimiter=" "):
 
 
 def download_pisa_info(pdb_list, summary_dir, assembly_dir, interface_dir):
-    downloader = pisa.PisaDownloader()
+    downloader = pisa_downloader.PisaDownloader()
     downloader.get_interfaces(pdb_list, summary_dir, assembly_dir, interface_dir)

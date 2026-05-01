@@ -21,15 +21,15 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
         st = struct
     else:
         if not os.path.exists(struct):
-            logging.critical(f"Structure file {struct} does not exist.", extra=stage)
-            exit(1)
+            logging.warning(f"Structure file {struct} does not exist.", extra=stage)
+            return None
         st = gemmi.read_structure(struct)
 
     # Verify the specified chain exists and get it
     chain = st[0].find_chain(chain_id)  # Assuming we are interested in the first model
     if not isinstance(chain, gemmi.Chain):
         logging.critical(f"Chain {chain_id} not found in structure {struct}.", extra=stage)
-        exit(1)
+        return None
 
     seq_pos = (
         -1

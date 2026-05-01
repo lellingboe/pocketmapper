@@ -104,7 +104,6 @@ class QTProcessor:
             "pocket_method": None,
             "success": True,
             "failure_reason": "",
-            "sanitized_pocket_id": qt.replace(":", "_").replace(",", "_"),  # For use in file names, etc.
         }
 
         # Bundled foldseek databases have a special format and are treated differently

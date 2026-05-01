@@ -16,7 +16,8 @@ import os
 from datetime import datetime
 import shutil
 from pocketmapper import lib
-from pocketmapper import pisa
+from pocketmapper.pisa_downloader import PisaDownloader
+from pocketmapper.pisa_parser import PisaParser
 from pocketmapper.sequence_aligner import SequenceAligner
 from pocketmapper.pocket_calculator import PocketCalculator
 from pocketmapper.qt_processor import QTProcessor
@@ -485,10 +486,14 @@ class PocketMapper:
         - pass in each array to the get method for that poket method
         - check for clashes and combine
         """
-        stage = {"stage": "Get Pockets"}
+        stage = {"stage": "Getting Pockets"}
+        logging.info("Starting pocket retrieval...", extra=stage)
+
         pisa_pockets = self._retrieve_pisa_pockets()
-        passthrough_pockets = self.retrieve_passthrough_pockets()
-        pockets = pisa_pockets | passthrough_pockets
+        passthrough_pockets = self._retrieve_passthrough_pockets()
+        vdw_pockets = self._retrieve_vdw_pockets()
+
+        pockets = pisa_pockets | passthrough_pockets | vdw_pockets
         logging.debug(f"Combined pockets: {pockets}", extra=stage)
         return pockets
 
@@ -499,18 +504,25 @@ class PocketMapper:
         Parses coordinates for the pockets from the mmCIF files,
         Stores the pocket info in a dict for later comparison
         """
+        stage = {"stage": "Retrieving PISA Pockets"}
+        logging.info("Checking for PISA pockets...", extra=stage)
 
-        self._log_extra.update({"stage": "Pisa Pocket Calculation"})
-        all_pisa_df = pd.concat([self._query_df, self._target_df], ignore_index=True).query(
-            "success and pocket_method == 'pisa'"
+        # Selecting relevant records from quert and taget dataframes
+        pisa_df = (
+            pd.concat([self._query_df, self._target_df], ignore_index=True)
+            .query("success and pocket_method == 'pisa'")
+            .drop_duplicates(subset=["struct_info", "chain_info"])
         )
+        if len(pisa_df) == 0:
+            logging.info("No PISA pockets to retrieve", extra=stage)
+            return {}
+        else:
+            logging.info(f"{len(pisa_df)} PISA pockets to retrieve", extra=stage)
 
         pisa_response_dir = os.path.join(self._settings["pocket_dir"], "pisa_responses")
-        # Dispatch to relevant pocket retrieval/calculation method based on the specified pocket method for the query and target (currently only PISA, but can be extended in the future)
-        pisa_pdb_list = all_pisa_df["struct_info"].unique().tolist()
+        pisa_pdb_list = pisa_df["struct_info"].unique().tolist()
         logging.debug(f"PDBs for which to retrieve PISA pockets: {pisa_pdb_list}", extra=self._log_extra)
-        logging.info("Retrieving PISA pockets...", extra=self._log_extra)
-        downloader = pisa.PisaDownloader()
+        downloader = PisaDownloader()
         downloader.get_interfaces(
             pdb_list=pisa_pdb_list,
             summary_dir=os.path.join(pisa_response_dir, "summaries"),
@@ -518,90 +530,134 @@ class PocketMapper:
             interface_dir=os.path.join(pisa_response_dir, "interfaces"),
         )
 
-        # for each interface in query and target extract the relevant info from the parsed pockets
-        pisa_pocketids = all_pisa_df["sanitized_pocket_id"].unique().tolist()
-        logging.debug(f"Pocket IDs for which to retrieve PISA pockets: {pisa_pocketids}", extra=self._log_extra)
-        pisa_pockets = lib.get_pisa_pockets(
-            pocket_id_arr=pisa_pocketids,
+        parser = PisaParser()
+        pisa_pockets = parser.get_pockets_from_records(
+            records=pisa_df.to_dict(orient="records"),
             in_dir=os.path.join(pisa_response_dir, "interfaces"),
         )
-        logging.warning(f"pockets example: {list(pisa_pockets.items())[:2]}", extra=self._log_extra)
         logging.debug(f"Extracted PISA pockets: {pisa_pockets}", extra=self._log_extra)
-        for _, row in all_pisa_df.iterrows():
-            if row["sanitized_pocket_id"] in pisa_pockets:
-                pisa_pockets[row["sanitized_pocket_id"]] = parse_pocket_from_struct(
+
+        for _, row in pisa_df.iterrows():
+            if row["pocket_id"] in pisa_pockets:
+                pisa_pockets[row["pocket_id"]] = parse_pocket_from_struct(
                     struct=os.path.join(self._settings["structure_dir"], f"{row['struct_info']}.cif.gz"),
                     chain_id=row["chain_info"].split("_")[0],
-                    pocket_residues=[int(x) for x in pisa_pockets[row["sanitized_pocket_id"]]["res_auth_ids"]],
-                    pocket=pisa_pockets[row["sanitized_pocket_id"]],
+                    pocket_residues=[int(x) for x in pisa_pockets[row["pocket_id"]]["res_auth_ids"]],
+                    pocket=pisa_pockets[row["pocket_id"]],
                 )
+        logging.debug(f"Extracted PISA pockets with coords: {pisa_pockets}", extra=self._log_extra)
 
         with open(os.path.join(self._settings["pocket_dir"], "pisa_pockets.json"), "w") as f:
             json.dump(pisa_pockets, f)
 
         return pisa_pockets
 
-    def retrieve_passthrough_pockets(self):
-        self._log_extra.update({"stage": "Passthrough Pocket Calculation"})
-        all_passthrough_data = pd.concat([self._query_df, self._target_df], ignore_index=True)
-        all_passthrough_data = all_passthrough_data.query("success and pocket_method == 'passthrough'")
-        logging.debug(f"Data for passthrough pockets: \n{all_passthrough_data}", extra=self._log_extra)
+    def _retrieve_passthrough_pockets(self):
+        stage = {"stage": "Passthrough Pocket Calculation"}
+        logging.info("Checking for passthrough pockets...", extra=stage)
+
+        pt_df = pd.concat([self._query_df, self._target_df], ignore_index=True).query(
+            "success and pocket_method == 'passthrough'"
+        )
+        if len(pt_df) == 0:
+            logging.info("No passthrough pockets to retrieve", extra=stage)
+            return {}
+        else:
+            logging.info(f"{len(pt_df)} passthrough pockets to retrieve", extra=stage)
 
         # for each pocket in query and target parse pocket info from the structure and store in a dict
         passthrough_pockets = {}
-        for _, row in all_passthrough_data.iterrows():
+        for _, row in pt_df.iterrows():
             pocket_residues = [int(x) for x in row["residue_info"].split(",")]
             pocket = parse_pocket_from_struct(
                 struct=os.path.join(self._settings["structure_dir"], f"{row['struct_info']}.cif.gz"),
                 chain_id=row["chain_info"].split("_")[0],
                 pocket_residues=pocket_residues,
             )
-            passthrough_pockets[row["sanitized_pocket_id"]] = pocket
+            passthrough_pockets[row["pocket_id"]] = pocket
         with open(os.path.join(self._settings["pocket_dir"], "passthrough_pockets.json"), "w") as f:
             json.dump(passthrough_pockets, f, indent=4)
+        logging.debug(f"Extracted passthrough pockets: {passthrough_pockets}", extra=self._log_extra)
 
         return passthrough_pockets
 
+    def _retrieve_vdw_pockets(self):
+        stage = {"stage": "VDW Pocket Calculation"}
+        logging.info("Checking for VDW pockets...", extra=stage)
+        vdw_df = pd.concat([self._query_df, self._target_df], ignore_index=True).query(
+            "success and pocket_method == 'vdw'"
+        )
+        if len(vdw_df) == 0:
+            logging.info("No VDW pockets to retrieve", extra=stage)
+            return {}
+        else:
+            logging.info(f"{len(vdw_df)} VDW pockets to retrieve", extra=stage)
+
+        vdw_pockets = {}
+        pc = PocketCalculator()
+        for _, row in vdw_df.iterrows():
+            match row["struct_type"]:
+                case "local_file":
+                    struct_path = row["struct_info"]
+                case _:
+                    struct_path = os.path.join(self._settings["structure_dir"], f"{row['struct_info']}.cif.gz")
+
+            pocket = pc.pocket_overlap(
+                structure=struct_path,
+                domain_chain=row["chain_info"].split("_")[0],
+                motif_chain=row["chain_info"].split("_")[1],
+            )
+            vdw_pockets[row["pocket_id"]] = pocket
+        with open(os.path.join(self._settings["pocket_dir"], "vdw_pockets.json"), "w") as f:
+            json.dump(vdw_pockets, f, indent=4)
+        logging.debug(f"Extracted VDW pockets: {vdw_pockets}", extra=self._log_extra)
+
+        return vdw_pockets
+
     def _compare_pockets_based_on_alignment(self, pockets):
-        self._log_extra.update({"stage": "Pocket Comparison"})
-        logging.info("Reading alignment results...", extra=self._log_extra)
+        stage = {"stage": "Comparing Pockets Based on Alignment"}
+
+        logging.info("Reading alignment results...", extra=stage)
         alignment_df = pd.read_csv(self._settings["alignment_path"], sep="\t", engine="c")
         blosum_path = os.path.join(os.path.dirname(__file__), "blosum62.bla")
-        logging.info(f"{len(alignment_df)} alignment pairs to compare", extra=self._log_extra)
-        logging.debug(f"Alignment pairs: \n{alignment_df.head()}", extra=self._log_extra)
+
+        logging.info(f"{len(alignment_df)} alignment pairs to compare", extra=stage)
+        logging.debug(f"Alignment pairs: \n{alignment_df.head()}", extra=stage)
+
+        preproc_to_ids = {}
+        for _, row in pd.concat([self._query_df, self._target_df], ignore_index=True).iterrows():
+            if row["pocket_id"] in preproc_to_ids:
+                if row["pocket_id"] not in preproc_to_ids[row["preprocess_name"]]:
+                    preproc_to_ids[row["preprocess_name"]].append(row["pocket_id"])
+            else:
+                preproc_to_ids[row["preprocess_name"]] = [row["pocket_id"]]
+        logging.debug(f"Preprocessed name to pocket ID mapping: {preproc_to_ids}", extra=stage)
+
         alphafold = (
-            self._target == "human_domains"
+            self._settings["target"] == "human_domains"
         )  # TODO this is actually if we should trat the target as having no defnied pocket, not if we are searching alphafold
         pockets_df, unknown_alias, incorrect_mapping = lib.compare_pockets(
-            alignment_df, pockets, blosum_path=blosum_path, alphafold=alphafold
+            alignment_df, pockets, preproc_to_ids=preproc_to_ids, blosum_path=blosum_path, alphafold=alphafold
         )
 
+        # Logging cases where a residue was given a single cahr name unfamiliar to pocketmapper
         if len(unknown_alias) > 0:
             unknown_alias_path = os.path.join(self._settings["results_dir"], "unknown_ids.json")
-            logging.warning(
-                "Unknown Foldseek Alias, see unknown_alias.json in results directory", extra=self._log_extra
-            )
+            logging.warning("Unknown Foldseek Alias, see unknown_alias.json in results directory", extra=stage)
             with open(unknown_alias_path, "w") as f:
                 json.dump(lib.jsonify_dict(dict(unknown_alias)), f)
 
+        # logging cases where foldseek mapping had low sequence identity to the parsed structure
         if len(incorrect_mapping) > 0:
             incorrect_mapping_path = os.path.join(self._settings["results_dir"], "incorrect_mapping.json")
-            logging.warning("Foldseek mapping with low sequence identity to parsed structure", extra=self._log_extra)
+            logging.warning("Foldseek mapping with low sequence identity to parsed structure", extra=stage)
             with open(incorrect_mapping_path, "w") as f:
                 json.dump(lib.jsonify_dict(dict(incorrect_mapping)), f)
-
-        # Map sanitized pocket ids back to original pocket ids for output
-        sanitized_to_id_map = {}
-        for i, row in self._query_df.iterrows():
-            sanitized_to_id_map[row["sanitized_pocket_id"]] = row["pocket_id"]
-        pockets_df["pocket_1"] = pockets_df["pocket_1"].map(sanitized_to_id_map)
 
         # Writing pocket comparison results to output file
         output_path = self._settings["pocket_comparison_path"]
         pockets_df.to_csv(output_path, index=False, sep="\t")
-        with open(os.path.join(self._settings["results_dir"], "sanitized_to_id_map.json"), "w") as f:
-            json.dump(sanitized_to_id_map, f, indent=2)
-        logging.info(f"Pocket comparison results saved to {output_path}", extra=self._log_extra)
+        logging.info(f"Pocket comparison results saved to {output_path}", extra=stage)
 
     def _delete_tmp(self):
         tmp_dirs = [
