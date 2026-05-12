@@ -29,6 +29,12 @@ from pocketmapper import human_domains
 
 class PocketMapper:
     def __init__(self):
+        """
+        Initialize the PocketMapper instance.
+
+        Sets up the default logging configuration, formatting strings, and points to
+        bundled structural databases if applicable.
+        """
         self._log_extra = {"stage": "init"}
         self.human_domains_db_path = files(human_domains).joinpath("human_260310")
         self.log_fmt = "%(levelname)s: %(stage)s - %(msg)s"
@@ -36,6 +42,17 @@ class PocketMapper:
         logging.basicConfig(level=logging.CRITICAL, format=self.log_fmt)
 
     def _configure_logging(self, settings):
+        """
+        Configure logging level and handlers based on user settings.
+
+        Sets both a console stream handler and a file handler (to `log_path` in `settings`),
+        adjusting the verbosity depending on the user's input.
+
+        Args:
+            settings (dict): Configuration dictionary containing keys:
+                - "verbosity" (int): The verbosity level (4=DEBUG, 3=INFO, 2=WARNING, else ERROR).
+                - "log_path" (str): Path to write the info.log file.
+        """
         self._log_extra.update({"stage": "Configuring Logging"})
 
         # Set log level based on verbosity setting (default to INFO if not set)
@@ -90,7 +107,19 @@ class PocketMapper:
     ):
         """
         Orchestrate and run the full PocketMapper search workflow.
-        See pocketmapper search --help for details.
+
+        Args:
+            query (str, optional): Target query identifier, string or path to a list.
+            target (str, optional): Target structure identifier, string or path to a list.
+            settings (str, optional): Path to a JSON settings file.
+            cache_dir (str, optional): Directory to cache intermediate structures.
+            results_dir (str, optional): Directory to output results to.
+            verbosity (int, optional): Control logging level.
+            help (bool, optional): Output the help message and exit.
+            foldseek (bool, optional): Use foldseek for structure alignment instead of local sequence alignment.
+            align_struct (bool, optional): Align target structures after pocket comparison.
+
+        See `pocketmapper search --help` for full programmatic and CLI details.
         """
         self._log_extra = {
             "stage": "Starting Search"
@@ -135,16 +164,14 @@ class PocketMapper:
 
     def _check_help_search(self):
         """
-        Displays help information for the PocketMapper tool and exits the program.
+        Display help information for the PocketMapper tool and exit the program.
 
-        If the 'help' parameter is provided and evaluates to True, this method prints a help message
-        describing the usage, options, and features of the PocketMapper package, then terminates execution.
+        If the 'self._help' parameter is provided and evaluates to True, this method prints a
+        help message describing the usage, options, and features of the PocketMapper package,
+        then terminates execution.
 
-        Parameters:
-            help (bool): If True, triggers the display of the help message.
-
-        Usage:
-            Call this method when the user requests help (e.g., via a command-line flag).
+        Returns:
+            None: Process exits if `self._help` is True.
         """
 
         if self._help:
@@ -214,13 +241,17 @@ class PocketMapper:
 
     def _configure_workflow(self):
         """
-        Reads and configures settings for the PocketMapper workflow.
+        Set up and evaluate configuration settings for the workflow.
 
-        1) Sets base defaults
-        2) Overrides with provided JSON settings file
-        3) Overrides with explicitly passed CLI arguments
-        4) Computes derived paths based on the finalized cache/results directories
-        5) Dumps configuration to a JSON file in the results directory for record-keeping
+        This process:
+        1. Sets base defaults for caching and results.
+        2. Overrides these defaults via an optional JSON settings file.
+        3. Prioritizes CLI arguments (passed via the `search` method) over file settings.
+        4. Computes all derivative working directories needed during pipeline execution.
+        5. Saves final configuration payload locally, setting up necessary directories.
+
+        Returns:
+            None
         """
         self._log_extra.update({"stage": "Configuring Settings"})
 
@@ -326,7 +357,13 @@ class PocketMapper:
 
     def _configure_query_target(self):
         """
-        Determining the inputs types for query and target based on the format of the provided values.
+        Determine and process input data (formats and types) for the query and target constraints.
+
+        Uses the `QTProcessor` class to load, parse, and validate query vs. target identities
+        and requested pocket methodologies (e.g. "pisa", "passthrough"). Updates local dataframes.
+
+        Returns:
+            None: Instantiates `self._query_df` and `self._target_df`.
         """
         self._log_extra.update({"stage": "Determine Query/Target Types"})
 
@@ -342,11 +379,14 @@ class PocketMapper:
 
     def _fetch_missing_structures(self):
         """
-        1) Downloads structures for the PDB entries in self._pdb_df['interaction_pdb'].
+        Identify and download required structure files.
 
-        2) Verifies that structures were found for the query and target entries (if required based on their types)
-           and logs the results. If no structures are found for either query or target when required, logs a critical
-           error and exits.
+        Iterates over `self._query_df` and `self._target_df` determining if structure
+        components are locally accessible, utilizing `StructureFetcher`.
+        Failed retrieval flags will trigger program termination if zero data persists.
+
+        Returns:
+            None
         """
         # Downloading structures
         self._log_extra.update({"stage": "Fetching Missing Structures"})
@@ -388,6 +428,16 @@ class PocketMapper:
             exit(1)
 
     def _alignment(self):
+        """
+        Coordinate structural alignment routes bridging query and target proteins.
+
+        Dispatches to `_run_foldseek()` if global flag is true, else rolls
+        back to `_local_alignment()`. Requisites like `_preprocess_structures()`
+        precede foldseek routines.
+
+        Returns:
+            None
+        """
         self._log_extra.update({"stage": "Alignment"})
         if self._settings["foldseek"]:
             # if not os.path.isfile(self._settings["alignment_path"]):
@@ -401,7 +451,13 @@ class PocketMapper:
 
     def _preprocess_structures(self):
         """
-        Divides PDB structures into relevant domains and chains
+        Split complex PDB structures into defined chains or domains.
+
+        Instantiates a `StructurePreprocessor` mapping items sourced from the
+        local datastores towards isolated files targeting specific sequences.
+
+        Returns:
+            None
         """
         stage = {"stage": "Preprocessing Structures"}
 
@@ -433,7 +489,15 @@ class PocketMapper:
         logging.debug(f"Target data after preprocessing: \n{self._target_df.head()}", extra=stage)
 
     def _run_foldseek(self):
-        """ """
+        """
+        Execute foldseek sub-commands via bash interfacing.
+
+        Triggers `foldseek easy-search`, pushing input query targets directly against formatted targets
+        using `self._settings["alignment_path"]` to store raw tabular matches.
+
+        Returns:
+            None
+        """
         stage = {"stage": "Foldseek Alignment"}
         if self._settings["target"] == "human_domains":
             self._settings["target_dir"] = self.human_domains_db_path
@@ -464,6 +528,15 @@ class PocketMapper:
         logging.debug("Foldseek alignment completed successfully", extra=stage)
 
     def _local_alignment(self):
+        """
+        Execute traditional sequence-level alignment across inputs.
+
+        Uses the `SequenceAligner` to locally match structured frames, resolving pairwise dependencies
+        within internal dataframe representations. Outputs directly to the configuration TSV alignment file.
+
+        Returns:
+            None
+        """
         # TODO fix local alignment with work with query/target data
         aligner = SequenceAligner()
         alignment = aligner.align_df(self._pdb_df, self._settings["foldseek_preprocessed_structure_dir"])
@@ -472,17 +545,13 @@ class PocketMapper:
 
     def _get_pockets(self):
         """
-        Retrieves pockets for the query and target structures based on the specified pocket methods.
-        Currently only supports PISA, but can be extended in the future to support other methods.
+        Aggregate pocket coordinate arrays based on configured mapping logic (PISA, Passthrough, VDW).
 
-        For PISA pockets, retrieves the relevant PISA interfaces based on the query and target pocket info and
-        extracts the pocket residues and their coordinates from the mmCIF files. The extracted pocket info is then
-        stored in a dictionary for later comparison.
+        Executes targeted extraction requests across the configured pocket methodologies. Combines all derived
+        pocket residues/points into a standard composite mapping object.
 
-        TODO - rewrite
-        - split record arr by pocket method
-        - pass in each array to the get method for that poket method
-        - check for clashes and combine
+        Returns:
+            dict: An aggregated collection of pocket records.
         """
         stage = {"stage": "Getting Pockets"}
         logging.info("Starting pocket retrieval...", extra=stage)
@@ -497,10 +566,13 @@ class PocketMapper:
 
     def _retrieve_pisa_pockets(self):
         """
-        Determines the PISA interfaces from query and targets,
-        Retrives the pisa data from the PISA API,
-        Parses coordinates for the pockets from the mmCIF files,
-        Stores the pocket info in a dict for later comparison
+        Request, parse, and translate remote pocket mapping endpoints through the PDBe PISA service.
+
+        Downloads corresponding assembly and interface data over REST points. Extracts residue maps
+        associating directly to structured indices previously resolved, persisting local copies to the cache.
+
+        Returns:
+            dict: Translated pocket coordinates indexed by `pocket_id`.
         """
         stage = {"stage": "Retrieving PISA Pockets"}
         logging.info("Checking for PISA pockets...", extra=stage)
@@ -551,6 +623,15 @@ class PocketMapper:
         return pisa_pockets
 
     def _retrieve_passthrough_pockets(self):
+        """
+        Convert manually defined list-based user parameters directly into atomic coordinate graphs.
+
+        Target data frames assigned a 'passthrough' target type have explicitly identified residues parsed
+        statically based on existing indices within pre-existing mmcif structures.
+
+        Returns:
+            dict: Translated pocket coordinates indexed by `pocket_id`.
+        """
         stage = {"stage": "Passthrough Pocket Calculation"}
         logging.info("Checking for passthrough pockets...", extra=stage)
 
@@ -580,6 +661,15 @@ class PocketMapper:
         return passthrough_pockets
 
     def _retrieve_vdw_pockets(self):
+        """
+        Evaluate pocket clusters structurally using Van-der-Waals (VDW) interaction overlapping metrics.
+
+        Passes valid structures referencing 'vdw' methods into `PocketCalculator` implementations to
+        synthesize interactive residue domains from a protein-motif complex.
+
+        Returns:
+            dict: Translated pocket coordinates indexed by `pocket_id`.
+        """
         stage = {"stage": "VDW Pocket Calculation"}
         logging.info("Checking for VDW pockets...", extra=stage)
         vdw_df = pd.concat([self._query_df, self._target_df], ignore_index=True).query(
@@ -613,6 +703,18 @@ class PocketMapper:
         return vdw_pockets
 
     def _compare_pockets_based_on_alignment(self, pockets):
+        """
+        Merge sequence or fold structure alignments traversing spatial pocket metrics internally to evaluate correlations.
+
+        Processes raw mapping dictionaries tracking unresolved structural aliases. Utilizes a referenced BLOSUM
+        scorecard for computing structural compatibility values output into a final result dataframe file.
+
+        Args:
+            pockets (dict): Populated pool of pocket residue locations collected via initial configurations.
+
+        Returns:
+            None
+        """
         stage = {"stage": "Comparing Pockets Based on Alignment"}
 
         logging.info("Reading alignment results...", extra=stage)
@@ -658,6 +760,15 @@ class PocketMapper:
         logging.info(f"Pocket comparison results saved to {output_path}", extra=stage)
 
     def _delete_tmp(self):
+        """
+        Cleanup temporary cache directories holding extracted domains following completion cycles.
+
+        Erases dynamically built sub-directories holding processed query logic, removing intermediate
+        uncompressed sequences unless flagged for extended review formats via `human_domains`.
+
+        Returns:
+            None
+        """
         tmp_dirs = [
             "query_dir",
         ]

@@ -9,7 +9,10 @@ import gzip
 class StructureFetcher:
     def __init__(self, out_dir):
         """
-        :param out_dir: Directory where the mmCIF files will be saved.
+        Initialize the StructureFetcher with a target output directory.
+
+        Args:
+            out_dir (str): Directory where the downloaded structured files (e.g., mmCIF) will be saved and cached.
         """
         self.out_dir = out_dir
         self.cache = os.listdir(out_dir)
@@ -17,41 +20,59 @@ class StructureFetcher:
         self._log_extra = {"stage": "StructureFetcher"}
         self.logger.debug(f"Initialized with cache: {self.cache}", extra=self._log_extra)
 
-    def _set_output_directory(self, out_dir):
+    def set_output_directory(self, out_dir):
+        """
+        Set or update the target output directory, creating it if it does not exist.
+
+        Args:
+            out_dir (str): The new output directory path.
+        """
         self.out_dir = out_dir
         if not os.path.exists(out_dir):
             os.makedirs(out_dir)
 
     def update_cache(self):
+        """
+        Update the internal cache of files present in the output directory.
+        """
         self.cache = os.listdir(self.out_dir)
 
     def get_structures(self, records):
         """
-        queries: list of records with keys "struct_type" and "struct_info"
-        [
-            {"struct_type": "alphafold", "struct_info": "P12345"},
-            {"struct_type": "pdb", "struct_info": "1ABC"},
-            ...
-        ]
-        returns:
-        {
-            "P12345": True,  # True if successfully fetched, False otherwise
-            "1ABC": False,
-            ...
-        }
+        Concurrently fetch multiple structures based on query records.
+
+        Args:
+            records (list of dict): A list of dictionaries, where each dict has:
+                - "struct_type" (str): Type of the structure (e.g., "alphafold", "pdb").
+                - "struct_info" (str): Identifier for the structure (e.g., "P12345", "1ABC").
+
+        Returns:
+            dict: A mapping of the structure identifier to a boolean status indicating
+                  whether the fetch was successful (True) or not (False).
         """
         with ThreadPoolExecutor(max_workers=100) as e:
-            results = e.map(self.get_structure, records)
+            results = e.map(self.fetch_structure, records)
         collected_result = {query: result for query, result in results}
         return collected_result
 
-    def get_structure(self, query):
+    def fetch_structure(self, query):
+        """
+        Fetch a single structure based on its type and identifier.
+
+        Args:
+            query (dict): A dictionary describing the structure to fetch containing
+                "struct_type" and "struct_info".
+
+        Returns:
+            tuple: A pair containing the structure identifier (str) and a boolean
+                   indicating success (True) or failure (False).
+        """
         stage = {"stage": "Fetching Structure"}
         match query["struct_type"]:
             case "alphafold":
-                return self.get_alphafold(query["struct_info"])
+                return self.fetch_alphafold(query["struct_info"])
             case "pdb":
-                return self.get_mmcif(query["struct_info"])
+                return self.fetch_mmcif(query["struct_info"])
             case "local_file":
                 return (query["struct_info"], True)
             case "foldseek_db":
@@ -63,7 +84,18 @@ class StructureFetcher:
                 )
                 return (query["struct_info"], False)
 
-    def get_alphafold(self, uniprot_acc, version="v6"):
+    def fetch_alphafold(self, uniprot_acc, version="v6"):
+        """
+        Download an AlphaFold model in mmCIF format and compress it to gzip.
+
+        Args:
+            uniprot_acc (str): The UniProt accession number for the target structure.
+            version (str, optional): The AlphaFold database version. Defaults to "v6".
+
+        Returns:
+            tuple: A pair containing the UniProt accession number (str) and a boolean
+                   indicating success (True) or failure (False).
+        """
         stage = {"stage": "Downloading AlphaFold File"}
         out_fname = f"{uniprot_acc}.cif.gz"
         temp_fname = f"{uniprot_acc}.cif"
@@ -87,7 +119,17 @@ class StructureFetcher:
 
         return (uniprot_acc, True)
 
-    def get_mmcif(self, pdb_code):
+    def fetch_mmcif(self, pdb_code):
+        """
+        Download a PDB structure in mmCIF format and compress it to gzip.
+
+        Args:
+            pdb_code (str): The 4-character PDB code for the target structure.
+
+        Returns:
+            tuple: A pair containing the PDB code (str) and a boolean indicating
+                   success (True) or failure (False).
+        """
         stage = {"stage": "Downloading PDB File"}
         out_fname = f"{pdb_code}.cif.gz"
         pdb_code_lowered = pdb_code.lower()
