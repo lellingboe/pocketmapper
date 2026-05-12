@@ -100,17 +100,17 @@ class PocketMapper:
         settings=None,
         cache_dir=None,
         results_dir=None,
-        verbosity=None,  # set verbosity level (see pocketmapper search --help for details)
-        help=None,  # help option
-        foldseek=None,  # whether to use foldseek for alignment (if false, uses local sequence alignment)
-        align_struct=None,  # whether to align structures after pocket comparison
+        verbosity=None,
+        help=None,
+        foldseek=None,
+        align_struct=None,
     ):
         """
         Orchestrate and run the full PocketMapper search workflow.
 
         Args:
-            query (str, optional): Target query identifier, string or path to a list.
-            target (str, optional): Target structure identifier, string or path to a list.
+            query (str): Target query identifier, string or path to a list.
+            target (str): Target structure identifier, string or path to a list.
             settings (str, optional): Path to a JSON settings file.
             cache_dir (str, optional): Directory to cache intermediate structures.
             results_dir (str, optional): Directory to output results to.
@@ -118,8 +118,6 @@ class PocketMapper:
             help (bool, optional): Output the help message and exit.
             foldseek (bool, optional): Use foldseek for structure alignment instead of local sequence alignment.
             align_struct (bool, optional): Align target structures after pocket comparison.
-
-        See `pocketmapper search --help` for full programmatic and CLI details.
         """
         self._log_extra = {
             "stage": "Starting Search"
@@ -181,7 +179,7 @@ class PocketMapper:
         Usage:
             pocketmapper search [OPTIONS]
 
-        Primary options (passed to PocketMapper.search):
+        Primary options:
             --query QUERY            Query identifier or path. Accepts:
                         - 'PDB_CHAIN_CHAIN' (e.g., 1ABC_A_B)
                         - path to a file listing PDB_CHAIN_CHAIN entries (each line)
@@ -189,17 +187,15 @@ class PocketMapper:
                         - 'PDB_CHAIN_CHAIN' (e.g., 2XYZ_C_D)
                         - path to a file listing PDB_CHAIN_CHAIN entries (each line)
                         - special foldseek DB alias 'human_domains' to use the bundled Foldseek DB
-            --settings FILE          Path to a JSON settings file (overridden by explicit CLI args)
-            --dump_settings FILE     Path to dump the finalized JSON configuration to
-            --cache_dir DIR          Directory for caching intermediate files (overrides settings.cache_dir)
-            --results_dir DIR        Directory for writing results (overrides settings.results_dir)
-            --verbose                Enable more detailed (info) logging
-            --debug                  Enable debug-level logging
+            --settings FILE          Path to a JSON file of {"ARG": "VALUE", ...} (overridden by explicit CLI args)
+            --cache_dir DIR          Directory for caching files
+            --results_dir DIR        Directory for writing results
+            --verbosity LEVEL        Set verbosity level (4=DEBUG, 3=INFO, 2=WARNING, else ERROR)
+            --foldseek BOOL          Whether to use foldseek for structure alignment instead of local sequence alignment
+            --align_struct BOOL      Whether to align target structures after pocket comparison
             --help                   Show this help message and exit
 
-        Relevant settings (can be placed in settings JSON or passed as CLI kwargs):
-            cache_dir                Base cache directory (default: pocketmapper_cache)
-            results_dir              Results directory (default: pocketmapper_results_<timestamp>)
+        Advanced Options (set via settings JSON):
             structure_dir            Directory to store downloaded/available structures
             pocket_dir               Directory to store calculated pockets
             foldseek_preprocessed_struct_dir       Directory for preprocessed/divided structures
@@ -223,11 +219,11 @@ class PocketMapper:
             # Batch mode using files with one PDB_CHAIN_CHAIN per line
             pocketmapper search --query queries.txt --target targets.txt --settings config.json
 
-            # Use Foldseek (set foldseek true). When using the built-in human_domains DB:
+            # Use Foldseek (set foldseek True). When using the built-in human_domains DB:
             pocketmapper search --query 1ABC_A_B --target human_domains --foldseek True --results_dir ./out_fs
 
-            # Override cache and enable debug logging
-            pocketmapper search --query 1ABC_A_B --target 2XYZ_C_D --cache_dir /tmp/cache --debug
+            # Override cache and set verbosity to debug
+            pocketmapper search --query 1ABC_A_B --target 2XYZ_C_D --cache_dir /tmp/cache --verbosity 4
 
         Notes:
             - Query/target inputs are interpreted either as single PDB_CHAIN_CHAIN strings or as file paths.
@@ -258,12 +254,12 @@ class PocketMapper:
         # 1. Base defaults
         now = datetime.now().strftime("%y%m%d_%H%M%S")
         self._settings = {
+            "query": None,
+            "target": None,
             "cache_dir": "pocketmapper_cache",
             "results_dir": f"pocketmapper_results_{now}",
             "query_pocket_method": None,
             "target_pocket_method": None,
-            "query": None,
-            "target": None,
             "foldseek": False,
             "align_struct": False,
             "verbosity": 3,  # default to info level logging
