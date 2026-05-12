@@ -6,7 +6,7 @@ from Bio import Align
 from Bio.Align import substitution_matrices
 import os
 import gemmi
-from itertools import combinations
+from itertools import product
 import pandas as pd
 
 
@@ -64,35 +64,34 @@ class SequenceAligner:
 
         return [peptide1_aligned, peptide2_aligned]
 
-    def align_df(self, df, struct_dir):
+    def align_df(self, query_df, target_df, struct_dir):
         """
         TODO docstring
         specs for df?
         """
 
-        cols = "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,lddt,qaln,taln,u,t".split(
-            ","
-        )
-
-        aligner = Align.PairwiseAligner()
-        aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
-        df = df.query("divided_struct")
+        # building a mapping of preprocess_name to sequence for all queries and targets (to avoid redundant structure parsing and sequence extraction during alignment) - this assumes that preprocess_name is unique across queries and targets, which should be the case if they are in the format "P12345_A" or "1ABC_A"
+        query_df = query_df.query("success")
+        target_df = target_df.query("success")
         name_to_seq = {}
-        for index, row in df.iterrows():
-            path = os.path.join(struct_dir, f"{row['pdb_domain']}.cif.gz")
+        query_preprocc_names = set(query_df["preprocess_name"].unique())
+        target_preprocc_names = set(target_df["preprocess_name"].unique())
+        for name in query_preprocc_names.union(target_preprocc_names):
+            path = os.path.join(struct_dir, f"{name}.cif.gz")
             st = gemmi.read_structure(path, format=gemmi.CoorFormat.Mmcif)
             st.setup_entities()
-            seq = "".join([self.single_aa_code.get(x.name, "X") for x in st[0][row["domain_chain"]].get_polymer()])
-            name_to_seq[row["pdb_domain"]] = seq
+            aln_chain = name[-1]  # assuming preprocess_name is in the format "P12345_A" or "1ABC_A"
+            seq = "".join([self.single_aa_code.get(x.name, "X") for x in st[0][aln_chain].get_polymer()])
+            name_to_seq[name] = seq
 
+        # Performing pairwise alignment
+        aligner = Align.PairwiseAligner()
+        aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
         result_rows = []
-        # TODO make this query and target specific
-        # queries = df.query("type == 'query' & divided_struct")
-        # targets = df.query("type == 'target' & divided_struct")
-        for q, t in combinations(name_to_seq.keys(), 2):
-            seq1 = name_to_seq[q]
-            seq2 = name_to_seq[t]
-            qaln, taln = self._align_seqs(seq1, seq2, aligner)
+        for q, t in product(query_preprocc_names, target_preprocc_names):
+            qseq = name_to_seq[q]
+            tseq = name_to_seq[t]
+            qaln, taln = self._align_seqs(qseq, tseq, aligner)
             aln_len = len(qaln)
 
             identity = 0
@@ -131,10 +130,9 @@ class SequenceAligner:
                 "taln": "".join(taln),
                 "u": "-",
                 "t": "-",
+                "qseq": qseq,
+                "tseq": tseq,
             }
 
             result_rows.append(result)
-            # Here you would typically store or process the alignment results
-            # For example, you could create a new DataFrame with the results
-
-        return pd.DataFrame(result_rows, columns=cols)
+        return pd.DataFrame(result_rows)
