@@ -36,10 +36,10 @@ class PocketMapper:
         bundled structural databases if applicable.
         """
         self._log_extra = {"stage": "init"}
-        self.human_domains_db_path = files(human_domains).joinpath("human_260310")
-        self.log_fmt = "%(levelname)s: %(stage)s - %(msg)s"
+        self._human_domains_db_path = files(human_domains).joinpath("human_260310")
+        self._log_fmt = "%(levelname)s: %(stage)s - %(msg)s"
         logging.getLogger(__name__)
-        logging.basicConfig(level=logging.CRITICAL, format=self.log_fmt)
+        logging.basicConfig(level=logging.CRITICAL, format=self._log_fmt)
 
     def _configure_logging(self, settings):
         """
@@ -69,7 +69,7 @@ class PocketMapper:
         log_config = {
             "version": 1,
             "formatters": {
-                "standard": {"format": self.log_fmt},
+                "standard": {"format": self._log_fmt},
             },
             "handlers": {
                 "console": {
@@ -500,7 +500,7 @@ class PocketMapper:
         """
         stage = {"stage": "Foldseek Alignment"}
         if self._settings["target"] == "human_domains":
-            self._settings["target_dir"] = self.human_domains_db_path
+            self._settings["target_dir"] = self._human_domains_db_path
         cmd = [
             "foldseek",
             "easy-search",
