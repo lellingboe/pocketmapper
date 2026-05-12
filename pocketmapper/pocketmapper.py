@@ -534,9 +534,12 @@ class PocketMapper:
             None
         """
         # TODO fix local alignment with work with query/target data
+        stage = {"stage": "Local Alignment"}
+        logging.info("Running local sequence alignments...", extra=stage)
         aligner = SequenceAligner()
-        alignment = aligner.align_df(self._pdb_df, self._settings["foldseek_preprocessed_structure_dir"])
-        print(alignment)
+        alignment = aligner.align_df(
+            self._query_df, self._target_df, self._settings["foldseek_preprocessed_structure_dir"]
+        )
         alignment.to_csv(self._settings["alignment_path"], index=False, sep="\t")
 
     def _get_pockets(self):
