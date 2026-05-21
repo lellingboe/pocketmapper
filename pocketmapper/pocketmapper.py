@@ -21,6 +21,7 @@ from pocketmapper.pisa_parser import PisaParser
 from pocketmapper.sequence_aligner import SequenceAligner
 from pocketmapper.pocket_calculator import PocketCalculator
 from pocketmapper.qt_processor import QTProcessor
+from pocketmapper.structure_aligner import StructureAligner
 from pocketmapper.structure_fetcher import StructureFetcher
 from pocketmapper.structure_preprocessor import StructurePreprocessor
 from pocketmapper.lib_struct import parse_pocket_from_struct
@@ -104,6 +105,7 @@ class PocketMapper:
         help=None,
         foldseek=None,
         align_struct=None,
+        align_count=None,
     ):
         """
         Orchestrate and run the full PocketMapper search workflow.
@@ -118,6 +120,7 @@ class PocketMapper:
             help (bool, optional): Output the help message and exit.
             foldseek (bool, optional): Use foldseek for structure alignment instead of local sequence alignment.
             align_struct (bool, optional): Align target structures after pocket comparison.
+            align_count (int, optional): Number of top alignments to consider for pocket comparison.
         """
         self._log_extra = {
             "stage": "Starting Search"
@@ -133,6 +136,7 @@ class PocketMapper:
         self._help = help
         self._foldseek = foldseek
         self._align_struct = align_struct
+        self._align_count = align_count
 
         self._check_help_search()  # Checks if help flag is set and if so prints the help message and exits
         self._configure_workflow()  # configures the settings which have already been read
@@ -156,6 +160,7 @@ class PocketMapper:
                 json.dump(pockets, f, indent=4)
 
         self._compare_pockets_based_on_alignment(pockets)
+        # self._align_structures()
         self._delete_tmp()
 
         logging.info("PocketMapper search completed successfully.", extra={"stage": "End"})
@@ -262,6 +267,7 @@ class PocketMapper:
             "target_pocket_method": None,
             "foldseek": False,
             "align_struct": False,
+            "align_count": 10,
             "verbosity": 3,  # default to info level logging
         }
 
@@ -288,8 +294,9 @@ class PocketMapper:
             "cache_dir": self._cache_dir,
             "results_dir": self._results_dir,
             "foldseek": self._foldseek,
-            "align_struct": self._align_struct,
             "verbosity": self._verbosity,
+            "align_struct": self._align_struct,
+            "align_count": self._align_count,
         }
         for key, value in cli_args_mapping.items():
             if value is not None:
@@ -363,13 +370,13 @@ class PocketMapper:
         """
         self._log_extra.update({"stage": "Determine Query/Target Types"})
 
-        qtprocessor = QTProcessor(
-            query=self._settings["query"],
-            target=self._settings["target"],
-            query_pocket_method=self._settings["query_pocket_method"],
-            target_pocket_method=self._settings["target_pocket_method"],
+        qtprocessor = QTProcessor()
+        self._query_df = qtprocessor.process_qt_cmdline_input(
+            qt_input=self._settings["query"], pocket_method=self._settings["query_pocket_method"], name="Query"
         )
-        self._query_df, self._target_df = qtprocessor.process_qt()
+        self._target_df = qtprocessor.process_qt_cmdline_input(
+            qt_input=self._settings["target"], pocket_method=self._settings["target_pocket_method"], name="Target"
+        )
         logging.debug(f"Query data after processing: \n{self._query_df.head()}", extra=self._log_extra)
         logging.debug(f"Target data after processing: \n{self._target_df.head()}", extra=self._log_extra)
 
@@ -757,6 +764,49 @@ class PocketMapper:
         output_path = self._settings["pocket_comparison_path"]
         pockets_df.to_csv(output_path, index=False, sep="\t")
         logging.info(f"Pocket comparison results saved to {output_path}", extra=stage)
+
+    def _align_structures(self):
+        """
+        Perform structural superposition of target structures against the query reference frame.
+
+        If the `align_struct` flag is set, this method will take the top N alignments (as defined by `align_count`)
+        from the alignment results and perform a structural alignment using the `StructureAligner` class.
+        The aligned structures will be saved to the target directory for downstream analysis.
+
+        Returns:
+            None
+        """
+        stage = {"stage": "Structural Alignment"}
+        if not self._settings["align_struct"]:
+            logging.info("Structural alignment skipped based on settings", extra=stage)
+        else:
+            logging.info("Performing structural alignment of target structures...", extra=stage)
+
+        # Pre-loading
+        aligner = StructureAligner()
+        # alignment_df = pd.read_csv(self._settings["alignment_path"], sep="\t", engine="c")
+        pocket_comparison_df = pd.read_csv(self._settings["pocket_comparison_path"], sep="\t", engine="c")
+        target_pocketid_to_preproccname = dict(zip(self._target_df["pocket_id"], self._target_df["preprocess_name"]))
+
+        # For each query structure, align the top N target structures
+        for _, row in self._query_df.iterrows():
+            df = pocket_comparison_df.query(f"pocket_1 == '{row['pocket_id']}'").sort_values(
+                by=["min_pct_overlap", "min_overlap_similarity"], ascending=False
+            )
+            aln_structs = [row["preprocess_name"]]
+            top_targets = df.head(self._settings["align_count"])["pocket_2"].tolist()
+            for target_pocket_id in top_targets:
+                if target_pocket_id in target_pocketid_to_preproccname:
+                    aln_structs.append(target_pocketid_to_preproccname[target_pocket_id])
+                else:
+                    logging.warning(f"Target pocket ID {target_pocket_id} not found in target dataframe", extra=stage)
+            if len(aln_structs) > 1:
+                aligner.foldseek_transform(
+                    aln_structs,
+                    self._settings["alignment_path"],
+                    self._settings["foldseek_preprocessed_structure_dir"],
+                    self._settings["structure_dir"],
+                )
 
     def _delete_tmp(self):
         """
