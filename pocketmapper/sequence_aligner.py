@@ -81,7 +81,9 @@ class SequenceAligner:
             st = gemmi.read_structure(path, format=gemmi.CoorFormat.Mmcif)
             st.setup_entities()
             aln_chain = name[-1]  # assuming preprocess_name is in the format "P12345_A" or "1ABC_A"
-            seq = "".join([self.single_aa_code.get(x.name, "X") for x in st[0][aln_chain].get_polymer()])
+            seq = "".join(
+                [self.single_aa_code.get(res.name, "X") for res in st[0][aln_chain].get_polymer() if "CA" in res]
+            )
             name_to_seq[name] = seq
 
         # Performing pairwise alignment
