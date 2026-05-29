@@ -48,6 +48,7 @@ class QTProcessor:
         """
         self._log_extra.update({"stage": f"Processing {name}"})
         self.logger.debug("Starting process_qt_cmdline_input", extra=self._log_extra)
+        self.processing_target = name == "Target"
 
         # Check that query and target are specified
         if isinstance(qt_input, type(None)):
@@ -97,8 +98,10 @@ class QTProcessor:
         categories = ["struct_info", "chain_info", "residue_info"]
         for x, y in zip(categories, qt.split(":")):
             data[x] = y
+
+        # If chain info is not provided, default to chain A for targets
         if data["chain_info"] is None:
-            self.logger.warning(f"Chain info not specified in {qt}", extra=self._log_extra)
+            self.logger.warning(f"No specified chain for {qt}, skipping", extra=self._log_extra)
             return None
 
         input_fname = os.path.basename(data["struct_info"]).split(".")[0]
