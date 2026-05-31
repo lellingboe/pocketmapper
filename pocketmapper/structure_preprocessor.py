@@ -74,7 +74,6 @@ class StructurePreprocessor:
                         extra=stage,
                     )
                     status_dict[record["pocket_id"]] = False
-                    return status_dict
 
                 # Detaching all non interaction chains
                 for chain_id in model_chains:
