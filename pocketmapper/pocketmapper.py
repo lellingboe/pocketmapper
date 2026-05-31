@@ -520,7 +520,7 @@ class PocketMapper:
             "--file-include",
             r".*_[0-9A-Za-z]\.cif\.gz",
             "--max-seqs",
-            "2500",
+            "5000",
             "-v",  # verbosity
             str(
                 min(3, self._settings["verbosity"])
