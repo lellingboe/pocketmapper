@@ -4,6 +4,7 @@ Code for processing query/target pairs and orchestrating the workflow
 
 # TODO Folder input - iterate through files in folder with correct format
 
+import hashlib
 import logging
 import os
 import re
@@ -105,7 +106,9 @@ class QTProcessor:
             return None
 
         input_fname = os.path.basename(data["struct_info"]).split(".")[0]
-        data["preprocess_name"] = input_fname + "_" + data["chain_info"][0]  # e.g., "P12345_A" or "1ABC_A"
+        name = input_fname + "_" + data["chain_info"][0]  # e.g., "P12345_A" or "1ABC_A"
+        name_md5 = hashlib.md5(name.encode()).hexdigest()
+        data["preprocess_name"] = name + "_" + name_md5
 
         # determining structure info
         data["struct_type"] = self.determine_struct_type(data["struct_info"])

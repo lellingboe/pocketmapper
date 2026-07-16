@@ -37,7 +37,7 @@ class PocketMapper:
         bundled structural databases if applicable.
         """
         self._log_extra = {"stage": "init"}
-        self._human_domains_db_path = files(human_domains).joinpath("human_v3_20260529")
+        self._human_domains_db_path = files(human_domains).joinpath("human_v3_20260531")
         self._log_fmt = "%(levelname)s: %(stage)s - %(msg)s"
         logging.getLogger(__name__)
         logging.basicConfig(level=logging.CRITICAL, format=self._log_fmt)
@@ -518,7 +518,7 @@ class PocketMapper:
             "-e",
             "0.001",
             "--file-include",
-            r".*_[0-9A-Za-z]\.cif\.gz",
+            r".*\.cif\.gz",
             "--max-seqs",
             "5000",
             "-v",  # verbosity
