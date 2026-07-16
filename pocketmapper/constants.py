@@ -22,9 +22,9 @@ SINGLE_AA_CODE = {
     "GLU": "E",
     "TYR": "Y",
     "MET": "M",
-    "SEP": "S",  # phospho
-    "TPO": "T",  # phospho
-    "PTR": "Y",  # phospho
+    "SEP": "S",  # phosphoserine
+    "TPO": "T",  # phosphothreonine
+    "PTR": "Y",  # phosphotyrosine
     "MSE": "M",  # selenomethionine
 }
 TRIPLE_AA_CODE = defaultdict(list)
