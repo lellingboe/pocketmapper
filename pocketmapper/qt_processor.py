@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import pandas as pd
+import json
 
 
 class QTProcessor:
@@ -16,7 +17,7 @@ class QTProcessor:
     Class for dealing with the procesing of query and target data, including determining types, processing input files, and preparing data for downstream analysis.
     """
 
-    def __init__(self):
+    def __init__(self, settings):
         # Initialize logger
         self.logger = logging.getLogger(__name__)
         self._log_extra = {"stage": "QTProcessor Initialization"}
@@ -24,6 +25,8 @@ class QTProcessor:
             "Started",
             extra=self._log_extra,
         )
+
+        self.settings = settings
 
         # TODO regexes for validating output when pocket_method is specified
         # Structure type regex patterns
@@ -38,38 +41,41 @@ class QTProcessor:
         self._bundled_foldseek_dbs = {"human_domains"}
         self._available_pocket_methods = {"pisa", "passthrough", "vdw"}
 
-        self.logger.debug(
-            "Completed",
-            extra=self._log_extra,
-        )
-
-    def process_qt_cmdline_input(self, qt_input, pocket_method, name):
+    def process_qt_cmdline_input(self):
         """
         qt_input: input from parsing query/target on command line
         """
-        self._log_extra.update({"stage": f"Processing {name}"})
-        self.logger.debug("Starting process_qt_cmdline_input", extra=self._log_extra)
-        self.processing_target = name == "Target"
+        dfs = []
+        for name in ["query", "target"]:
+            self._log_extra.update({"stage": f"Processing {name}"})
+            self.logger.debug("Processing {name}", extra=self._log_extra)
 
-        # Check that query and target are specified
-        if isinstance(qt_input, type(None)):
-            self.logger.critical(f"{name} input is required. Exiting.", extra=self._log_extra)
-            exit(1)
+            qt_input = self.settings[name]
+            pocket_method = self.settings[f"{name}_pocket_method"]
+            self.processing_target = name == "Target"
 
-        data = []
-        if os.path.isfile(qt_input):  # if it's a file, process each line as a separate query/target
-            try:
-                with open(qt_input) as f:
-                    for line in f.readlines():
-                        data.append(self.parse_individual_qt(line.strip(), pocket_method=pocket_method))
-            except Exception as e:
-                self.logger.critical(f"Problem reading the file {qt_input}: {e}", extra=self._log_extra)
+            # Check that query and target are specified
+            if isinstance(qt_input, type(None)):
+                self.logger.critical(f"{name} input is required. Exiting.", extra=self._log_extra)
                 exit(1)
-        else:
-            data.append(self.parse_individual_qt(qt_input, pocket_method=pocket_method))
 
-        data = [x for x in data if x is not None]  # removing any None entries that may have been added due to errors
-        return pd.DataFrame.from_dict(data)
+            data = []
+            if os.path.isfile(qt_input):  # if it's a file, process each line as a separate query/target
+                try:
+                    with open(qt_input) as f:
+                        for line in f.readlines():
+                            data.append(self.parse_individual_qt(line.strip(), pocket_method=pocket_method))
+                except Exception as e:
+                    self.logger.critical(f"Problem reading the file {qt_input}: {e}", extra=self._log_extra)
+                    exit(1)
+            else:
+                data.append(self.parse_individual_qt(qt_input, pocket_method=pocket_method))
+
+            data = [
+                x for x in data if x is not None
+            ]  # removing any None entries that may have been added due to errors
+            dfs.append(pd.DataFrame.from_dict(data))
+        return dfs[0], dfs[1]  # return query and target dataframes
 
     def parse_individual_qt(self, qt, pocket_method):
         """
@@ -84,6 +90,7 @@ class QTProcessor:
             "residue_info": None,
             "struct_type": None,
             "preprocess_name": None,
+            "preprocess_path": None,
             "pocket_method": None,
             "success": True,
             "failure_reason": "",
@@ -105,10 +112,14 @@ class QTProcessor:
             self.logger.warning(f"No specified chain for {qt}, skipping", extra=self._log_extra)
             return None
 
+        # Generate a unique name for the structure based on its components and a hash of the name
         input_fname = os.path.basename(data["struct_info"]).split(".")[0]
         name = input_fname + "_" + data["chain_info"][0]  # e.g., "P12345_A" or "1ABC_A"
         name_md5 = hashlib.md5(name.encode()).hexdigest()
         data["preprocess_name"] = name + "_" + name_md5
+        data["preprocess_path"] = os.path.join(
+            self.settings["foldseek_preprocessed_structure_dir"], data["preprocess_name"] + ".cif.gz"
+        )
 
         # determining structure info
         data["struct_type"] = self.determine_struct_type(data["struct_info"])
@@ -124,6 +135,7 @@ class QTProcessor:
             self.logger.warning(f"Could not determine pocket method for {qt}", extra=self._log_extra)
             return None
 
+        self.logger.debug(f"Processed {qt} into structured data: {json.dumps(data, indent=4)}", extra=self._log_extra)
         return data
 
     def determine_struct_type(self, struct_str):
@@ -147,6 +159,7 @@ class QTProcessor:
             logging.critical(f"Directory input is not currently supported: {struct_str}", extra=self._log_extra)
             exit(1)
         else:
+            logging.warning(f"Could not determine structure type for {struct_str}", extra=self._log_extra)
             return None
 
     def determine_pocket_method(self, qt_str, struct_type):
