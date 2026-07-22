@@ -7,16 +7,31 @@ from tqdm import tqdm
 
 
 class StructurePreprocessor:
-    def __init__(self, source_dir, out_dir):
+    def __init__(
+        self,
+    ):
         self.logger = logging.getLogger(__name__)
         self._log_extra = {"stage": "Structure Preprocessor"}
         self.logger.debug("Initialized", extra=self._log_extra)
 
-        self.source_dir = source_dir
+        self.out_dir = None
+        self.cache = None
+
+    def set_output_directory(self, out_dir):
+        """
+        Set or update the target output directory, creating it if it does not exist.
+
+        Args:
+            out_dir (str): The new output directory path.
+        """
         self.out_dir = out_dir
-        self.cache = os.listdir(out_dir)
+        if not os.path.exists(out_dir):
+            os.makedirs(out_dir)
 
     def update_cache(self):
+        """
+        Update the internal cache of files present in the output directory.
+        """
         self.cache = os.listdir(self.out_dir)
 
     def preprocess_records(self, records, search_dir):
@@ -42,23 +57,15 @@ class StructurePreprocessor:
             chain_info = record["chain_info"]  # e.g., A_B or A
             chain = chain_info[0]  # e.g., "A"
             # Ensuring divided structure is in the cache directory
-            out_path = os.path.join(self.out_dir, f"{record['preprocess_name']}.cif")
-            out_path_gz = out_path + ".gz"
+            out_path = record[
+                "preprocess_path"
+            ]  # e.g., /path/to/foldseek_preprocessed_structure_dir/P12345_A_<md5>.cif
+            out_path_gz = record[
+                "preprocess_path_gz"
+            ]  # e.g., /path/to/foldseek_preprocessed_structure_dir/P12345_A_<md5>.cif.gz
 
             if not (out_path_gz in self.cache):
-                match record["struct_type"]:
-                    case "alphafold":
-                        ref_path = os.path.join(self.source_dir, f"{struct_info}.cif.gz")
-                    case "pdb":
-                        ref_path = os.path.join(self.source_dir, f"{struct_info}.cif.gz")
-                    case "local_file":
-                        ref_path = struct_info
-                    case _:
-                        self.logger.warning(
-                            f"Unknown structure type {record['struct_type']} for struct_info {struct_info}",
-                            extra=stage,
-                        )
-
+                ref_path = record["struct_path"]  # e.g., /path/to/structure_dir/P12345.cif.gz
                 st = gemmi.read_structure(ref_path, format=gemmi.CoorFormat.Mmcif)
 
                 # Taking first model and deleting the rest
