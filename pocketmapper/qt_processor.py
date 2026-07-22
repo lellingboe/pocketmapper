@@ -127,8 +127,9 @@ class QTProcessor:
         name_md5 = hashlib.md5(name.encode()).hexdigest()
         data["preprocess_name"] = name + "_" + name_md5
         data["preprocess_path"] = os.path.join(
-            self.settings["foldseek_preprocessed_structure_dir"], data["preprocess_name"] + ".cif.gz"
+            self.settings["foldseek_preprocessed_structure_dir"], data["preprocess_name"] + ".cif"
         )
+        data["preprocess_path_gz"] = data["preprocess_path"] + ".gz"
 
         if pocket_method is not None:
             data["pocket_method"] = pocket_method

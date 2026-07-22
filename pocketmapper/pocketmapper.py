@@ -452,6 +452,7 @@ class PocketMapper:
     def _preprocess_structures(self):
         """
         Split complex PDB structures into single chain mmCIF files for Foldseek processing.
+        Copies structure to the query/target directories, ensuring that the Foldseek preprocessed structure directory is populated.
 
         Instantiates a `StructurePreprocessor` mapping items sourced from the
         local datastores towards isolated files targeting specific sequences.
@@ -461,10 +462,7 @@ class PocketMapper:
         """
         stage = {"stage": "Preprocessing Structures"}
 
-        structure_preprocessor = StructurePreprocessor(
-            source_dir=self._settings["structure_dir"],
-            out_dir=self._settings["foldseek_preprocessed_structure_dir"],
-        )
+        structure_preprocessor = StructurePreprocessor()
         qt_iter = zip(
             [self._query_df, self._target_df],
             [self._settings["query_dir"], self._settings["target_dir"]],
@@ -472,9 +470,12 @@ class PocketMapper:
 
         for df, search_dir in qt_iter:
             records = df.drop_duplicates(subset=["preprocess_name", "chain_info"]).to_dict(orient="records")
-            logging.debug(f"Records to preprocess: {records}", extra=stage)
+            logging.debug(f"Records to preprocess: {json.dumps(records, indent=4)}", extra=stage)
+
+            structure_preprocessor.set_output_directory(self._settings["foldseek_preprocessed_structure_dir"])
+            structure_preprocessor.update_cache()
             results = structure_preprocessor.preprocess_records(records=records, search_dir=search_dir)
-            logging.debug(f"Preprocessing results: {results}", extra=stage)
+            logging.debug(f"Preprocessing results: {json.dumps(results, indent=4)}", extra=stage)
 
             # Updating success and failure cols based on preprocessing results
             df.set_index("pocket_id", inplace=True)
@@ -541,8 +542,15 @@ class PocketMapper:
         stage = {"stage": "Local Alignment"}
         logging.info("Running local sequence alignments...", extra=stage)
         aligner = SequenceAligner()
-        alignment = aligner.align_df(
-            self._query_df, self._target_df, self._settings["foldseek_preprocessed_structure_dir"]
+        query_records = (
+            self._query_df.query("success").drop_duplicates(subset="preprocess_name").to_dict(orient="records")
+        )
+        target_records = (
+            self._target_df.query("success").drop_duplicates(subset="preprocess_name").to_dict(orient="records")
+        )
+        alignment = aligner.align_records(
+            query_records,
+            target_records,
         )
         alignment.to_csv(self._settings["alignment_path"], index=False, sep="\t")
 
