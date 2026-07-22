@@ -89,6 +89,7 @@ class QTProcessor:
             "chain_info": None,
             "residue_info": None,
             "struct_type": None,
+            "struct_path": None,
             "preprocess_name": None,
             "preprocess_path": None,
             "pocket_method": None,
@@ -100,6 +101,7 @@ class QTProcessor:
         if qt in self._bundled_foldseek_dbs:
             data["struct_info"] = qt
             data["struct_type"] = "foldseek_db"
+            data["struct_path"] = "foldseek_db"
             return data
 
         # Unpack the input string into its components
@@ -112,6 +114,13 @@ class QTProcessor:
             self.logger.warning(f"No specified chain for {qt}, skipping", extra=self._log_extra)
             return None
 
+        # determining structure info
+        data["struct_type"] = self.determine_struct_type(data["struct_info"])
+        if data["struct_type"] is None:
+            self.logger.warning(f"Could not determine structure type for {qt}", extra=self._log_extra)
+            return None
+        data["struct_path"] = self.determine_ref_struct_path(data["struct_info"], data["struct_type"])
+
         # Generate a unique name for the structure based on its components and a hash of the name
         input_fname = os.path.basename(data["struct_info"]).split(".")[0]
         name = input_fname + "_" + data["chain_info"][0]  # e.g., "P12345_A" or "1ABC_A"
@@ -120,12 +129,6 @@ class QTProcessor:
         data["preprocess_path"] = os.path.join(
             self.settings["foldseek_preprocessed_structure_dir"], data["preprocess_name"] + ".cif.gz"
         )
-
-        # determining structure info
-        data["struct_type"] = self.determine_struct_type(data["struct_info"])
-        if data["struct_type"] is None:
-            self.logger.warning(f"Could not determine structure type for {qt}", extra=self._log_extra)
-            return None
 
         if pocket_method is not None:
             data["pocket_method"] = pocket_method
@@ -161,6 +164,30 @@ class QTProcessor:
         else:
             logging.warning(f"Could not determine structure type for {struct_str}", extra=self._log_extra)
             return None
+
+    def determine_ref_struct_path(self, struct_info, struct_type):
+        """
+        Determine the path to the structure file based on its type and identifier.
+
+        Args:
+            struct_info (str): Identifier for the structure (e.g., "P12345", "1ABC").
+            struct_type (str): Type of the structure ("alphafold", "pdb", "local_file").
+
+        Returns:
+            str: Path to the structure file.
+        """
+        match struct_type:
+            case "alphafold":
+                return os.path.join(self.settings["structure_dir"], f"{struct_info}.cif.gz")
+            case "pdb":
+                return os.path.join(self.settings["structure_dir"], f"{struct_info}.cif.gz")
+            case "local_file":
+                return struct_info
+            case _:
+                logging.critical(
+                    f"Unknown structure type {struct_type} for struct_info {struct_info}", extra=self._log_extra
+                )
+                exit(1)
 
     def determine_pocket_method(self, qt_str, struct_type):
         """
