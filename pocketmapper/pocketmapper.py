@@ -160,7 +160,7 @@ class PocketMapper:
                 json.dump(pockets, f, indent=4)
 
         self._compare_pockets_based_on_alignment(pockets)
-        # self._align_structures()
+        self._align_structures()
         self._delete_tmp()
 
         logging.info("PocketMapper search completed successfully.", extra={"stage": "End"})
@@ -370,15 +370,8 @@ class PocketMapper:
         """
         self._log_extra.update({"stage": "Determine Query/Target Types"})
 
-        qtprocessor = QTProcessor()
-        self._query_df = qtprocessor.process_qt_cmdline_input(
-            qt_input=self._settings["query"], pocket_method=self._settings["query_pocket_method"], name="Query"
-        )
-        self._target_df = qtprocessor.process_qt_cmdline_input(
-            qt_input=self._settings["target"], pocket_method=self._settings["target_pocket_method"], name="Target"
-        )
-        logging.debug(f"Query data after processing: \n{self._query_df.head()}", extra=self._log_extra)
-        logging.debug(f"Target data after processing: \n{self._target_df.head()}", extra=self._log_extra)
+        qtprocessor = QTProcessor(settings=self._settings)
+        self._query_df, self._target_df = qtprocessor.process_qt_cmdline_input()
 
     def _fetch_missing_structures(self):
         """
@@ -415,9 +408,9 @@ class PocketMapper:
                     f"Missing structures for {name}(s): {', '.join(df.loc[~df['success'], 'pocket_id'].unique().tolist())}",
                     extra=self._log_extra,
                 )
-                logging.debug(
-                    f"{name.capitalize()} data after structure fetching: \n{df.head()}", extra=self._log_extra
-                )
+                # logging.debug(
+                #    f"{name.capitalize()} data after structure fetching: \n{df.head()}", extra=self._log_extra
+                # )
 
         # Verifying enough structures were found to continue
         exit_flag = False
@@ -454,7 +447,7 @@ class PocketMapper:
 
     def _preprocess_structures(self):
         """
-        Split complex PDB structures into defined chains or domains.
+        Split complex PDB structures into single chain mmCIF files for Foldseek processing.
 
         Instantiates a `StructurePreprocessor` mapping items sourced from the
         local datastores towards isolated files targeting specific sequences.
@@ -786,23 +779,27 @@ class PocketMapper:
         aligner = StructureAligner()
         # alignment_df = pd.read_csv(self._settings["alignment_path"], sep="\t", engine="c")
         pocket_comparison_df = pd.read_csv(self._settings["pocket_comparison_path"], sep="\t", engine="c")
-        target_pocketid_to_preproccname = dict(zip(self._target_df["pocket_id"], self._target_df["preprocess_name"]))
 
         # For each query structure, align the top N target structures
         for _, row in self._query_df.iterrows():
-            df = pocket_comparison_df.query(f"pocket_1 == '{row['pocket_id']}'").sort_values(
-                by=["min_pct_overlap", "min_overlap_similarity"], ascending=False
+            query_id = row["pocket_id"]
+            logging.debug(f"Processing query {query_id} for structural alignment", extra=stage)
+            top_target_ids = (
+                pocket_comparison_df.query(f"pocket_1 == '{row['pocket_id']}'")
+                .sort_values(by=["min_pct_overlap", "min_overlap_similarity"], ascending=False)
+                .head(self._settings["align_count"])
+                .loc[:, "pocket_2"]
+                .to_list()
             )
-            aln_structs = [row["preprocess_name"]]
-            top_targets = df.head(self._settings["align_count"])["pocket_2"].tolist()
-            for target_pocket_id in top_targets:
-                if target_pocket_id in target_pocketid_to_preproccname:
-                    aln_structs.append(target_pocketid_to_preproccname[target_pocket_id])
-                else:
-                    logging.warning(f"Target pocket ID {target_pocket_id} not found in target dataframe", extra=stage)
-            if len(aln_structs) > 1:
+            logging.debug(f"Top target IDs for query {query_id}: {top_target_ids}", extra=stage)
+            # query_data = {
+            #    "name": row["preprocess_name"],
+            # }
+            aln_ids = [query_id] + top_target_ids
+            logging.debug(f"Aligning structures for query {row['pocket_id']}: {aln_ids}", extra=stage)
+            if len(aln_ids) > 1:
                 aligner.foldseek_transform(
-                    aln_structs,
+                    aln_ids,
                     self._settings["alignment_path"],
                     self._settings["foldseek_preprocessed_structure_dir"],
                     self._settings["structure_dir"],
