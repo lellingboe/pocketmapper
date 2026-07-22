@@ -4,7 +4,6 @@ Code related to local sequence alignment
 
 from Bio import Align
 from Bio.Align import substitution_matrices
-import os
 import gemmi
 from itertools import product
 import pandas as pd
@@ -64,23 +63,22 @@ class SequenceAligner:
 
         return [peptide1_aligned, peptide2_aligned]
 
-    def align_df(self, query_df, target_df, struct_dir):
+    def align_records(self, query_records, target_records):
         """
         TODO docstring
         specs for df?
         """
 
         # building a mapping of preprocess_name to sequence for all queries and targets (to avoid redundant structure parsing and sequence extraction during alignment) - this assumes that preprocess_name is unique across queries and targets, which should be the case if they are in the format "P12345_A" or "1ABC_A"
-        query_df = query_df.query("success")
-        target_df = target_df.query("success")
         name_to_seq = {}
-        query_preprocc_names = set(query_df["preprocess_name"].unique())
-        target_preprocc_names = set(target_df["preprocess_name"].unique())
-        for name in query_preprocc_names.union(target_preprocc_names):
-            path = os.path.join(struct_dir, f"{name}.cif.gz")
+        for record in query_records + target_records:
+            name = record["preprocess_name"]
+            if name in name_to_seq:
+                continue  # skip if already processed
+            path = record["preprocess_path_gz"]
             st = gemmi.read_structure(path, format=gemmi.CoorFormat.Mmcif)
             st.setup_entities()
-            aln_chain = name[-1]  # assuming preprocess_name is in the format "P12345_A" or "1ABC_A"
+            aln_chain = record["chain_info"][0]  # e.g., "A" from "A_B" or "A"
             seq = "".join(
                 [self.single_aa_code.get(res.name, "X") for res in st[0][aln_chain].get_polymer() if "CA" in res]
             )
@@ -90,9 +88,11 @@ class SequenceAligner:
         aligner = Align.PairwiseAligner()
         aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
         result_rows = []
-        for q, t in product(query_preprocc_names, target_preprocc_names):
-            qseq = name_to_seq[q]
-            tseq = name_to_seq[t]
+        for q_record, t_record in product(query_records, target_records):
+            query = q_record["preprocess_name"]
+            target = t_record["preprocess_name"]
+            qseq = name_to_seq[query]
+            tseq = name_to_seq[target]
             qaln, taln = self._align_seqs(qseq, tseq, aligner)
             aln_len = len(qaln)
 
@@ -116,8 +116,8 @@ class SequenceAligner:
             tend = len([x for x in taln if x != "-"])
 
             result = {
-                "query": q,
-                "target": t,
+                "query": query,
+                "target": target,
                 "fident": identity / aln_len,
                 "alnlen": aln_len,
                 "mismatch": mismatch / aln_len,
