@@ -387,14 +387,21 @@ class PocketMapper:
         # Downloading structures
         self._log_extra.update({"stage": "Fetching Missing Structures"})
         logging.info("Starting", extra=self._log_extra)
-        structure_fetcher = StructureFetcher(out_dir=self._settings["structure_dir"])
+        structure_fetcher = StructureFetcher()
 
         for name, df in [("query", self._query_df), ("target", self._target_df)]:
             logging.debug(f"{name.capitalize()} data before fetching structures: \n{df.head()}", extra=self._log_extra)
-            records = df.drop_duplicates(subset=["struct_info", "struct_type"]).to_dict(orient="records")
-            results = structure_fetcher.get_structures(records)
+
+            # Get list of unique structures to fetch based on struct_info and struct_type
+            unique_records = df.drop_duplicates(subset="struct_info").to_dict(orient="records")
+
+            # Update structure fetcher and fetch structures
+            structure_fetcher.set_output_directory(self._settings["structure_dir"])
+            structure_fetcher.update_cache()
+            results = structure_fetcher.fetch_structures(unique_records)
             logging.debug(f"Structure fetcher results: {results}", extra=self._log_extra)
 
+            # Update the dataframe with success/failure information
             df["success"] = df["struct_info"].map(results).fillna(False)
             df.loc[~df["success"], "failure_reason"] = "structure_not_found"
 
@@ -408,11 +415,8 @@ class PocketMapper:
                     f"Missing structures for {name}(s): {', '.join(df.loc[~df['success'], 'pocket_id'].unique().tolist())}",
                     extra=self._log_extra,
                 )
-                # logging.debug(
-                #    f"{name.capitalize()} data after structure fetching: \n{df.head()}", extra=self._log_extra
-                # )
 
-        # Verifying enough structures were found to continue
+        # Verifying sufficient structures were found to continue
         exit_flag = False
         if self._query_df["success"].sum() < 1:
             logging.critical("Insufficient query structures after fetching", extra=self._log_extra)

@@ -7,15 +7,15 @@ import gzip
 
 
 class StructureFetcher:
-    def __init__(self, out_dir):
+    def __init__(self):
         """
         Initialize the StructureFetcher with a target output directory.
 
         Args:
             out_dir (str): Directory where the downloaded structured files (e.g., mmCIF) will be saved and cached.
         """
-        self.out_dir = out_dir
-        self.cache = os.listdir(out_dir)
+        self.out_dir = None
+        self.cache = None
         self.logger = logging.getLogger(__name__)
         self._log_extra = {"stage": "StructureFetcher"}
         self.logger.debug(f"Initialized with cache: {self.cache}", extra=self._log_extra)
@@ -37,7 +37,7 @@ class StructureFetcher:
         """
         self.cache = os.listdir(self.out_dir)
 
-    def get_structures(self, records):
+    def fetch_structures(self, records):
         """
         Concurrently fetch multiple structures based on query records.
 
@@ -55,7 +55,7 @@ class StructureFetcher:
         collected_result = {query: result for query, result in results}
         return collected_result
 
-    def fetch_structure(self, query):
+    def fetch_structure(self, record):
         """
         Fetch a single structure based on its type and identifier.
 
@@ -68,21 +68,22 @@ class StructureFetcher:
                    indicating success (True) or failure (False).
         """
         stage = {"stage": "Fetching Structure"}
-        match query["struct_type"]:
+        match record["struct_type"]:
             case "alphafold":
-                return self.fetch_alphafold(query["struct_info"])
+                return self.fetch_alphafold(record["struct_info"])
             case "pdb":
-                return self.fetch_mmcif(query["struct_info"])
+                return self.fetch_mmcif(record["struct_info"])
             case "local_file":
-                return (query["struct_info"], True)
+                return (record["struct_info"], True)
             case "foldseek_db":
                 # We assume that the foldseek db is already downloaded and available at the specified path, so we just check if the file exists
-                return (query["struct_info"], True)
+                return (record["struct_info"], True)
             case _:
                 self.logger.warning(
-                    f"Unknown structure type {query['struct_type']} for struct_info {query['struct_info']}", extra=stage
+                    f"Unknown structure type {record['struct_type']} for struct_info {record['struct_info']}",
+                    extra=stage,
                 )
-                return (query["struct_info"], False)
+                return (record["struct_info"], False)
 
     def fetch_alphafold(self, uniprot_acc, version="v6"):
         """
@@ -93,17 +94,17 @@ class StructureFetcher:
             version (str, optional): The AlphaFold database version. Defaults to "v6".
 
         Returns:
-            tuple: A pair containing the UniProt accession number (str) and a boolean
+            tuple: A pair containing the Uniprot accession (str) and a boolean
                    indicating success (True) or failure (False).
         """
         stage = {"stage": "Downloading AlphaFold File"}
-        out_fname = f"{uniprot_acc}.cif.gz"
-        temp_fname = f"{uniprot_acc}.cif"
-        if not (out_fname in self.cache):
+        out_fpath = os.path.join(self.out_dir, f"{uniprot_acc}.cif.gz")
+        temp_fpath = os.path.join(self.out_dir, f"{uniprot_acc}.cif")
+        if not (out_fpath in self.cache):
             url = f"https://alphafold.ebi.ac.uk/files/AF-{uniprot_acc}-F1-model_{version}.cif"
             try:
                 urlcleanup()
-                urlretrieve(url, os.path.join(self.out_dir, temp_fname))
+                urlretrieve(url, temp_fpath)
             except OSError:
                 self.logger.warning(f"OSError when downloading {uniprot_acc}", extra=stage)
                 return (uniprot_acc, False)
@@ -112,10 +113,10 @@ class StructureFetcher:
                 return (uniprot_acc, False)
 
             # Compressing the downloaded cif file to gz format and removing the original cif file to save space
-            with open(os.path.join(self.out_dir, temp_fname), "rb") as f_in:
-                with gzip.open(os.path.join(self.out_dir, out_fname), "wb") as f_out:
+            with open(temp_fpath, "rb") as f_in:
+                with gzip.open(out_fpath, "wb") as f_out:
                     shutil.copyfileobj(f_in, f_out)
-            os.remove(os.path.join(self.out_dir, temp_fname))
+            os.remove(temp_fpath)
 
         return (uniprot_acc, True)
 
@@ -131,14 +132,14 @@ class StructureFetcher:
                    success (True) or failure (False).
         """
         stage = {"stage": "Downloading PDB File"}
-        out_fname = f"{pdb_code}.cif.gz"
+        out_fpath = os.path.join(self.out_dir, f"{pdb_code}.cif.gz")
         pdb_code_lowered = pdb_code.lower()
-        if not (out_fname in self.cache):
+        if not (out_fpath in self.cache):
             url = f"https://files.wwpdb.org/pub/pdb/data/structures/divided/mmCIF/{pdb_code_lowered[1:3]}/{pdb_code_lowered}.cif.gz"
             self.logger.debug(f"Attempting to download {pdb_code} from {url}", extra=stage)
             try:
                 urlcleanup()
-                urlretrieve(url, os.path.join(self.out_dir, out_fname))
+                urlretrieve(url, out_fpath)
             except OSError:
                 self.logger.warning(f"Unable to download {pdb_code}", extra=stage)
                 return (pdb_code, False)
