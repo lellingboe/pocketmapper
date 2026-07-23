@@ -138,12 +138,16 @@ class StructureAligner:
                     struct_u = np.eye(3)
                     struct_t = np.zeros(3)
 
-                chains = record["chain_info"].split("_")
-                domain_chain = chains[0]
-                if len(chains) > 1:
-                    motif_chain = chains[1]
-                else:
+                if record["chain_info"] is None:
+                    domain_chain = 0  # first chain
                     motif_chain = None
+                else:
+                    chains = record["chain_info"].split("_")
+                    domain_chain = chains[0]
+                    if len(chains) > 1:
+                        motif_chain = chains[1]
+                    else:
+                        motif_chain = None
 
                 # If everything has been successful add it things to be processed
                 structs.append(struct)
