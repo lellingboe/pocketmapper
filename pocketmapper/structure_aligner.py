@@ -1,9 +1,17 @@
 """
-Code related to creating an aligned structure
+Utilities for building aligned multi-structure models.
 
-StructureAligner:
-- align: method which takes paths to files and returns aligned gemmi structures
-- align_objects: align multiple gemmi structures given transformation matrices
+The alignment workflow in PocketMapper needs a lightweight way to take one query
+structure plus one or more matched target structures and write them back out as a
+single, human-readable PDB file. This module provides that glue around `gemmi`:
+
+- read mmCIF structures from disk
+- apply per-target rotation and translation matrices
+- rename chains so each aligned structure remains distinguishable in the output
+- emit a combined PDB with simple COMPND metadata
+
+The public entry point is :class:`StructureAligner`, which is currently used by
+the PocketMapper structural-alignment step after pocket comparison.
 """
 
 import logging
@@ -18,6 +26,19 @@ class StructureAligner:
         pass
 
     def _char_gen(self):
+        """
+        Yield short, PDB-friendly chain identifiers for aligned output.
+
+        The output structure may contain more chains than the original inputs.
+        To avoid collisions with the preserved domain chain name ``0``, this
+        generator emits:
+
+        - single-character identifiers starting at ``1`` and then ``A``/``B``...
+        - two-character identifiers when the single-character space is exhausted
+
+        Yields:
+            str: A unique chain label suitable for writing into the final PDB.
+        """
         nice_chars = string.digits + string.ascii_letters
         for x in nice_chars[1:]:  # 0 is reserved for domain names
             yield x
@@ -26,14 +47,23 @@ class StructureAligner:
 
     def _apply_transformation(self, structs, domain_chains, motif_chains, us, ts):
         """
-        Function which alignes a set of structure given rotation matrices and translation vectors
+        Apply rigid-body transforms to a set of structures and merge them.
 
-        #length n lists
-        -structs: list of gemmi structures
-        -domain_chains: list of chain ids for the domain chains in each structure
-        -motif_chains: list of chain ids for the motif chains in each structure
-        -us: list of rotation matrices (numpy arrays) to apply to each structure (except the first)
-        -ts: list of translation vectors (numpy arrays) to apply to each structure (except the first)
+        The first structure is treated as the reference frame. Each structure is
+        transformed in place using the supplied rotation matrix and translation
+        vector, then copied into a new combined ``gemmi.Structure``. The domain
+        chain from each input is renamed to ``0`` in the output so it can be
+        recognized consistently, while any motif chain is given a generated name.
+
+        Args:
+            structs (list[gemmi.Structure]): Structures to align and merge.
+            domain_chains (list[str]): Domain chain IDs to preserve from each input structure.
+            motif_chains (list[str | None]): Optional motif chain IDs to preserve from each input structure.
+            us (list[numpy.ndarray]): 3x3 rotation matrices, one per structure.
+            ts (list[numpy.ndarray]): Translation vectors of length 3, one per structure.
+
+        Returns:
+            gemmi.Structure: A merged aligned structure containing one model per input.
         """
         # Align everything to the first struct
         ref_st = gemmi.Structure()
@@ -58,7 +88,31 @@ class StructureAligner:
 
     def foldseek_transform(self, aln_records, alignment_df, out_path):
         """
-        Aligns a set of structures based on the transformation matrices in the alignment dataframe
+        Build an aligned multi-structure PDB from Foldseek-style alignment results.
+
+        The first record in ``aln_records`` is treated as the reference structure.
+        Every subsequent record must correspond to a row in ``alignment_df`` whose
+        index is the reference ``preprocess_name`` and whose columns include the
+        target ``preprocess_name``. The stored Foldseek transform strings are
+        parsed into a 3x3 rotation matrix ``u`` and a 3-vector translation ``t``.
+
+        Each structure is read from ``record["struct_path"]`` using mmCIF parsing,
+        transformed into the reference frame, and written to ``out_path`` as a
+        single PDB containing one model per input record.
+
+        Expected record fields:
+            - ``pocket_id``: stable identifier used in output metadata
+            - ``preprocess_name``: alignment key used to look up ``u`` and ``t``
+            - ``struct_path``: path to the mmCIF or mmCIF.GZ structure file
+            - ``chain_info``: domain chain or ``domain_motif`` pair
+
+        Args:
+            aln_records (list[dict]): Ordered alignment records, with the reference first.
+            alignment_df (pandas.DataFrame): Alignment table containing Foldseek transforms.
+            out_path (str): Destination path for the aligned PDB file.
+
+        Returns:
+            None
         """
 
         target_preprocess_name = aln_records[0]["preprocess_name"]
