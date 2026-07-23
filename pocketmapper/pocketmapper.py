@@ -104,7 +104,6 @@ class PocketMapper:
         verbosity=None,
         help=None,
         foldseek=None,
-        align_struct=None,
         align_count=None,
     ):
         """
@@ -119,7 +118,7 @@ class PocketMapper:
             verbosity (int, optional): Control logging level.
             help (bool, optional): Output the help message and exit.
             foldseek (bool, optional): Use foldseek for structure alignment instead of local sequence alignment.
-            align_struct (bool, optional): Align target structures after pocket comparison.
+            align_structures (bool, optional): Align target structures after pocket comparison.
             align_count (int, optional): Number of top alignments to consider for pocket comparison.
         """
         self._log_extra = {
@@ -135,7 +134,6 @@ class PocketMapper:
         self._verbosity = verbosity
         self._help = help
         self._foldseek = foldseek
-        self._align_struct = align_struct
         self._align_count = align_count
 
         self._check_help_search()  # Checks if help flag is set and if so prints the help message and exits
@@ -160,7 +158,7 @@ class PocketMapper:
                 json.dump(pockets, f, indent=4)
 
         self._compare_pockets_based_on_alignment(pockets)
-        self._align_structures()
+        self._align_structs()
         self._delete_tmp()
 
         logging.info("PocketMapper search completed successfully.", extra={"stage": "End"})
@@ -197,7 +195,7 @@ class PocketMapper:
             --results_dir DIR        Directory for writing results
             --verbosity LEVEL        Set verbosity level (4=DEBUG, 3=INFO, 2=WARNING, else ERROR)
             --foldseek BOOL          Whether to use foldseek for structure alignment instead of local sequence alignment
-            --align_struct BOOL      Whether to align target structures after pocket comparison
+            --align_structures BOOL  Whether to align target structures after pocket comparison
             --help                   Show this help message and exit
 
         Advanced Options (set via settings JSON):
@@ -266,7 +264,6 @@ class PocketMapper:
             "query_pocket_method": None,
             "target_pocket_method": None,
             "foldseek": False,
-            "align_struct": False,
             "align_count": 10,
             "verbosity": 3,  # default to info level logging
         }
@@ -295,7 +292,6 @@ class PocketMapper:
             "results_dir": self._results_dir,
             "foldseek": self._foldseek,
             "verbosity": self._verbosity,
-            "align_struct": self._align_struct,
             "align_count": self._align_count,
         }
         for key, value in cli_args_mapping.items():
@@ -502,13 +498,43 @@ class PocketMapper:
             None
         """
         stage = {"stage": "Foldseek Alignment"}
+        logging.info("Running Foldseek alignment...", extra=stage)
+
+        # Setting up paths for foldseek databases
+        query_db_path = os.path.join(self._settings["query_dir"], "query_db")
+        query_db_cmd = [
+            "foldseek",
+            "createdb",
+            self._settings["query_dir"],
+            query_db_path,
+        ]
+        logging.debug(
+            f"Running Foldseek createdb for query with command: {' '.join([str(x) for x in query_db_cmd])}", extra=stage
+        )
+        subprocess.run(query_db_cmd, check=True)
+
         if self._settings["target"] == "human_domains":
-            self._settings["target_dir"] = self._human_domains_db_path
-        cmd = [
+            target_db_path = self._human_domains_db_path
+            logging.debug(f"Targeting bundled human_domains Foldseek DB at {target_db_path}", extra=stage)
+        else:
+            target_db_path = os.path.join(self._settings["target_dir"], "target_db")
+            target_db_cmd = [
+                "foldseek",
+                "createdb",
+                self._settings["target_dir"],
+                target_db_path,
+            ]
+            logging.debug(
+                f"Running Foldseek createdb for target with command: {' '.join([str(x) for x in target_db_cmd])}",
+                extra=stage,
+            )
+            subprocess.run(target_db_cmd, check=True)
+
+        query_target_align_cmd = [
             "foldseek",
             "easy-search",
-            self._settings["query_dir"],
-            self._settings["target_dir"],
+            query_db_path,
+            target_db_path,
             self._settings["alignment_path"],
             self._settings["foldseek_tmp_dir"],
             "--format-output",
@@ -526,8 +552,10 @@ class PocketMapper:
                 min(3, self._settings["verbosity"])
             ),  # cap foldseek verbosity at 3 (info level) since it can be very verbose at higher levels and we already have our own logging verbosity control
         ]
-        logging.debug(f"Running Foldseek with command: {' '.join([str(x) for x in cmd])}", extra=stage)
-        subprocess.run(cmd, check=True)
+        logging.debug(
+            f"Running Foldseek with command: {' '.join([str(x) for x in query_target_align_cmd])}", extra=stage
+        )
+        subprocess.run(query_target_align_cmd, check=True)
         logging.debug("Foldseek alignment completed successfully", extra=stage)
 
     def _local_alignment(self):
@@ -773,11 +801,11 @@ class PocketMapper:
         pockets_df.to_csv(output_path, index=False, sep="\t")
         logging.info(f"Pocket comparison results saved to {output_path}", extra=stage)
 
-    def _align_structures(self):
+    def _align_structs(self):
         """
         Perform structural superposition of target structures against the query reference frame.
 
-        If the `align_struct` flag is set, this method will take the top N alignments (as defined by `align_count`)
+        If the `align_structures` flag is set, this method will take the top N alignments (as defined by `align_count`)
         from the alignment results and perform a structural alignment using the `StructureAligner` class.
         The aligned structures will be saved to the target directory for downstream analysis.
 
@@ -785,8 +813,9 @@ class PocketMapper:
             None
         """
         stage = {"stage": "Structural Alignment"}
-        if not self._settings["align_struct"]:
-            logging.info("Structural alignment skipped based on settings", extra=stage)
+        if self._settings["align_count"] <= 0:
+            logging.info("No Aligned Structures to Process", extra=stage)
+            return
         else:
             logging.info("Performing structural alignment of target structures...", extra=stage)
 
@@ -802,10 +831,11 @@ class PocketMapper:
         self._target_df = self._target_df.set_index("pocket_id")
 
         # For each query structure, align the top N target structures
+        qt_id_map = {}
+        unique_target_ids = set()
         for record in self._query_df.to_dict(orient="records"):
             query_id = record["pocket_id"]
             logging.debug(f"Processing query {query_id} for structural alignment", extra=stage)
-            logging.debug(f"Query record: {json.dumps(record, indent=4)}", extra=stage)
 
             # Select the top N target structures based on pocket comparison metrics
             top_target_ids = (
@@ -816,11 +846,20 @@ class PocketMapper:
                 .to_list()
             )
             logging.debug(f"Top target IDs for query {query_id}: {top_target_ids}", extra=stage)
+            qt_id_map[query_id] = top_target_ids
+            unique_target_ids.update(top_target_ids)
 
+        logging.debug(f"Unique target IDs to align: {unique_target_ids}", extra=stage)
+        logging.debug(f"{json.dumps(self._target_df.to_dict(orient='records'), indent=4)}", extra=stage)
+
+        self._query_df = self._query_df.set_index("pocket_id")
+        for query_id, top_target_ids in qt_id_map.items():
+            query_record = self._query_df.loc[query_id].to_dict()
+            logging.debug(f"Query record for '{query_id}': {json.dumps(query_record, indent=4)}", extra=stage)
             # Fetch the corresponding target records
             top_target_records = self._target_df.loc[top_target_ids].reset_index().to_dict(orient="records")
             logging.debug(
-                f"Top target records for query {query_id}: {json.dumps(top_target_records, indent=4)}", extra=stage
+                f"Top target records for query '{query_id}': {json.dumps(top_target_records, indent=4)}", extra=stage
             )
 
             aln_records = [record] + top_target_records
@@ -843,10 +882,9 @@ class PocketMapper:
         """
         tmp_dirs = [
             "query_dir",
+            "target_dir",
         ]
-        if self._target != "human_domains":  # We don't want to delete the human domains foldseek db if we used it
-            tmp_dirs.append("target_dir")
-        if self._settings.get("foldseek"):
+        if self._settings["foldseek"]:
             tmp_dirs.append("foldseek_tmp_dir")
 
         # TODO this is unsafe
