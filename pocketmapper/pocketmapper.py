@@ -104,6 +104,8 @@ class PocketMapper:
         help=None,
         foldseek=None,
         align_count=None,
+        query_pocket_method=None,
+        target_pocket_method=None,
     ):
         """
         Orchestrate and run the full PocketMapper search workflow.
@@ -134,6 +136,8 @@ class PocketMapper:
         self._help = help
         self._foldseek = foldseek
         self._align_count = align_count
+        self._query_pocket_method = query_pocket_method
+        self._target_pocket_method = target_pocket_method
 
         self._check_help_search()  # Checks if help flag is set and if so prints the help message and exits
         self._configure_workflow()  # configures the settings which have already been read
@@ -291,6 +295,8 @@ class PocketMapper:
             "foldseek": self._foldseek,
             "verbosity": self._verbosity,
             "align_count": self._align_count,
+            "query_pocket_method": self._query_pocket_method,
+            "target_pocket_method": self._target_pocket_method,
         }
         for key, value in cli_args_mapping.items():
             if value is not None:
@@ -339,7 +345,7 @@ class PocketMapper:
                 exit(1)
 
         self._configure_logging(self._settings)
-        logging.debug(f"Settings: {json.dumps(self._settings, indent=4)}", extra=self._log_extra)
+        logging.info(f"Settings: {json.dumps(self._settings, indent=4)}", extra=self._log_extra)
 
         # 5. Output dump
         try:
@@ -536,7 +542,7 @@ class PocketMapper:
         )
         subprocess.run(query_db_cmd, check=True)
 
-        if self._settings["target"] == "human_domains":
+        if self.fsdb_target:
             self._target_db_path = self._target_df.loc[0, "struct_path"]
             logging.debug(f"Targeting bundled human_domains Foldseek DB at {self._target_db_path}", extra=stage)
         else:
@@ -798,11 +804,8 @@ class PocketMapper:
                 preproc_to_ids[row["preprocess_name"]] = [row["pocket_id"]]
         logging.debug(f"Preprocessed name to pocket ID mapping: {preproc_to_ids}", extra=stage)
 
-        alphafold = (
-            self._settings["target"] == "human_domains"
-        )  # TODO this is actually if we should trat the target as having no defnied pocket, not if we are searching alphafold
         pockets_df, unknown_alias, incorrect_mapping = lib.compare_pockets(
-            alignment_df, pockets, preproc_to_ids=preproc_to_ids, blosum_path=blosum_path, alphafold=alphafold
+            alignment_df, pockets, preproc_to_ids=preproc_to_ids, blosum_path=blosum_path, alphafold=self.fsdb_target
         )
 
         # Logging cases where a residue was given a single cahr name unfamiliar to pocketmapper
@@ -924,7 +927,7 @@ class PocketMapper:
 
             # Make record df for the target records based on the unique target IDs and the subdb structure directory
             target_record_df = pd.DataFrame({"preprocess_name": list(unique_target_ids)})
-            target_record_df["chain_info"] = "0"
+            target_record_df["chain_info"] = None
             target_record_df["pocket_id"] = target_record_df["preprocess_name"]
             target_record_df["struct_path"] = target_record_df["preprocess_name"].apply(
                 lambda x: os.path.join(subdb_struct_dir, f"{x}.pdb")

@@ -64,7 +64,9 @@ class QTProcessor:
                 exit(1)
 
             data = []
-            if os.path.isfile(qt_input):  # if it's a file, process each line as a separate query/target
+            if pocket_method != "foldseek_db" and os.path.isfile(
+                qt_input
+            ):  # if it's a file, process each line as a separate query/target
                 try:
                     with open(qt_input) as f:
                         for line in f.readlines():
