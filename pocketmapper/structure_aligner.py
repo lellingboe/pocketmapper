@@ -23,7 +23,9 @@ import numpy as np
 
 class StructureAligner:
     def __init__(self):
-        pass
+        self.logger = logging.getLogger(__name__)
+        self._log_extra = {"stage": "StructureAligner"}
+        logging.debug("Initialized", extra=self._log_extra)
 
     def _char_gen(self):
         """
@@ -125,7 +127,7 @@ class StructureAligner:
             try:
                 # Load the structure
                 struct_path = record["struct_path"]
-                struct = gemmi.read_structure(struct_path, format=gemmi.CoorFormat.Mmcif)
+                struct = gemmi.read_structure(struct_path)  # , format=gemmi.CoorFormat.Mmcif)
 
                 # If the structure is not the target, get the transformation matrices from the alignment dataframe
                 if i > 0:
@@ -151,7 +153,9 @@ class StructureAligner:
                 motif_chains.append(motif_chain)
 
             except Exception as e:
-                logging.error(f"Problem processing {record['pocket_id']}: {e}")
+                self.logger.error(
+                    f"Problem processing {record['pocket_id']}: {e}", extra={"stage": "foldseek_transform"}
+                )
 
         aligned_struct = self._apply_transformation(structs, domain_chains, motif_chains, us, ts)
         pdb_str = aligned_struct.make_pdb_string()
