@@ -5,11 +5,13 @@ Code for processing query/target pairs and orchestrating the workflow
 # TODO Folder input - iterate through files in folder with correct format
 
 import hashlib
+from importlib.resources import files
 import logging
 import os
 import re
 import pandas as pd
 import json
+from pocketmapper import human_domains
 
 
 class QTProcessor:
@@ -38,7 +40,9 @@ class QTProcessor:
         self.passthrough_regex = r"^[A-Za-z0-9](\:(\d+\,?)*)?$"  # pattern like "A(:1,2,3)"
         self.vdw_regex = r"^[A-Za-z0-9](_[A-Za-z0-9])?(\:(\d+\,?)*)?$"  # pattern like "A_B:1,2,3"
 
-        self._bundled_foldseek_dbs = {"human_domains"}
+        self._bundled_foldseek_dbs = {
+            "human_domains": str(files(human_domains).joinpath("human_v3_20260531")),
+        }
         self._available_pocket_methods = {"pisa", "passthrough", "vdw"}
 
     def process_qt_cmdline_input(self):
@@ -97,11 +101,13 @@ class QTProcessor:
             "failure_reason": "",
         }
 
-        # Bundled foldseek databases have a special format and are treated differently
-        if qt in self._bundled_foldseek_dbs:
+        # Foldseek databases have a special format and are treated differently
+        if qt in self._bundled_foldseek_dbs or pocket_method == "foldseek_db":
             data["struct_info"] = qt
             data["struct_type"] = "foldseek_db"
-            data["struct_path"] = "foldseek_db"
+            data["struct_path"] = self._bundled_foldseek_dbs.get(
+                qt, qt
+            )  # Use the bundled path if available, otherwise use the input as is
             return data
 
         # Unpack the input string into its components
@@ -109,7 +115,7 @@ class QTProcessor:
         for x, y in zip(categories, qt.split(":")):
             data[x] = y
 
-        # If chain info is not provided, default to chain A for targets
+        # If chain info is not provided skip this entry, as we need a chain
         if data["chain_info"] is None:
             self.logger.warning(f"No specified chain for {qt}, skipping", extra=self._log_extra)
             return None
