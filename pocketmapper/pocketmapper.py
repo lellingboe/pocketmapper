@@ -315,6 +315,7 @@ class PocketMapper:
             # Default directories and files stemming from results_dir
             "query_dir": os.path.join(results_dir, "query_structures"),
             "target_dir": os.path.join(results_dir, "target_structures"),
+            "aligned_structure_dir": os.path.join(results_dir, "aligned_structures"),
             "alignment_path": os.path.join(results_dir, "alignment.tsv"),
             "pocket_comparison_path": os.path.join(results_dir, "pocket_comparison.tsv"),
             "job_settings_path": os.path.join(results_dir, "job_settings.json"),
@@ -333,6 +334,7 @@ class PocketMapper:
             "target_dir",
             "pocket_dir",
             "foldseek_preprocessed_structure_dir",
+            "aligned_structure_dir",
         ]
         for dir_key in dirs_to_create:
             path = self._settings[dir_key]
@@ -538,9 +540,10 @@ class PocketMapper:
         Returns:
             None
         """
-        # TODO fix local alignment with work with query/target data
         stage = {"stage": "Local Alignment"}
         logging.info("Running local sequence alignments...", extra=stage)
+
+        # Run the sequence aligner on the same preprocessed structures as foldseek uses
         aligner = SequenceAligner()
         query_records = (
             self._query_df.query("success").drop_duplicates(subset="preprocess_name").to_dict(orient="records")
@@ -789,32 +792,43 @@ class PocketMapper:
 
         # Pre-loading
         aligner = StructureAligner()
-        # alignment_df = pd.read_csv(self._settings["alignment_path"], sep="\t", engine="c")
+        alignment_df = pd.read_csv(
+            self._settings["alignment_path"],
+            sep="\t",
+            engine="c",
+            index_col=["query", "target"],
+        )
         pocket_comparison_df = pd.read_csv(self._settings["pocket_comparison_path"], sep="\t", engine="c")
+        self._target_df = self._target_df.set_index("pocket_id")
 
         # For each query structure, align the top N target structures
-        for _, row in self._query_df.iterrows():
-            query_id = row["pocket_id"]
+        for record in self._query_df.to_dict(orient="records"):
+            query_id = record["pocket_id"]
             logging.debug(f"Processing query {query_id} for structural alignment", extra=stage)
+            logging.debug(f"Query record: {json.dumps(record, indent=4)}", extra=stage)
+
+            # Select the top N target structures based on pocket comparison metrics
             top_target_ids = (
-                pocket_comparison_df.query(f"pocket_1 == '{row['pocket_id']}'")
-                .sort_values(by=["min_pct_overlap", "min_overlap_similarity"], ascending=False)
+                pocket_comparison_df.query(f"pocket_1 == '{query_id}'")
+                .sort_values(by=["pocket_1_pct_overlap", "min_overlap_similarity"], ascending=False)
                 .head(self._settings["align_count"])
                 .loc[:, "pocket_2"]
                 .to_list()
             )
             logging.debug(f"Top target IDs for query {query_id}: {top_target_ids}", extra=stage)
-            # query_data = {
-            #    "name": row["preprocess_name"],
-            # }
-            aln_ids = [query_id] + top_target_ids
-            logging.debug(f"Aligning structures for query {row['pocket_id']}: {aln_ids}", extra=stage)
-            if len(aln_ids) > 1:
+
+            # Fetch the corresponding target records
+            top_target_records = self._target_df.loc[top_target_ids].reset_index().to_dict(orient="records")
+            logging.debug(
+                f"Top target records for query {query_id}: {json.dumps(top_target_records, indent=4)}", extra=stage
+            )
+
+            aln_records = [record] + top_target_records
+            if len(aln_records) > 1:
                 aligner.foldseek_transform(
-                    aln_ids,
-                    self._settings["alignment_path"],
-                    self._settings["foldseek_preprocessed_structure_dir"],
-                    self._settings["structure_dir"],
+                    aln_records=aln_records,
+                    alignment_df=alignment_df,
+                    out_path=os.path.join(self._settings["aligned_structure_dir"], f"{query_id.replace(':', '_')}.pdb"),
                 )
 
     def _delete_tmp(self):
