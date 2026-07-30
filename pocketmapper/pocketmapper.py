@@ -63,6 +63,7 @@ class Settings:
     pocket_comparison_path: str | None = None
     job_settings_path: str | None = None
     log_path: str | None = None
+    fsdb_dir: str | None = None
 
     def resolve_paths(self):
         """
@@ -82,6 +83,7 @@ class Settings:
             "pocket_comparison_path": os.path.join(self.results_dir, "pocket_comparison.tsv"),
             "job_settings_path": os.path.join(self.results_dir, "job_settings.json"),
             "log_path": os.path.join(self.results_dir, "info.log"),
+            "fsdb_dir": os.path.join(self.cache_dir, "fsdb"),
         }
         unset = {key: path_val for key, path_val in derived.items() if getattr(self, key) is None}
         return replace(self, **unset)
@@ -200,9 +202,23 @@ class PocketMapper:
         self._target_pocket_method = target_pocket_method
 
         self._check_help_search()  # Checks if help flag is set and if so prints the help message and exits
-        self._configure_workflow()  # configures the settings which have already been read
-        self._configure_query_target()  # parses the query and target inputs to determine their types and sets up the relevant data structures for each entry
-        self._fetch_missing_structures()  # Fetch any missing structures
+        self._settings = self._configure_workflow()  # configures the settings which have already been read
+        self._query_df, self._target_df = (
+            self._configure_query_target()
+        )  # parses the query and target inputs to determine their types and sets up the relevant data structures for each entry
+
+        self._query_df = self._fetch_missing_structures(
+            "query", self._query_df, self._settings.structure_dir
+        )  # Fetch any missing structures
+        if self.fsdb_target:
+            self._fetch_missing_fsdb(
+                self._target_df, self._settings.foldseek_tmp_dir
+            )  # Fetch any missing structures from the foldseek database
+        else:
+            self._target_df = self._fetch_missing_structures(
+                "target", self._target_df, self._settings.structure_dir
+            )  # Fetch any missing structures
+
         self._alignment()  # Align the query and target structures using either local sequence alignment or foldseek based on the settings
         pockets = self._get_pockets()  # Adds seq_pos and ca-coords to the pocket info dict
         self._compare_pockets_based_on_alignment(pockets)
@@ -210,20 +226,6 @@ class PocketMapper:
         self._delete_tmp()
 
         logging.info("PocketMapper search completed successfully.", extra={"stage": "End"})
-
-        # TODO Remove this hack after preserving the method
-        if False:  # hack to make ATP pocket search working
-            pc = PocketCalculator()
-            pockets = pc.atp_pocket_overlap(
-                r"/Users/lellingboe/Work/data/kinase_edit/atp_pocket/pocketmapper_cache/divided_structs/3BU5_A_B.cif.gz",
-                "A",
-                "3BU5_A_B",
-            )
-            with open(
-                r"/Users/lellingboe/Work/data/kinase_edit/atp_pocket/pocketmapper_cache/pockets/3BU5_A_B_atp_pocket.json",
-                "w",
-            ) as f:
-                json.dump(pockets, f, indent=4)
 
     def _check_help_search(self):
         """
@@ -355,7 +357,7 @@ class PocketMapper:
         settings = replace(settings, **cli_overrides)
 
         # 4. Computed paths (only fills in paths not already set via the settings file)
-        self._settings = settings.resolve_paths()
+        settings = settings.resolve_paths()
 
         # Ensure all necessary directories exist before proceeding, creating them if needed
         dirs_to_create = [
@@ -367,24 +369,25 @@ class PocketMapper:
             "aligned_structure_dir",
         ]
         for dir_key in dirs_to_create:
-            path = getattr(self._settings, dir_key)
+            path = getattr(settings, dir_key)
             try:
                 os.makedirs(path, exist_ok=True)
             except OSError as e:
                 logging.critical(f"Error creating directory {path}", extra=self._log_extra)
                 raise PocketMapperError(f"Error creating directory {path}") from e
 
-        self._configure_logging(self._settings)
-        logging.info(f"Settings: {json.dumps(asdict(self._settings), indent=4)}", extra=self._log_extra)
+        self._configure_logging(settings)
+        logging.info(f"Settings: {json.dumps(asdict(settings), indent=4)}", extra=self._log_extra)
 
         # 5. Output dump
         try:
-            os.makedirs(os.path.dirname(self._settings.job_settings_path), exist_ok=True)
-            with open(self._settings.job_settings_path, "w") as f:
-                json.dump(asdict(self._settings), f, indent=4)
-            logging.info(f"Settings successfully dumped to {self._settings.job_settings_path}", extra=self._log_extra)
+            os.makedirs(os.path.dirname(settings.job_settings_path), exist_ok=True)
+            with open(settings.job_settings_path, "w") as f:
+                json.dump(asdict(settings), f, indent=4)
+            logging.info(f"Settings successfully dumped to {settings.job_settings_path}", extra=self._log_extra)
         except Exception as e:
-            logging.error(f"Failed to dump settings to {self._settings.job_settings_path}: {e}", extra=self._log_extra)
+            logging.error(f"Failed to dump settings to {settings.job_settings_path}: {e}", extra=self._log_extra)
+        return settings
 
     def _configure_query_target(self):
         """
@@ -399,19 +402,19 @@ class PocketMapper:
         self._log_extra.update({"stage": "Determine Query/Target Types"})
 
         qtprocessor = QTProcessor(settings=self._settings)
-        self._query_df, self._target_df = qtprocessor.process_qt_cmdline_input()
+        q_df, t_df = qtprocessor.process_qt_cmdline_input()
 
         errors = []
-        if len(self._query_df) < 1:
+        if len(q_df) < 1:
             logging.critical("No valid query entries after processing", extra=self._log_extra)
             errors.append("no valid query entries")
-        if len(self._target_df) < 1:
+        if len(t_df) < 1:
             logging.critical("No valid target entries after processing", extra=self._log_extra)
             errors.append("no valid target entries")
         if errors:
             raise PocketMapperError("; ".join(errors))
 
-        if self._target_df.loc[0, "struct_type"] == "foldseek_db":
+        if t_df.loc[0, "struct_type"] == "foldseek_db":
             if self._settings.foldseek:
                 self.fsdb_target = True
             else:
@@ -422,8 +425,9 @@ class PocketMapper:
                 raise PocketMapperError(
                     "Foldseek database specified as target but foldseek is not enabled. Please set --foldseek True."
                 )
+        return q_df, t_df
 
-    def _fetch_missing_structures(self):
+    def _fetch_missing_structures(self, name, qt_df, out_dir):
         """
         Identify and download required structure files.
 
@@ -438,49 +442,56 @@ class PocketMapper:
         self._log_extra.update({"stage": "Fetching Missing Structures"})
         logging.info("Starting", extra=self._log_extra)
         structure_fetcher = StructureFetcher()
-        name_df_iter = [("query", self._query_df)]
 
-        # If the target is a foldseek database, we don't need to fetch structures for it
-        if not self.fsdb_target:
-            name_df_iter.append(("target", self._target_df))
+        logging.debug(f"{name.capitalize()} data before fetching structures: \n{qt_df.head()}", extra=self._log_extra)
 
-        for name, df in name_df_iter:
-            logging.debug(f"{name.capitalize()} data before fetching structures: \n{df.head()}", extra=self._log_extra)
+        # Get list of unique structures to fetch based on struct_info and struct_type
+        unique_records = qt_df.drop_duplicates(subset="struct_info").to_dict(orient="records")
 
-            # Get list of unique structures to fetch based on struct_info and struct_type
-            unique_records = df.drop_duplicates(subset="struct_info").to_dict(orient="records")
+        # Update structure fetcher and fetch structures
+        structure_fetcher.set_output_directory(out_dir)
+        structure_fetcher.update_cache()
+        results = structure_fetcher.fetch_structures(unique_records)
+        logging.debug(f"Structure fetcher results: {results}", extra=self._log_extra)
 
-            # Update structure fetcher and fetch structures
-            structure_fetcher.set_output_directory(self._settings.structure_dir)
-            structure_fetcher.update_cache()
-            results = structure_fetcher.fetch_structures(unique_records)
-            logging.debug(f"Structure fetcher results: {results}", extra=self._log_extra)
+        # Update the dataframe with success/failure information
+        qt_df["success"] = qt_df["struct_info"].map(results).fillna(False)
+        qt_df.loc[~qt_df["success"], "failure_reason"] = "structure_not_found"
 
-            # Update the dataframe with success/failure information
-            df["success"] = df["struct_info"].map(results).fillna(False)
-            df.loc[~df["success"], "failure_reason"] = "structure_not_found"
-
-            # Logging results of structure fetching and updating query and target data with success/failure info
-            logging.info(
-                f"{sum(results.values())}/{len(results)} {name} required structures available",
+        # Logging results of structure fetching and updating query and target data with success/failure info
+        logging.info(
+            f"{sum(results.values())}/{len(results)} {name} required structures available",
+            extra=self._log_extra,
+        )
+        if len(qt_df.query("success == False")) > 0:
+            logging.warning(
+                f"Missing structures for {name}(s): {', '.join(qt_df.loc[~qt_df['success'], 'pocket_id'].unique().tolist())}",
                 extra=self._log_extra,
             )
-            if len(df.query("success == False")) > 0:
-                logging.warning(
-                    f"Missing structures for {name}(s): {', '.join(df.loc[~df['success'], 'pocket_id'].unique().tolist())}",
-                    extra=self._log_extra,
-                )
 
         # Verifying sufficient structures were found to continue
-        errors = []
-        if self._query_df["success"].sum() < 1:
-            logging.critical("Insufficient query structures after fetching", extra=self._log_extra)
-            errors.append("insufficient query structures")
-        if self._target_df["success"].sum() < 1:
-            logging.critical("Insufficient target structures after fetching", extra=self._log_extra)
-            errors.append("insufficient target structures")
-        if errors:
-            raise PocketMapperError("; ".join(errors))
+        if qt_df["success"].sum() < 1:
+            logging.critical(f"Insufficient {name} structures after fetching", extra=self._log_extra)
+            raise PocketMapperError(f"Insufficient {name} structures after fetching. No valid {name} entries remain.")
+        return qt_df
+
+    def _fetch_missing_fsdb(self, qt_df, tmp_dir):
+        self._log_extra.update({"stage": "Fetching Missing Foldseek Database"})
+        fsdb_name = qt_df.loc[0, "struct_info"].upper()
+        fsdb_path = qt_df.loc[0, "struct_path"]
+        if not os.path.exists(fsdb_path):
+            logging.info(f"Fetching bundled Foldseek database '{fsdb_name}' to {fsdb_path}", extra=self._log_extra)
+            try:
+                os.makedirs(os.path.dirname(fsdb_path), exist_ok=True)
+                cmd = ["foldseek", "databases", fsdb_name, fsdb_path, tmp_dir]
+                logging.debug(f"Running command: {' '.join([str(x) for x in cmd])}", extra=self._log_extra)
+                subprocess.run(cmd, check=True)
+                logging.info(f"Successfully fetched Foldseek database '{fsdb_name}'", extra=self._log_extra)
+            except Exception as e:
+                logging.critical(
+                    f"Failed to fetch Foldseek database '{fsdb_name}' to {fsdb_path}: {e}", extra=self._log_extra
+                )
+                raise PocketMapperError(f"Failed to fetch Foldseek database '{fsdb_name}' to {fsdb_path}: {e}") from e
 
     def _alignment(self):
         """
@@ -518,10 +529,9 @@ class PocketMapper:
         stage = {"stage": "Preprocessing Structures"}
 
         structure_preprocessor = StructurePreprocessor()
-        qtdf_dir_iter = zip(
-            [self._query_df, self._target_df],
-            [self._settings.query_dir, self._settings.target_dir],
-        )
+        qtdf_dir_iter = [(self._query_df, self._settings.query_dir)]
+        if not self.fsdb_target:
+            qtdf_dir_iter.append((self._target_df, self._settings.target_dir))
 
         for df, search_dir in qtdf_dir_iter:
             records = df.drop_duplicates(subset=["preprocess_name", "chain_info"]).to_dict(orient="records")

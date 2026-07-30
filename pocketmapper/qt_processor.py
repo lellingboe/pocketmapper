@@ -66,6 +66,7 @@ class QTProcessor:
 
         self._bundled_foldseek_dbs = {
             "human_domains": str(files(human_domains).joinpath("human_v3_20260531")),
+            "pdb": os.path.join(self.settings.fsdb_dir, "pdb"),
         }
         self._available_pocket_methods = {"pisa", "passthrough", "vdw"}
 
