@@ -77,8 +77,8 @@ class QTProcessor:
             self._log_extra.update({"stage": f"Processing {name}"})
             self.logger.debug("Processing {name}", extra=self._log_extra)
 
-            qt_input = self.settings[name]
-            pocket_method = self.settings[f"{name}_pocket_method"]
+            qt_input = getattr(self.settings, name)
+            pocket_method = getattr(self.settings, f"{name}_pocket_method")
             self.processing_target = name == "target"
 
             # Check that query and target are specified
@@ -146,7 +146,7 @@ class QTProcessor:
         name = input_fname + "_" + chain_info[0]  # e.g., "P12345_A" or "1ABC_A"
         name_md5 = hashlib.md5(name.encode()).hexdigest()
         preprocess_name = name + "_" + name_md5
-        preprocess_path = os.path.join(self.settings["foldseek_preprocessed_structure_dir"], preprocess_name + ".cif")
+        preprocess_path = os.path.join(self.settings.foldseek_preprocessed_structure_dir, preprocess_name + ".cif")
         preprocess_path_gz = preprocess_path + ".gz"
 
         resolved_pocket_method = (
@@ -210,9 +210,9 @@ class QTProcessor:
         """
         match struct_type:
             case "alphafold":
-                return os.path.join(self.settings["structure_dir"], f"{struct_info}.cif.gz")
+                return os.path.join(self.settings.structure_dir, f"{struct_info}.cif.gz")
             case "pdb":
-                return os.path.join(self.settings["structure_dir"], f"{struct_info}.cif.gz")
+                return os.path.join(self.settings.structure_dir, f"{struct_info}.cif.gz")
             case "local_file":
                 return struct_info
             case _:

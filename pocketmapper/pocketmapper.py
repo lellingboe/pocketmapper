@@ -5,6 +5,7 @@ Author: Lachlan Ellingboe
 
 """
 
+from dataclasses import asdict, dataclass, field, replace
 import fire
 import logging
 import logging.config
@@ -24,6 +25,64 @@ from pocketmapper.structure_aligner import StructureAligner
 from pocketmapper.structure_fetcher import StructureFetcher
 from pocketmapper.structure_preprocessor import StructurePreprocessor
 from pocketmapper.lib_struct import parse_pocket_from_struct
+
+
+@dataclass
+class Settings:
+    """
+    Fully resolved PocketMapper run configuration.
+
+    Built by layering three sources in priority order (lowest to highest):
+    dataclass defaults -> JSON settings file -> explicit CLI arguments.
+    Derived paths (structure_dir, alignment_path, etc.) are filled in
+    afterward by resolve_paths(), unless already set by the settings file.
+    """
+
+    query: str | None = None
+    target: str | None = None
+    cache_dir: str = "pocketmapper_cache"
+    results_dir: str = field(default_factory=lambda: f"pocketmapper_results_{datetime.now().strftime('%y%m%d_%H%M%S')}")
+    query_pocket_method: str | None = None
+    target_pocket_method: str | None = None
+    foldseek: bool = False
+    align_count: int = 10
+    verbosity: int = 3
+
+    # Derived paths -- left unset (None) until resolve_paths() fills them in,
+    # unless explicitly provided via the settings file.
+    structure_dir: str | None = None
+    pocket_dir: str | None = None
+    foldseek_tmp_dir: str | None = None
+    foldseek_preprocessed_structure_dir: str | None = None
+    query_dir: str | None = None
+    target_dir: str | None = None
+    aligned_structure_dir: str | None = None
+    alignment_path: str | None = None
+    pocket_comparison_path: str | None = None
+    job_settings_path: str | None = None
+    log_path: str | None = None
+
+    def resolve_paths(self):
+        """
+        Return a copy of these settings with any unset derived paths filled
+        in from cache_dir/results_dir. Paths already set (e.g. via the
+        settings file) are left untouched.
+        """
+        derived = {
+            "structure_dir": os.path.join(self.cache_dir, "ref_structures"),
+            "pocket_dir": os.path.join(self.cache_dir, "pockets"),
+            "foldseek_tmp_dir": os.path.join(self.cache_dir, "foldseek_tmp"),
+            "foldseek_preprocessed_structure_dir": os.path.join(self.cache_dir, "foldseek_preprocessed_structures"),
+            "query_dir": os.path.join(self.results_dir, "query_structures"),
+            "target_dir": os.path.join(self.results_dir, "target_structures"),
+            "aligned_structure_dir": os.path.join(self.results_dir, "aligned_structures"),
+            "alignment_path": os.path.join(self.results_dir, "alignment.tsv"),
+            "pocket_comparison_path": os.path.join(self.results_dir, "pocket_comparison.tsv"),
+            "job_settings_path": os.path.join(self.results_dir, "job_settings.json"),
+            "log_path": os.path.join(self.results_dir, "info.log"),
+        }
+        unset = {key: path_val for key, path_val in derived.items() if getattr(self, key) is None}
+        return replace(self, **unset)
 
 
 class PocketMapper:
@@ -49,19 +108,18 @@ class PocketMapper:
         adjusting the verbosity depending on the user's input.
 
         Args:
-            settings (dict): Configuration dictionary containing keys:
-                - "verbosity" (int): The verbosity level (4=DEBUG, 3=INFO, 2=WARNING, else ERROR).
-                - "log_path" (str): Path to write the info.log file.
+            settings (Settings): Configuration object with `verbosity` and `log_path` attributes.
+                verbosity: 4=DEBUG, 3=INFO, 2=WARNING, else ERROR.
         """
         self._log_extra.update({"stage": "Configuring Logging"})
 
         # Set log level based on verbosity setting (default to INFO if not set)
         log_level = None
-        if settings["verbosity"] == 4:
+        if settings.verbosity == 4:
             log_level = "DEBUG"
-        elif settings["verbosity"] == 3:
+        elif settings.verbosity == 3:
             log_level = "INFO"
-        elif settings["verbosity"] == 2:
+        elif settings.verbosity == 2:
             log_level = "WARNING"
         else:
             log_level = "ERROR"
@@ -82,7 +140,7 @@ class PocketMapper:
                     "class": "logging.FileHandler",
                     "level": log_level,
                     "formatter": "standard",
-                    "filename": settings["log_path"],
+                    "filename": settings.log_path,
                 },
             },
             "root": {
@@ -257,18 +315,7 @@ class PocketMapper:
         self._log_extra.update({"stage": "Configuring Settings"})
 
         # 1. Base defaults
-        now = datetime.now().strftime("%y%m%d_%H%M%S")
-        self._settings = {
-            "query": None,
-            "target": None,
-            "cache_dir": "pocketmapper_cache",
-            "results_dir": f"pocketmapper_results_{now}",
-            "query_pocket_method": None,
-            "target_pocket_method": None,
-            "foldseek": False,
-            "align_count": 10,
-            "verbosity": 3,  # default to info level logging
-        }
+        settings = Settings()
 
         # 2. Populate settings from the settings file if provided
         if self._settings_file is not None:
@@ -278,7 +325,10 @@ class PocketMapper:
             try:
                 with open(self._settings_file) as f:
                     settings_data_from_file = json.load(f)
-                    self._settings.update(settings_data_from_file)
+                settings = replace(settings, **settings_data_from_file)
+            except TypeError as e:
+                logging.critical(f"Unknown setting(s) in {self._settings_file}: {e}", extra=self._log_extra)
+                exit(1)
             except Exception:
                 logging.critical(
                     f"Error reading settings file: {self._settings_file}. Is it in JSON format?", extra=self._log_extra
@@ -286,8 +336,7 @@ class PocketMapper:
                 exit(1)
 
         # 3. Override settings with explicit command-line arguments
-        # Using a mapping of settings keys to the instance attributes
-        cli_args_mapping = {
+        cli_overrides = {
             "query": self._query,
             "target": self._target,
             "cache_dir": self._cache_dir,
@@ -298,34 +347,11 @@ class PocketMapper:
             "query_pocket_method": self._query_pocket_method,
             "target_pocket_method": self._target_pocket_method,
         }
-        for key, value in cli_args_mapping.items():
-            if value is not None:
-                self._settings[key] = value
+        cli_overrides = {key: value for key, value in cli_overrides.items() if value is not None}
+        settings = replace(settings, **cli_overrides)
 
-        # 4. Computed paths
-        cache_dir = self._settings["cache_dir"]
-        results_dir = self._settings["results_dir"]
-
-        derived_paths = {
-            # Default directories stemming from cache_dir
-            "structure_dir": os.path.join(cache_dir, "ref_structures"),
-            "pocket_dir": os.path.join(cache_dir, "pockets"),
-            "foldseek_tmp_dir": os.path.join(cache_dir, "foldseek_tmp"),
-            "foldseek_preprocessed_structure_dir": os.path.join(cache_dir, "foldseek_preprocessed_structures"),
-            # Default directories and files stemming from results_dir
-            "query_dir": os.path.join(results_dir, "query_structures"),
-            "target_dir": os.path.join(results_dir, "target_structures"),
-            "aligned_structure_dir": os.path.join(results_dir, "aligned_structures"),
-            "alignment_path": os.path.join(results_dir, "alignment.tsv"),
-            "pocket_comparison_path": os.path.join(results_dir, "pocket_comparison.tsv"),
-            "job_settings_path": os.path.join(results_dir, "job_settings.json"),
-            "log_path": os.path.join(results_dir, "info.log"),
-        }
-
-        # Only overwrite paths if they were not explicitly provided via the settings file
-        for key, path_val in derived_paths.items():
-            if key not in self._settings:
-                self._settings[key] = path_val
+        # 4. Computed paths (only fills in paths not already set via the settings file)
+        self._settings = settings.resolve_paths()
 
         # Ensure all necessary directories exist before proceeding, creating them if needed
         dirs_to_create = [
@@ -337,7 +363,7 @@ class PocketMapper:
             "aligned_structure_dir",
         ]
         for dir_key in dirs_to_create:
-            path = self._settings[dir_key]
+            path = getattr(self._settings, dir_key)
             try:
                 os.makedirs(path, exist_ok=True)
             except OSError:
@@ -345,20 +371,16 @@ class PocketMapper:
                 exit(1)
 
         self._configure_logging(self._settings)
-        logging.info(f"Settings: {json.dumps(self._settings, indent=4)}", extra=self._log_extra)
+        logging.info(f"Settings: {json.dumps(asdict(self._settings), indent=4)}", extra=self._log_extra)
 
         # 5. Output dump
         try:
-            os.makedirs(os.path.dirname(self._settings["job_settings_path"]), exist_ok=True)
-            with open(self._settings["job_settings_path"], "w") as f:
-                json.dump(self._settings, f, indent=4)
-            logging.info(
-                f"Settings successfully dumped to {self._settings['job_settings_path']}", extra=self._log_extra
-            )
+            os.makedirs(os.path.dirname(self._settings.job_settings_path), exist_ok=True)
+            with open(self._settings.job_settings_path, "w") as f:
+                json.dump(asdict(self._settings), f, indent=4)
+            logging.info(f"Settings successfully dumped to {self._settings.job_settings_path}", extra=self._log_extra)
         except Exception as e:
-            logging.error(
-                f"Failed to dump settings to {self._settings['job_settings_path']}: {e}", extra=self._log_extra
-            )
+            logging.error(f"Failed to dump settings to {self._settings.job_settings_path}: {e}", extra=self._log_extra)
 
     def _configure_query_target(self):
         """
@@ -386,7 +408,7 @@ class PocketMapper:
             exit(1)
 
         if self._target_df.loc[0, "struct_type"] == "foldseek_db":
-            if self._settings["foldseek"]:
+            if self._settings.foldseek:
                 self.fsdb_target = True
             else:
                 logging.critical(
@@ -423,7 +445,7 @@ class PocketMapper:
             unique_records = df.drop_duplicates(subset="struct_info").to_dict(orient="records")
 
             # Update structure fetcher and fetch structures
-            structure_fetcher.set_output_directory(self._settings["structure_dir"])
+            structure_fetcher.set_output_directory(self._settings.structure_dir)
             structure_fetcher.update_cache()
             results = structure_fetcher.fetch_structures(unique_records)
             logging.debug(f"Structure fetcher results: {results}", extra=self._log_extra)
@@ -466,8 +488,8 @@ class PocketMapper:
             None
         """
         self._log_extra.update({"stage": "Alignment"})
-        if self._settings["foldseek"]:
-            # if not os.path.isfile(self._settings["alignment_path"]):
+        if self._settings.foldseek:
+            # if not os.path.isfile(self._settings.alignment_path):
             logging.info("Preprocessing structures for Foldseek...", extra=self._log_extra)
             self._preprocess_structures()
             logging.info("Running Foldseek easy-search...", extra=self._log_extra)
@@ -492,14 +514,14 @@ class PocketMapper:
         structure_preprocessor = StructurePreprocessor()
         qtdf_dir_iter = zip(
             [self._query_df, self._target_df],
-            [self._settings["query_dir"], self._settings["target_dir"]],
+            [self._settings.query_dir, self._settings.target_dir],
         )
 
         for df, search_dir in qtdf_dir_iter:
             records = df.drop_duplicates(subset=["preprocess_name", "chain_info"]).to_dict(orient="records")
             logging.debug(f"Records to preprocess: {json.dumps(records, indent=4)}", extra=stage)
 
-            structure_preprocessor.set_output_directory(self._settings["foldseek_preprocessed_structure_dir"])
+            structure_preprocessor.set_output_directory(self._settings.foldseek_preprocessed_structure_dir)
             structure_preprocessor.update_cache()
             results = structure_preprocessor.preprocess_records(records=records, search_dir=search_dir)
             logging.debug(f"Preprocessing results: {json.dumps(results, indent=4)}", extra=stage)
@@ -521,7 +543,7 @@ class PocketMapper:
         Execute foldseek sub-commands via bash interfacing.
 
         Triggers `foldseek easy-search`, pushing input query targets directly against formatted targets
-        using `self._settings["alignment_path"]` to store raw tabular matches.
+        using `self._settings.alignment_path` to store raw tabular matches.
 
         Returns:
             None
@@ -530,11 +552,11 @@ class PocketMapper:
         logging.info("Running Foldseek alignment...", extra=stage)
 
         # Setting up paths for foldseek databases
-        self._query_db_path = os.path.join(self._settings["query_dir"], "query_db")
+        self._query_db_path = os.path.join(self._settings.query_dir, "query_db")
         query_db_cmd = [
             "foldseek",
             "createdb",
-            self._settings["query_dir"],
+            self._settings.query_dir,
             self._query_db_path,
         ]
         logging.debug(
@@ -546,11 +568,11 @@ class PocketMapper:
             self._target_db_path = self._target_df.loc[0, "struct_path"]
             logging.debug(f"Targeting bundled human_domains Foldseek DB at {self._target_db_path}", extra=stage)
         else:
-            self._target_db_path = os.path.join(self._settings["target_dir"], "target_db")
+            self._target_db_path = os.path.join(self._settings.target_dir, "target_db")
             target_db_cmd = [
                 "foldseek",
                 "createdb",
-                self._settings["target_dir"],
+                self._settings.target_dir,
                 self._target_db_path,
             ]
             logging.debug(
@@ -564,8 +586,8 @@ class PocketMapper:
             "easy-search",
             self._query_db_path,
             self._target_db_path,
-            self._settings["alignment_path"],
-            self._settings["foldseek_tmp_dir"],
+            self._settings.alignment_path,
+            self._settings.foldseek_tmp_dir,
             "--format-output",
             "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,lddt,qaln,taln,u,t,qseq,tseq",
             "--format-mode",
@@ -578,7 +600,7 @@ class PocketMapper:
             "5000",
             "-v",  # verbosity
             str(
-                min(3, self._settings["verbosity"])
+                min(3, self._settings.verbosity)
             ),  # cap foldseek verbosity at 3 (info level) since it can be very verbose at higher levels and we already have our own logging verbosity control
         ]
         logging.debug(
@@ -612,7 +634,7 @@ class PocketMapper:
             query_records,
             target_records,
         )
-        alignment.to_csv(self._settings["alignment_path"], index=False, sep="\t")
+        alignment.to_csv(self._settings.alignment_path, index=False, sep="\t")
 
     def _get_pockets(self):
         """
@@ -660,7 +682,7 @@ class PocketMapper:
         else:
             logging.info(f"{len(pisa_df)} PISA pockets to retrieve", extra=stage)
 
-        pisa_response_dir = os.path.join(self._settings["pocket_dir"], "pisa_responses")
+        pisa_response_dir = os.path.join(self._settings.pocket_dir, "pisa_responses")
         pisa_pdb_list = pisa_df["struct_info"].unique().tolist()
         logging.debug(f"PDBs for which to retrieve PISA pockets: {pisa_pdb_list}", extra=self._log_extra)
         downloader = PisaDownloader()
@@ -681,14 +703,14 @@ class PocketMapper:
         for _, row in pisa_df.iterrows():
             if row["pocket_id"] in pisa_pockets:
                 pisa_pockets[row["pocket_id"]] = parse_pocket_from_struct(
-                    struct=os.path.join(self._settings["structure_dir"], f"{row['struct_info']}.cif.gz"),
+                    struct=os.path.join(self._settings.structure_dir, f"{row['struct_info']}.cif.gz"),
                     chain_id=row["chain_info"].split("_")[0],
                     pocket_residues=[int(x) for x in pisa_pockets[row["pocket_id"]]["res_auth_ids"]],
                     pocket=pisa_pockets[row["pocket_id"]],
                 )
         logging.debug(f"Extracted PISA pockets with coords: {pisa_pockets}", extra=self._log_extra)
 
-        with open(os.path.join(self._settings["pocket_dir"], "pisa_pockets.json"), "w") as f:
+        with open(os.path.join(self._settings.pocket_dir, "pisa_pockets.json"), "w") as f:
             json.dump(pisa_pockets, f)
 
         return pisa_pockets
@@ -720,12 +742,12 @@ class PocketMapper:
         for _, row in pt_df.iterrows():
             pocket_residues = [int(x) for x in row["residue_info"].split(",")]
             pocket = parse_pocket_from_struct(
-                struct=os.path.join(self._settings["structure_dir"], f"{row['struct_info']}.cif.gz"),
+                struct=os.path.join(self._settings.structure_dir, f"{row['struct_info']}.cif.gz"),
                 chain_id=row["chain_info"].split("_")[0],
                 pocket_residues=pocket_residues,
             )
             passthrough_pockets[row["pocket_id"]] = pocket
-        with open(os.path.join(self._settings["pocket_dir"], "passthrough_pockets.json"), "w") as f:
+        with open(os.path.join(self._settings.pocket_dir, "passthrough_pockets.json"), "w") as f:
             json.dump(passthrough_pockets, f, indent=4)
         logging.debug(f"Extracted passthrough pockets: {passthrough_pockets}", extra=self._log_extra)
 
@@ -759,7 +781,7 @@ class PocketMapper:
                 case "local_file":
                     struct_path = row["struct_info"]
                 case _:
-                    struct_path = os.path.join(self._settings["structure_dir"], f"{row['struct_info']}.cif.gz")
+                    struct_path = os.path.join(self._settings.structure_dir, f"{row['struct_info']}.cif.gz")
 
             pocket = pc.pocket_overlap(
                 structure=struct_path,
@@ -767,7 +789,7 @@ class PocketMapper:
                 motif_chain=row["chain_info"].split("_")[1],
             )
             vdw_pockets[row["pocket_id"]] = pocket
-        with open(os.path.join(self._settings["pocket_dir"], "vdw_pockets.json"), "w") as f:
+        with open(os.path.join(self._settings.pocket_dir, "vdw_pockets.json"), "w") as f:
             json.dump(vdw_pockets, f, indent=4)
         logging.debug(f"Extracted VDW pockets: {vdw_pockets}", extra=self._log_extra)
 
@@ -789,7 +811,7 @@ class PocketMapper:
         stage = {"stage": "Comparing Pockets Based on Alignment"}
 
         logging.info("Reading alignment results...", extra=stage)
-        alignment_df = pd.read_csv(self._settings["alignment_path"], sep="\t", engine="c")
+        alignment_df = pd.read_csv(self._settings.alignment_path, sep="\t", engine="c")
         blosum_path = os.path.join(os.path.dirname(__file__), "blosum62.bla")
 
         logging.info(f"{len(alignment_df)} alignment pairs to compare", extra=stage)
@@ -810,20 +832,20 @@ class PocketMapper:
 
         # Logging cases where a residue was given a single cahr name unfamiliar to pocketmapper
         if len(unknown_alias) > 0:
-            unknown_alias_path = os.path.join(self._settings["results_dir"], "unknown_ids.json")
+            unknown_alias_path = os.path.join(self._settings.results_dir, "unknown_ids.json")
             logging.warning("Unknown Foldseek Alias, see unknown_alias.json in results directory", extra=stage)
             with open(unknown_alias_path, "w") as f:
                 json.dump(lib.jsonify_dict(dict(unknown_alias)), f)
 
         # logging cases where foldseek mapping had low sequence identity to the parsed structure
         if len(incorrect_mapping) > 0:
-            incorrect_mapping_path = os.path.join(self._settings["results_dir"], "incorrect_mapping.json")
+            incorrect_mapping_path = os.path.join(self._settings.results_dir, "incorrect_mapping.json")
             logging.warning("Foldseek mapping with low sequence identity to parsed structure", extra=stage)
             with open(incorrect_mapping_path, "w") as f:
                 json.dump(lib.jsonify_dict(dict(incorrect_mapping)), f)
 
         # Writing pocket comparison results to output file
-        output_path = self._settings["pocket_comparison_path"]
+        output_path = self._settings.pocket_comparison_path
         pockets_df.to_csv(output_path, index=False, sep="\t")
         logging.info(f"Pocket comparison results saved to {output_path}", extra=stage)
 
@@ -839,7 +861,7 @@ class PocketMapper:
             None
         """
         stage = {"stage": "Structural Alignment"}
-        if self._settings["align_count"] <= 0:
+        if self._settings.align_count <= 0:
             logging.info("No Aligned Structures to Process", extra=stage)
             return
         else:
@@ -848,12 +870,12 @@ class PocketMapper:
         # Pre-loading
         aligner = StructureAligner()
         alignment_df = pd.read_csv(
-            self._settings["alignment_path"],
+            self._settings.alignment_path,
             sep="\t",
             engine="c",
             index_col=["query", "target"],
         )
-        pocket_comparison_df = pd.read_csv(self._settings["pocket_comparison_path"], sep="\t", engine="c")
+        pocket_comparison_df = pd.read_csv(self._settings.pocket_comparison_path, sep="\t", engine="c")
 
         # For each query structure, align the top N target structures
         qt_id_map = {}
@@ -866,7 +888,7 @@ class PocketMapper:
             target_ids = (
                 pocket_comparison_df.query(f"pocket_1 == '{query_id}'")
                 .sort_values(by=["pocket_1_pct_overlap", "min_overlap_similarity"], ascending=False)
-                .head(self._settings["align_count"])
+                .head(self._settings.align_count)
                 .loc[:, "pocket_2"]
                 .to_list()
             )
@@ -890,7 +912,7 @@ class PocketMapper:
             chain_ids = source_db_lookup_df.loc[list(unique_target_ids), "chain_id"].tolist()
 
             # Make directory for subdb
-            subdb_dir = os.path.join(self._settings["aligned_structure_dir"], "fsdb")
+            subdb_dir = os.path.join(self._settings.aligned_structure_dir, "fsdb")
             os.makedirs(subdb_dir, exist_ok=True)
 
             # Create a file listing the required chain IDs for the subdb creation
@@ -911,7 +933,7 @@ class PocketMapper:
             subprocess.run(subdb_command, check=True)
 
             # Create a directory for extracted structures
-            subdb_struct_dir = os.path.join(self._settings["aligned_structure_dir"], "fsdb_structures")
+            subdb_struct_dir = os.path.join(self._settings.aligned_structure_dir, "fsdb_structures")
             os.makedirs(subdb_struct_dir, exist_ok=True)
 
             # Convert the subdb to PDB format using foldseek's convert2pdb command
@@ -948,9 +970,7 @@ class PocketMapper:
                 aligner.foldseek_transform(
                     aln_records=aln_records,
                     alignment_df=alignment_df,
-                    out_path=os.path.join(
-                        self._settings["aligned_structure_dir"], f"{lib.safe_filename(query_id)}.pdb"
-                    ),
+                    out_path=os.path.join(self._settings.aligned_structure_dir, f"{lib.safe_filename(query_id)}.pdb"),
                 )
 
     def _delete_tmp(self):
@@ -967,12 +987,12 @@ class PocketMapper:
             "query_dir",
             "target_dir",
         ]
-        if self._settings["foldseek"]:
+        if self._settings.foldseek:
             tmp_dirs.append("foldseek_tmp_dir")
 
         # TODO this is unsafe
         for dir in tmp_dirs:
-            shutil.rmtree(self._settings[dir])
+            shutil.rmtree(getattr(self._settings, dir))
 
 
 def main():
