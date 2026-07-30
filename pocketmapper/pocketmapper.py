@@ -13,9 +13,11 @@ import json
 import subprocess
 import pandas as pd
 import os
+import sys
 from datetime import datetime
 import shutil
 from pocketmapper import lib
+from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.pisa_downloader import PisaDownloader
 from pocketmapper.pisa_parser import PisaParser
 from pocketmapper.sequence_aligner import SequenceAligner
@@ -205,7 +207,7 @@ class PocketMapper:
         pockets = self._get_pockets()  # Adds seq_pos and ca-coords to the pocket info dict
         self._compare_pockets_based_on_alignment(pockets)
         self._align_structs()
-        # self._delete_tmp()
+        self._delete_tmp()
 
         logging.info("PocketMapper search completed successfully.", extra={"stage": "End"})
 
@@ -321,19 +323,21 @@ class PocketMapper:
         if self._settings_file is not None:
             if not os.path.isfile(self._settings_file):
                 logging.critical(f"Settings file not found: {self._settings_file}", extra=self._log_extra)
-                exit(1)
+                raise PocketMapperError(f"Settings file not found: {self._settings_file}")
             try:
                 with open(self._settings_file) as f:
                     settings_data_from_file = json.load(f)
                 settings = replace(settings, **settings_data_from_file)
             except TypeError as e:
                 logging.critical(f"Unknown setting(s) in {self._settings_file}: {e}", extra=self._log_extra)
-                exit(1)
-            except Exception:
+                raise PocketMapperError(f"Unknown setting(s) in {self._settings_file}: {e}") from e
+            except Exception as e:
                 logging.critical(
                     f"Error reading settings file: {self._settings_file}. Is it in JSON format?", extra=self._log_extra
                 )
-                exit(1)
+                raise PocketMapperError(
+                    f"Error reading settings file: {self._settings_file}. Is it in JSON format?"
+                ) from e
 
         # 3. Override settings with explicit command-line arguments
         cli_overrides = {
@@ -366,9 +370,9 @@ class PocketMapper:
             path = getattr(self._settings, dir_key)
             try:
                 os.makedirs(path, exist_ok=True)
-            except OSError:
+            except OSError as e:
                 logging.critical(f"Error creating directory {path}", extra=self._log_extra)
-                exit(1)
+                raise PocketMapperError(f"Error creating directory {path}") from e
 
         self._configure_logging(self._settings)
         logging.info(f"Settings: {json.dumps(asdict(self._settings), indent=4)}", extra=self._log_extra)
@@ -397,15 +401,15 @@ class PocketMapper:
         qtprocessor = QTProcessor(settings=self._settings)
         self._query_df, self._target_df = qtprocessor.process_qt_cmdline_input()
 
-        exit_flag = False
+        errors = []
         if len(self._query_df) < 1:
             logging.critical("No valid query entries after processing", extra=self._log_extra)
-            exit_flag = True
+            errors.append("no valid query entries")
         if len(self._target_df) < 1:
             logging.critical("No valid target entries after processing", extra=self._log_extra)
-            exit_flag = True
-        if exit_flag:
-            exit(1)
+            errors.append("no valid target entries")
+        if errors:
+            raise PocketMapperError("; ".join(errors))
 
         if self._target_df.loc[0, "struct_type"] == "foldseek_db":
             if self._settings.foldseek:
@@ -415,7 +419,9 @@ class PocketMapper:
                     "Foldseek database specified as target but foldseek is not enabled. Please set --foldseek True.",
                     extra=self._log_extra,
                 )
-                exit(1)
+                raise PocketMapperError(
+                    "Foldseek database specified as target but foldseek is not enabled. Please set --foldseek True."
+                )
 
     def _fetch_missing_structures(self):
         """
@@ -466,15 +472,15 @@ class PocketMapper:
                 )
 
         # Verifying sufficient structures were found to continue
-        exit_flag = False
+        errors = []
         if self._query_df["success"].sum() < 1:
             logging.critical("Insufficient query structures after fetching", extra=self._log_extra)
-            exit_flag = True
+            errors.append("insufficient query structures")
         if self._target_df["success"].sum() < 1:
             logging.critical("Insufficient target structures after fetching", extra=self._log_extra)
-            exit_flag = True
-        if exit_flag:
-            exit(1)
+            errors.append("insufficient target structures")
+        if errors:
+            raise PocketMapperError("; ".join(errors))
 
     def _alignment(self):
         """
@@ -493,7 +499,7 @@ class PocketMapper:
             logging.info("Preprocessing structures for Foldseek...", extra=self._log_extra)
             self._preprocess_structures()
             logging.info("Running Foldseek easy-search...", extra=self._log_extra)
-            self._run_foldseek()
+            self._foldseek_alignment()
         else:
             logging.info("Running local pairwise aligner...", extra=self._log_extra)
             self._local_alignment()
@@ -538,7 +544,7 @@ class PocketMapper:
         logging.debug(f"Query data after preprocessing: \n{self._query_df.head()}", extra=stage)
         logging.debug(f"Target data after preprocessing: \n{self._target_df.head()}", extra=stage)
 
-    def _run_foldseek(self):
+    def _foldseek_alignment(self):
         """
         Execute foldseek sub-commands via bash interfacing.
 
@@ -996,7 +1002,11 @@ class PocketMapper:
 
 
 def main():
-    fire.Fire(PocketMapper())
+    try:
+        fire.Fire(PocketMapper())
+    except PocketMapperError:
+        # Already logged with full stage context at the raise site.
+        sys.exit(1)
 
 
 if __name__ == "__main__":

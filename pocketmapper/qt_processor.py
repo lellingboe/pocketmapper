@@ -13,6 +13,7 @@ import re
 import pandas as pd
 import json
 from pocketmapper import human_domains
+from pocketmapper.exceptions import PocketMapperError
 
 
 @dataclass
@@ -84,7 +85,7 @@ class QTProcessor:
             # Check that query and target are specified
             if isinstance(qt_input, type(None)):
                 self.logger.critical(f"{name} input is required. Exiting.", extra=self._log_extra)
-                exit(1)
+                raise PocketMapperError(f"{name} input is required.")
 
             records = []
             if pocket_method != "foldseek_db" and os.path.isfile(
@@ -96,7 +97,7 @@ class QTProcessor:
                             records.append(self.parse_individual_qt(line.strip(), pocket_method=pocket_method))
                 except Exception as e:
                     self.logger.critical(f"Problem reading the file {qt_input}: {e}", extra=self._log_extra)
-                    exit(1)
+                    raise PocketMapperError(f"Problem reading the file {qt_input}: {e}") from e
             else:
                 records.append(self.parse_individual_qt(qt_input, pocket_method=pocket_method))
 
@@ -192,7 +193,7 @@ class QTProcessor:
             return "local_file"
         elif os.path.isdir(struct_str):
             logging.critical(f"Directory input is not currently supported: {struct_str}", extra=self._log_extra)
-            exit(1)
+            raise PocketMapperError(f"Directory input is not currently supported: {struct_str}")
         else:
             logging.warning(f"Could not determine structure type for {struct_str}", extra=self._log_extra)
             return None
@@ -219,7 +220,7 @@ class QTProcessor:
                 logging.critical(
                     f"Unknown structure type {struct_type} for struct_info {struct_info}", extra=self._log_extra
                 )
-                exit(1)
+                raise PocketMapperError(f"Unknown structure type {struct_type} for struct_info {struct_info}")
 
     def determine_pocket_method(self, qt_str, struct_type):
         """
