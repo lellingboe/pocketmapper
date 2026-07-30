@@ -11,6 +11,7 @@ from tqdm import tqdm
 import json
 from collections import defaultdict
 from glob import glob
+from pocketmapper.exceptions import PocketMapperError
 
 
 class PisaDownloader:
@@ -101,9 +102,9 @@ class PisaDownloader:
                     continue
                 for assembly in data[pdb_code][0]["assemblies"]:
                     asm_dict[pdb_code].append(assembly["assembly_id"])
-            except Exception:
+            except Exception as e:
                 logging.exception(f"Issue parsing summary for {pdb_code}", extra=self._stage)
-                exit(1)
+                raise PocketMapperError(f"Issue parsing summary for {pdb_code}: {e}") from e
         return asm_dict
 
     def get_assemblies(self, asm_dict, asm_dir):
