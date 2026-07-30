@@ -1,4 +1,5 @@
 import gzip
+import hashlib
 import shutil
 import os
 import logging
@@ -155,6 +156,22 @@ def jsonify_dict(item):
         return {str(k): jsonify_dict(v) for k, v in item.items()}
     else:
         return item
+
+
+def safe_filename(name, max_len=80):
+    """
+    Build a filesystem-safe filename stem from a pocket_id.
+
+    pocket_ids can embed long comma-separated residue lists (e.g. for
+    passthrough/VDW queries), which can exceed OS filename length limits.
+    Names longer than max_len are truncated and given an md5 suffix to keep
+    them unique.
+    """
+    safe_name = name.replace(":", "_").replace(",", "_")
+    if len(safe_name) <= max_len:
+        return safe_name
+    name_hash = hashlib.md5(name.encode()).hexdigest()
+    return f"{safe_name[:max_len]}_{name_hash}"
 
 
 # reimplement with scipy.spatial.distance.cdist

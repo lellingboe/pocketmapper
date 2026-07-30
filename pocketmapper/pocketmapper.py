@@ -948,7 +948,9 @@ class PocketMapper:
                 aligner.foldseek_transform(
                     aln_records=aln_records,
                     alignment_df=alignment_df,
-                    out_path=os.path.join(self._settings["aligned_structure_dir"], f"{query_id.replace(':', '_')}.pdb"),
+                    out_path=os.path.join(
+                        self._settings["aligned_structure_dir"], f"{lib.safe_filename(query_id)}.pdb"
+                    ),
                 )
 
     def _delete_tmp(self):
