@@ -14,9 +14,37 @@ from glob import glob
 
 
 class PisaDownloader:
-    def __init__(self):
+    def __init__(self, max_retries=5, base_delay=0.25, max_delay=30.0):
         self.logger = logging.getLogger(__name__)
         self._stage = {}
+        self.max_retries = max_retries
+        self.base_delay = base_delay
+        self.max_delay = max_delay
+
+    def _fetch_with_backoff(self, url, out_fname):
+        """
+        Download url to out_fname, retrying on failure with exponential backoff.
+
+        Delay starts at base_delay and doubles after each failed attempt, capped
+        at max_delay. Returns True on success, False once max_retries is exhausted.
+        """
+        delay = self.base_delay
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                urlcleanup()
+                urlretrieve(url, out_fname)
+                return True
+            except Exception as e:
+                if attempt == self.max_retries:
+                    logging.warning(f"Giving up on {url} after {self.max_retries} attempts: {e}", extra=self._stage)
+                    return False
+                logging.debug(
+                    f"Attempt {attempt}/{self.max_retries} failed for {url} ({e}); retrying in {delay:.2f}s",
+                    extra=self._stage,
+                )
+                sleep(delay)
+                delay = min(delay * 2, self.max_delay)
+        return False
 
     def get_interfaces(self, pdb_list, summary_dir, asm_dir, interface_dir):
         for dir in [summary_dir, asm_dir, interface_dir]:
@@ -50,15 +78,11 @@ class PisaDownloader:
                 valid.append(pdb_code)
             else:
                 url = f"https://www.ebi.ac.uk/pdbe/api/v2/pdb/entry/summary/{pdb_code}"
-                try:
-                    urlcleanup()
-                    urlretrieve(url, out_fname)
+                if self._fetch_with_backoff(url, out_fname):
                     valid.append(pdb_code)
-                except Exception:
-                    logging.warning(f"Issue downloading {pdb_code}", extra=self._stage)
+                else:
                     problems.append(pdb_code)
-                finally:
-                    sleep(0.25)
+                sleep(self.base_delay)
         pd.Series(problems).to_csv(os.path.join(summary_dir, "_Failed.txt"), header=False, index=False)
         return valid
 
@@ -91,13 +115,9 @@ class PisaDownloader:
                 out_fname = os.path.join(asm_dir, f"{pdb_code}_{asm}.json")
                 if not os.path.exists(out_fname):
                     url = f"https://www.ebi.ac.uk/pdbe/api/pisa/interfaces/{pdb_code}/{asm}"
-                    try:
-                        urlcleanup()
-                        urlretrieve(url, out_fname)
-                    except Exception:
-                        logging.warning(f"Issue downloading assembly {asm} for {pdb_code}", extra=self._stage)
+                    if not self._fetch_with_backoff(url, out_fname):
                         problems.append(f"{pdb_code}_{asm}")
-                    sleep(0.25)
+                    sleep(self.base_delay)
         pd.Series(problems).to_csv(os.path.join(asm_dir, "_Failed.txt"), header=False, index=False)
 
     def parse_assemblies(self, asm_dict, asm_dir, interface_dir):
