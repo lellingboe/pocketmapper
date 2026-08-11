@@ -213,7 +213,7 @@ class PocketMapper:
         if self.fsdb_target:
             self._fetch_missing_fsdb(
                 self._target_df, self._settings.foldseek_tmp_dir
-            )  # Fetch any missing structures from the foldseek database
+            )  # Fetch any missing foldseek databases
         else:
             self._target_df = self._fetch_missing_structures(
                 "target", self._target_df, self._settings.structure_dir
@@ -498,24 +498,23 @@ class PocketMapper:
         Coordinate structural alignment routes bridging query and target proteins.
 
         Dispatches to `_run_foldseek()` if global flag is true, else rolls
-        back to `_local_alignment()`. Requisites like `_preprocess_structures()`
+        back to `_local_alignment()`. Requisites like `_foldseek_preprocessing()`
         precede foldseek routines.
 
         Returns:
             None
         """
-        self._log_extra.update({"stage": "Alignment"})
+        log_extra = {"stage": "Alignment"}
         if self._settings.foldseek:
-            # if not os.path.isfile(self._settings.alignment_path):
-            logging.info("Preprocessing structures for Foldseek...", extra=self._log_extra)
-            self._preprocess_structures()
-            logging.info("Running Foldseek easy-search...", extra=self._log_extra)
+            logging.info("Preprocessing structures for Foldseek...", extra=log_extra)
+            self._foldseek_preprocessing()
+            logging.info("Running Foldseek easy-search...", extra=log_extra)
             self._foldseek_alignment()
         else:
-            logging.info("Running local pairwise aligner...", extra=self._log_extra)
+            logging.info("Running local pairwise aligner...", extra=log_extra)
             self._local_alignment()
 
-    def _preprocess_structures(self):
+    def _foldseek_preprocessing(self):
         """
         Split complex PDB structures into single chain mmCIF files for Foldseek processing.
         Copies structure to the query/target directories, ensuring that the Foldseek preprocessed structure directory is populated.
