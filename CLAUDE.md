@@ -80,7 +80,8 @@ alignment region — `pct_aln` 0.0, `overlap_count` 0 on every row, no warning, 
 Dedenting the increment to the outer loop fixes it; `seq_pos` and `ca_sequence` now match
 `parse_pocket_from_struct` exactly. Note `atp_pocket_overlap` never had the bug (it has only one residue
 loop), which is likely how it arose: `pocket_overlap` looks derived from it by wrapping a `for res2` loop
-around the body without dedenting the counter.
+around the body without dedenting the counter. `atp_pocket_overlap` is uncalled but deliberately retained
+for planned ATP-pocket work — leave it in place.
 
 This was also the main trigger for the `KeyError` above: a run over vdw pockets scored zero everywhere and so
 always crashed in `_align_structs`. Local-file entries like `4Q5J.cif.gz:B_F` resolve to vdw (`B_F` matches
@@ -219,9 +220,10 @@ Things to know when consuming it this way:
 
 ## Repo layout notes
 
-- `lib.py` is the legacy grab-bag; `compare_pockets`, the BLOSUM62 matrix reader, and the similarity scorers live
-  there. Several functions in it (`pdb_preprocessing_gemmi`, `calculate_pockets`, `pocket_overlap`,
-  `download_pisa_info`) are superseded by the class-based modules and are no longer called by `search()`.
+- `lib.py` is the legacy grab-bag; `compare_pockets`, the BLOSUM62 matrix reader, the similarity scorers,
+  `jsonify_dict` and `safe_filename` live there. Everything in it is reachable from `search()` — the older
+  superseded copies of the preprocessing, pocket-calculation and PISA-download logic have been deleted in
+  favour of the class-based modules.
 - `blosum62.bla` and `human_domains/` (a bundled Foldseek DB) ship as package data — see
   `[tool.setuptools.package-data]` in `pyproject.toml`.
 - `tests/e2e/fixtures/` holds the batch input files and a local `4Q5J.cif.gz`. Cases run with that directory

@@ -181,8 +181,7 @@ class PocketMapper:
             verbosity (int, optional): Control logging level.
             help (bool, optional): Output the help message and exit.
             foldseek (bool, optional): Use foldseek for structure alignment instead of local sequence alignment.
-            align_structures (bool, optional): Align target structures after pocket comparison.
-            align_count (int, optional): Number of top alignments to consider for pocket comparison.
+            align_count (int, optional): Number of top targets to superpose onto each query.
         """
         self._log_extra = {
             "stage": "Starting Search"
@@ -248,52 +247,57 @@ class PocketMapper:
 
         Primary options:
             --query QUERY            Query identifier or path. Accepts:
-                        - 'PDB_CHAIN_CHAIN' (e.g., 1ABC_A_B)
-                        - path to a file listing PDB_CHAIN_CHAIN entries (each line)
+                        - 'STRUCT:CHAINS[:RESIDUES]' (e.g., 1ABC:A_B, 1ABC:A:10,11,12, P12345:A:10,11)
+                        - path to a file listing such entries, one per line
             --target TARGET          Target identifier or path. Accepts:
-                        - 'PDB_CHAIN_CHAIN' (e.g., 2XYZ_C_D)
-                        - path to a file listing PDB_CHAIN_CHAIN entries (each line)
-                        - special foldseek DB alias 'human_domains' to use the bundled Foldseek DB
+                        - 'STRUCT:CHAINS[:RESIDUES]' (e.g., 2XYZ:C_D)
+                        - path to a file listing such entries, one per line
+                        - a bundled Foldseek DB name ('human_domains', 'pdb'), which requires --foldseek True
             --settings FILE          Path to a JSON file of {"ARG": "VALUE", ...} (overridden by explicit CLI args)
             --cache_dir DIR          Directory for caching files
             --results_dir DIR        Directory for writing results
             --verbosity LEVEL        Set verbosity level (4=DEBUG, 3=INFO, 2=WARNING, else ERROR)
             --foldseek BOOL          Whether to use foldseek for structure alignment instead of local sequence alignment
-            --align_structures BOOL  Whether to align target structures after pocket comparison
+            --align_count N          Number of top targets to superpose onto each query (0 disables, default 10)
+            --query_pocket_method M  Force the query pocket method ('pisa', 'passthrough' or 'vdw')
+            --target_pocket_method M Force the target pocket method ('pisa', 'passthrough' or 'vdw')
             --help                   Show this help message and exit
 
         Advanced Options (set via settings JSON):
-            structure_dir            Directory to store downloaded/available structures
-            pocket_dir               Directory to store calculated pockets
-            foldseek_preprocessed_struct_dir       Directory for preprocessed/divided structures
-            query_dir                Temporary directory for query divided structures
-            target_dir               Temporary directory for target divided structures
-            alignment_path           Path to write alignment TSV
-            pocket_comparison_path   Path to write pocket comparison TSV
-            foldseek                 Use Foldseek for alignment (bool). If true and target == 'ted', uses bundled DB.
-            pisa_pockets             Retrieve pockets via PISA (bool)
-            structure                If set, treat inputs as raw structure files (bool)
+            structure_dir                          Directory to store downloaded/available structures
+            pocket_dir                             Directory to store calculated pockets
+            foldseek_preprocessed_structure_dir    Directory for preprocessed/divided structures
+            foldseek_tmp_dir                       Scratch directory for Foldseek
+            fsdb_dir                               Directory for downloaded Foldseek databases
+            query_dir                              Temporary directory for query divided structures
+            target_dir                             Temporary directory for target divided structures
+            aligned_structure_dir                  Directory to write superposed structures to
+            alignment_path                         Path to write alignment TSV
+            pocket_comparison_path                 Path to write pocket comparison TSV
+            job_settings_path                      Path to write the resolved settings to
+            log_path                               Path to write the run log to
 
         Description:
             Orchestrates fetching/preprocessing of structures, runs local or Foldseek alignments,
-            fetches pockets (PISA), extracts atom coordinates from mmCIF files, compares pockets
-            using alignments and scoring, and writes results to the results directory.
+            derives pockets (PISA, explicit residue lists, or VdW contacts), extracts atom coordinates
+            from mmCIF files, compares pockets using alignments and scoring, and writes results to the
+            results directory.
 
         Examples:
             # Single pair using local alignment and default settings
-            pocketmapper search --query 1ABC_A_B --target 2XYZ_C_D --results_dir ./out
+            pocketmapper search --query 1ABC:A_B --target 2XYZ:C_D --results_dir ./out
 
-            # Batch mode using files with one PDB_CHAIN_CHAIN per line
+            # Batch mode using files with one entry per line
             pocketmapper search --query queries.txt --target targets.txt --settings config.json
 
             # Use Foldseek (set foldseek True). When using the built-in human_domains DB:
-            pocketmapper search --query 1ABC_A_B --target human_domains --foldseek True --results_dir ./out_fs
+            pocketmapper search --query 1ABC:A_B --target human_domains --foldseek True --results_dir ./out_fs
 
             # Override cache and set verbosity to debug
-            pocketmapper search --query 1ABC_A_B --target 2XYZ_C_D --cache_dir /tmp/cache --verbosity 4
+            pocketmapper search --query 1ABC:A_B --target 2XYZ:C_D --cache_dir /tmp/cache --verbosity 4
 
         Notes:
-            - Query/target inputs are interpreted either as single PDB_CHAIN_CHAIN strings or as file paths.
+            - Query/target inputs are interpreted either as single 'STRUCT:CHAINS[:RESIDUES]' strings or as file paths.
             - Boolean settings can be provided on the command line (e.g., --foldseek True).
             - Use a settings JSON to persist complex configurations; CLI options override settings file values.
 
@@ -497,7 +501,7 @@ class PocketMapper:
         """
         Coordinate structural alignment routes bridging query and target proteins.
 
-        Dispatches to `_run_foldseek()` if global flag is true, else rolls
+        Dispatches to `_foldseek_alignment()` if the foldseek flag is set, else rolls
         back to `_local_alignment()`. Requisites like `_foldseek_preprocessing()`
         precede foldseek routines.
 
@@ -868,8 +872,8 @@ class PocketMapper:
         """
         Perform structural superposition of target structures against the query reference frame.
 
-        If the `align_structures` flag is set, this method will take the top N alignments (as defined by `align_count`)
-        from the alignment results and perform a structural alignment using the `StructureAligner` class.
+        Takes the top N targets (as defined by `align_count`) from the pocket comparison results
+        and performs a structural alignment using the `StructureAligner` class.
         The aligned structures will be saved to the target directory for downstream analysis.
 
         Returns:

@@ -10,48 +10,8 @@ from numpy.linalg import norm
 
 from pocketmapper.constants import SINGLE_AA_CODE
 
-# from pocketmapper.lib import jsonify_dict
-
 
 class PocketCalculator:
-    def __init__(self):
-        self.single_aa_code = {
-            "CYS": "C",
-            "ASP": "D",
-            "SER": "S",
-            "GLN": "Q",
-            "LYS": "K",
-            "ILE": "I",
-            "PRO": "P",
-            "THR": "T",
-            "PHE": "F",
-            "ASN": "N",
-            "GLY": "G",
-            "HIS": "H",
-            "LEU": "L",
-            "ARG": "R",
-            "TRP": "W",
-            "ALA": "A",
-            "VAL": "V",
-            "GLU": "E",
-            "TYR": "Y",
-            "MET": "M",
-            "SEP": "S",  # phospho
-            "TPO": "T",  # phospho
-        }
-
-    def sets_to_lists(self, item):
-        """
-        Recursively looks for sets in a dictionary and turns then into lists
-        This allows dicts with sets to become JSON serializeable
-        """
-        if isinstance(item, set):
-            return list(item)
-        elif isinstance(item, dict):
-            return {k: self.sets_to_lists(v) for k, v in item.items()}
-        else:
-            return item
-
     def pocket_overlap(self, structure, domain_chain, motif_chain):
         """
         structure1: Gemmi structure or path to mmcif file
@@ -81,16 +41,7 @@ class PocketCalculator:
             res_single_code = SINGLE_AA_CODE.get(res1.name, "X")
             ca_sequence.append(res_single_code)
             for res2 in motif_residues:
-                # atom ordering per residue: ['N', 'CA', 'C', 'O', 'CB', R1, R1, ...]
-                # if res1.name == "GLY":
-                #    backbone1 = [0, 2, 3]
-                # else:
-                #    backbone1 = [0, 1, 2, 3]
-                # if res2.name == "GLY":
-                #    backbone2 = [0, 2, 3]
-                # else:
-                #    backbone2 = [0, 1, 2, 3]
-                # Count contacts between residue and ATP
+                # Count contacts between the two residues
                 contacts = 0
                 for atom1, atom2 in product(res1, res2):
                     distance = norm(list(atom1.pos - atom2.pos))
@@ -98,7 +49,6 @@ class PocketCalculator:
                         break  # skip distant atoms to save time
                     vdw_range = atom1.element.vdw_r + atom2.element.vdw_r
                     overlap = vdw_range - distance
-                    # if distance < 4.0:
                     if overlap > -0.4:
                         contacts += 1
                         continue
@@ -107,7 +57,7 @@ class PocketCalculator:
                 if contacts > 0:
                     res_data = {
                         "res_code": res1.name,
-                        "res_code_single": self.single_aa_code.get(res1.name, "X"),
+                        "res_code_single": res_single_code,
                         "uniprot_pos": -1,
                         "seq_pos": ca_num,
                         "ca_coords": list(res1.get_ca().pos),
@@ -127,6 +77,15 @@ class PocketCalculator:
         return pocket_data
 
     def atp_pocket_overlap(self, struct_path, atp_chain_id, name):
+        """
+        Pocket residues of a chain that contact its own bound ATP ligand.
+
+        Unlike pocket_overlap, which takes contacts between two polymer chains, this walks the
+        polymer against the ATP HETATM residue in the same chain.
+
+        NOTE: retained deliberately -- not currently called by search() or any pocket method, and
+        kept for planned ATP-pocket work. Do not remove as dead code.
+        """
         structure = gemmi.read_structure(struct_path, format=gemmi.CoorFormat.Mmcif)
         structure.setup_entities()
         chain = structure[0][atp_chain_id]
@@ -142,7 +101,7 @@ class PocketCalculator:
         ca_num = 0
         pocket_data = {}
         for residue in chain.get_polymer():
-            # FOldseek skips residues with no CA atom
+            # Foldseek skips residues with no CA atom
             if "CA" not in residue:
                 continue
 
@@ -152,7 +111,6 @@ class PocketCalculator:
                 distance = norm(list(atom1.pos - atom2.pos))
                 vdw_range = atom1.element.vdw_r + atom2.element.vdw_r
                 overlap = vdw_range - distance
-                # if distance < 4.0:
                 if overlap > -0.4:
                     contacts += 1
                     continue
@@ -161,7 +119,7 @@ class PocketCalculator:
             if contacts > 0:
                 res_data = {
                     "res_code": residue.name,
-                    "res_code_single": self.single_aa_code.get(residue.name, "X"),
+                    "res_code_single": SINGLE_AA_CODE.get(residue.name, "X"),
                     "uniprot_pos": -1,
                     "seq_pos": ca_num,
                     "ca_coords": list(residue.get_ca().pos),
@@ -174,13 +132,3 @@ class PocketCalculator:
         pocket_data["pocket_exists"] = True
         pocket_data["has_coords"] = True
         return {name: pocket_data}
-
-
-if __name__ == "__main__":
-    pc = PocketCalculator()
-    struct_path = (
-        r"/Users/lellingboe/Work/data/kinase_edit/atp_pocket/pocketmapper_cache/divided_structs/4WB5_A_B.cif.gz"
-    )
-    atp_chain_id = "A"
-    name = "4WB5_A_B"
-    pocket = pc.atp_pocket_overlap(struct_path, atp_chain_id, name)

@@ -36,12 +36,14 @@ class StructurePreprocessor:
 
     def preprocess_records(self, records, search_dir):
         """
-        Docstring for pdb_preprocessing_gemmi
+        Split each record's reference structure down to its single alignment chain.
 
-        :param df: Description
-        :param ref_dir: directory for reference pdb files to be divided
-        :param cache_dir: directory for divided pdbs to be cached
-        :param out_dir: directory to be used with foldseek
+        The single-chain copy is cached under the output directory set by
+        set_output_directory() and then copied into search_dir for Foldseek to index.
+
+        :param records: QTRecord dicts carrying struct_path and the preprocess_* paths
+        :param search_dir: directory Foldseek will read the single-chain structures from
+        :return: dict of pocket_id -> whether preprocessing succeeded
         """
         status_dict = {}
         stage = {"stage": "Dividing structures"}
@@ -99,10 +101,5 @@ class StructurePreprocessor:
             shutil.copyfile(out_path_gz, search_path)  # copying to foldseek directory
 
             status_dict[record["pocket_id"]] = True
-
-            # except Exception as e:
-            #    logging.warning(f"Could not divide {struct_info} with chain info {chain_info}", extra=stage)
-            #    logging.debug("Exception info", exc_info=e, extra=stage)
-            #    status_dict[record["pocket_id"]] = False
 
         return status_dict

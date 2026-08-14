@@ -68,7 +68,6 @@ class QTProcessor:
             "human_domains": str(files(human_domains).joinpath("human_v3_20260531")),
             "pdb": os.path.join(self.settings.fsdb_dir, "pdb"),
         }
-        self._available_pocket_methods = {"pisa", "passthrough", "vdw"}
 
     def process_qt_cmdline_input(self):
         """
@@ -81,7 +80,6 @@ class QTProcessor:
 
             qt_input = getattr(self.settings, name)
             pocket_method = getattr(self.settings, f"{name}_pocket_method")
-            self.processing_target = name == "target"
 
             # Check that query and target are specified
             if isinstance(qt_input, type(None)):

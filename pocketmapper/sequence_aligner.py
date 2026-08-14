@@ -8,36 +8,10 @@ import gemmi
 from itertools import product
 import pandas as pd
 
+from pocketmapper.constants import SINGLE_AA_CODE
+
 
 class SequenceAligner:
-    def __init__(self):
-        self.single_aa_code = {
-            "CYS": "C",
-            "ASP": "D",
-            "SER": "S",
-            "GLN": "Q",
-            "LYS": "K",
-            "ILE": "I",
-            "PRO": "P",
-            "THR": "T",
-            "PHE": "F",
-            "ASN": "N",
-            "GLY": "G",
-            "HIS": "H",
-            "LEU": "L",
-            "ARG": "R",
-            "TRP": "W",
-            "ALA": "A",
-            "VAL": "V",
-            "GLU": "E",
-            "TYR": "Y",
-            "MET": "M",
-            "SEP": "S",  # phosphoserine
-            "TPO": "T",  # phosphotheonine
-            "PTR": "Y",  # phosphotyrosine
-            "MSE": "M",  # selenomethionine
-        }
-
     def _replaceNonCommonResidues(self, peptide):
         processed_peptide = list(peptide)
         common_aas = list("ACDEFGHIKLMNPQRSTVWY")
@@ -48,12 +22,7 @@ class SequenceAligner:
 
         return "".join(processed_peptide)
 
-    def _align_seqs(self, peptide1, peptide2, aligner=None):
-
-        if aligner is None:
-            aligner = Align.PairwiseAligner()
-            aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
-
+    def _align_seqs(self, peptide1, peptide2, aligner):
         peptide1 = self._replaceNonCommonResidues(peptide1)
         peptide2 = self._replaceNonCommonResidues(peptide2)
         alignments = aligner.align(peptide1, peptide2)
@@ -82,9 +51,7 @@ class SequenceAligner:
             st = gemmi.read_structure(path)  # format inferred from the extension, so local .pdb inputs work too
             st.setup_entities()
             aln_chain = record["chain_info"][0]  # e.g., "A" from "A_B" or "A"
-            seq = "".join(
-                [self.single_aa_code.get(res.name, "X") for res in st[0][aln_chain].get_polymer() if "CA" in res]
-            )
+            seq = "".join([SINGLE_AA_CODE.get(res.name, "X") for res in st[0][aln_chain].get_polymer() if "CA" in res])
             name_to_seq[name] = seq
 
         # Performing pairwise alignment
