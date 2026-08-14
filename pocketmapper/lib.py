@@ -1,23 +1,13 @@
-import gzip
 import hashlib
-import shutil
-import os
 import logging
 from copy import deepcopy
 from Bio.SVDSuperimposer import SVDSuperimposer
-from Bio.PDB import MMCIFParser
-from glob import glob
 from itertools import product
 from tqdm import tqdm
-import json
 from collections import defaultdict
 import pandas as pd
-import gemmi
 from numpy import array
 from numpy import linalg as LA
-from pocketmapper import pisa_downloader
-
-from pocketmapper.constants import SINGLE_AA_CODE, VDW_RADII
 
 # Every column compare_pockets can produce, in output order.
 #
@@ -63,131 +53,6 @@ POCKET_COMPARISON_COLUMNS = [
 ]
 
 
-def pdb_preprocessing_gemmi(df, ref_dir, cache_dir, out_dir):
-    """
-    Docstring for pdb_preprocessing_gemmi
-
-    :param df: Description
-    :param ref_dir: directory for reference pdb files to be divided
-    :param cache_dir: directory for divided pdbs to be cached
-    :param out_dir: directory to be used with foldseek
-    """
-    status_dict = {}
-    stage = {"stage": "Dividing structures"}
-
-    for i, row in tqdm(df.iterrows()):
-        pdb = row["struct_info"]
-        chain_info = row["chain_info"]  # e.g. A_B or A
-        chains = chain_info.split("_")  # [A, B] or [A]
-        try:
-            # Ensuring divided structure is in the cache directory
-            while len(chains) > 0:
-                pdb_chains = pdb + "_" + "_".join(chains)
-                cache_path = os.path.join(cache_dir, f"{pdb_chains}.cif")
-                cache_path_gz = cache_path + ".gz"
-
-                if not os.path.exists(cache_path_gz):
-                    ref_path = os.path.join(ref_dir, f"{pdb}.cif.gz")
-                    st = gemmi.read_structure(ref_path, format=gemmi.CoorFormat.Mmcif)
-
-                    # Taking first model and deleting the rest
-                    del st[1:]
-                    model = st[0]
-
-                    # verify structure contains all interaction chains
-                    model_chains = set([chain.name for chain in model])
-                    if not set(chains).issubset(model_chains):
-                        msg = f"Preprocessing: {pdb} does not contain all interaction chains {chains}"
-                        logging.warning(
-                            msg,
-                            extra=stage,
-                        )
-                        status_dict[i] = False
-                        chains = []  # to skip to next pdb
-                        continue
-
-                    # Detaching all non interaction chains
-                    for chain_id in model_chains:
-                        if chain_id not in chains:
-                            del model[chain_id]
-
-                    # Output the domain and motif pdb file
-                    groups = gemmi.MmcifOutputGroups(False, atoms=True, group_pdb=True)
-                    st.make_mmcif_document(groups).write_file(cache_path)
-                    with open(cache_path, "rb") as f_in:
-                        with gzip.open(cache_path_gz, "wb") as f_out:
-                            shutil.copyfileobj(f_in, f_out)
-                    os.remove(cache_path)
-
-                out_path_gz = os.path.join(out_dir, f"{pdb_chains}.cif.gz")
-                shutil.copyfile(cache_path_gz, out_path_gz)  # copying to foldseek directory
-
-                status_dict[i] = True
-                chains = chains[:-1]  # e.g. A_B -> A
-
-        except Exception as e:
-            logging.warning(f"Could not divide {pdb} with chain info {chain_info}", extra=stage)
-            logging.debug("Exception info", exc_info=e, extra=stage)
-            status_dict[i] = False
-
-    return status_dict
-
-
-def calculate_pockets(df, target_dir, query_dir, pocket_dir):
-    """Takes in a path to a pdb file"""
-    parser = MMCIFParser()
-    pocket_cache = glob(pocket_dir + "/*.json")
-
-    all_problem_atoms = defaultdict(lambda: 0)
-    all_problem_residues = defaultdict(lambda: 0)
-    pocket_dict = {}
-    for i, row in tqdm(df.iterrows()):
-        pocket_path = os.path.join(pocket_dir, f"{row.pdb_domain_motif}.json")
-        if pocket_path in pocket_cache:  # If cache exists, just load that
-            with open(pocket_path, "r") as f:
-                pocket = json.load(f)
-        else:
-            if row.type == "query":
-                tmp_dir = query_dir
-            if row.type == "target":
-                tmp_dir = target_dir
-
-            # Load the structure
-            try:
-                structure = parser.get_structure(
-                    row.pdb_domain_motif,
-                    os.path.join(tmp_dir, f"{row.pdb_domain_motif}.cif"),
-                )
-            except Exception:
-                logging.exception(
-                    f"Error parsing structure {row.pdb_domain_motif}",
-                    extra={"stage": "Calculating Pockets"},
-                )
-                continue
-
-            # Calculate the pocket from that structure
-            try:
-                pocket, problem_atoms, problem_residues = pocket_overlap(structure, row.domain_chain, row.motif_chain)
-            except Exception:
-                logging.exception(
-                    f"Error calculating pocket {row.pdb_domain_motif}",
-                    extra={"stage": "Calculating Pockets"},
-                )
-                continue
-
-            # Update problem cases
-            for atom in problem_atoms:
-                all_problem_atoms[atom] += 1
-            for res in problem_residues:
-                all_problem_residues[res] += 1
-
-            with open(pocket_path, "w") as f:
-                json.dump(pocket, f)
-        pocket_dict[row.pdb_domain_motif] = pocket
-
-    return pocket_dict, all_problem_atoms, all_problem_residues
-
-
 def jsonify_dict(item):
     """
     Recursively looks for sets in a dictionary and turns then into lists
@@ -215,115 +80,6 @@ def safe_filename(name, max_len=80):
         return safe_name
     name_hash = hashlib.md5(name.encode()).hexdigest()
     return f"{safe_name[:max_len]}_{name_hash}"
-
-
-# reimplement with scipy.spatial.distance.cdist
-def pocket_overlap(structure, domain_chain, motif_chain):
-    """
-    structure: Biopython model
-    chain1, chain2 : Strings -> Chain IDs
-    """
-
-    model = structure[0]
-
-    pocket_res_ids = dict()
-    motif_res_ids = dict()
-    full_interaction = dict()
-
-    problem_atoms = set()
-    problem_residues = set()
-
-    # Filter out hetatoms
-    domain_residues = [x for x in model[domain_chain].get_residues() if x.id[0] != "W"]  # removing water molecules
-    motif_residues = [x for x in model[motif_chain].get_residues()]
-
-    for res1, res2 in product(domain_residues, motif_residues):
-        # atom ordering per residue: ['N', 'CA', 'C', 'O', 'CB', R1, R1, ...]
-        if res1.get_resname() == "GLY":
-            backbone1 = [0, 2, 3]
-        else:
-            backbone1 = [0, 1, 2, 3]
-        if res2.get_resname() == "GLY":
-            backbone2 = [0, 2, 3]
-        else:
-            backbone2 = [0, 1, 2, 3]
-
-        for (pos1, atom1), (pos2, atom2) in product(enumerate(res1.get_atoms()), enumerate(res2.get_atoms())):
-            distance = atom1 - atom2
-            if distance > 5:
-                continue
-
-            # Skipping pocket residues not in the standard 20
-            if atom1.parent.resname not in SINGLE_AA_CODE:
-                problem_residues.add(res1.resname)
-                continue
-
-            # VDW Radii
-            try:
-                vdw1 = VDW_RADII[atom1.id[0]]
-            except KeyError:
-                problem_atoms.add(atom1.id)
-                continue
-            try:
-                vdw2 = VDW_RADII[atom2.id[0]]
-            except KeyError:
-                problem_atoms.add(atom2.id)
-                continue
-
-            vdw_range = vdw1 + vdw2
-            overlap = vdw_range - distance
-            if overlap > -0.4:
-                (full_interaction.setdefault(res1.id[1], dict()).setdefault(res2.id[1], set())).add(
-                    (pos1 not in backbone1, pos2 not in backbone2)
-                )
-
-                pocket_res_ids.setdefault(res1.id[1], False)
-                if pos1 not in backbone1:
-                    pocket_res_ids[res1.id[1]] = True
-                motif_res_ids.setdefault(res2.id[1], False)
-                if pos2 not in backbone1:
-                    motif_res_ids[res2.id[1]] = True
-
-    if len(problem_atoms) > 0:
-        logging.warning(
-            f"No vdw radius for {list(problem_atoms)} in {structure.id}",
-            extra={"stage": "Calculating Pocket"},
-        )
-    if len(problem_residues) > 0:
-        logging.warning(
-            f"No single AA code for {problem_residues}: {structure.id}",
-            extra={"stage": "Calculating Pocket"},
-        )
-
-    # Dict for mapping residue id to sequence position
-    res_id_to_pos = {}
-    res_pos_coords = {}
-    seq = []
-    for i, res in enumerate(domain_residues):
-        atoms = list(res.get_atoms())
-        if len(atoms) > 1 and atoms[1].id == "CA":
-            res_id_to_pos[res.id[1]] = i
-            res_pos_coords[i] = atoms[1].coord.tolist()
-        seq.append(SINGLE_AA_CODE.get(res.get_resname(), "X"))
-    seq = "".join(seq)
-
-    # mapping pocket ids to sequence position for foldseek
-    if pocket_res_ids:
-        pocket_res_pos = {res_id_to_pos[k]: v for k, v in pocket_res_ids.items() if k in res_id_to_pos}
-
-    pocket = jsonify_dict(
-        {
-            "pocket_exists": len(pocket_res_ids) > 0,
-            "pocket_res_ids": pocket_res_ids,
-            "pocket_res_pos": pocket_res_pos,
-            "res_id_to_pos": res_id_to_pos,
-            "pocket_to_motif_sidechain_overlap": full_interaction,
-            "res_pos_coords": res_pos_coords,
-            "seq": seq,
-        }
-    )
-
-    return pocket, problem_atoms, problem_residues
 
 
 """
@@ -360,7 +116,6 @@ def compare_pockets(
     Compare two pockets based on foldseek alignment
     """
 
-    # stage = {"stage": "Pocket Comparison"}
     blosum_similarity_matrix = read_blast_similarity_matrix(blosum_path)
 
     unknown_ids = defaultdict(lambda: defaultdict(set))  # for saving tri-code ids which are unknown
@@ -384,7 +139,6 @@ def compare_pockets(
                 if res != "-":
                     p1_seq_to_aln[i] = j
                     i += 1
-            # p1_aln_to_seq = {v: k for k, v in p1_seq_to_aln.items()}
 
             p2_seq_to_aln = {}
             i = 0
@@ -392,7 +146,6 @@ def compare_pockets(
                 if res != "-":
                     p2_seq_to_aln[i] = j
                     i += 1
-            # p2_aln_to_seq = {v: k for k, v in p2_seq_to_aln.items()}
 
             # GETTING POCKETS WHICH CORRESPOND TO THE FOLDSEEK NAME
             pockets_1 = {}
@@ -423,10 +176,6 @@ def compare_pockets(
 
             # Iterating through aligned pairs
             for pocket_id_1, pocket_id_2 in product(pockets_1.keys(), pockets_2.keys()):
-
-                # No self comparisons
-                # if interaction_1 == interaction_2:
-                #    continue
 
                 # Checking for A-B comparison if B-A has already been calculated
                 if (pocket_id_1, pocket_id_2) in existing_calcs:
@@ -700,8 +449,3 @@ def read_blast_similarity_matrix(similarity_matrix_path, delimiter=" "):
         else:
             similarity_matrix["-"][aa] = -4
     return similarity_matrix
-
-
-def download_pisa_info(pdb_list, summary_dir, assembly_dir, interface_dir):
-    downloader = pisa_downloader.PisaDownloader()
-    downloader.get_interfaces(pdb_list, summary_dir, assembly_dir, interface_dir)
