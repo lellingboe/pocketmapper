@@ -70,13 +70,16 @@ class SequenceAligner:
         """
 
         # building a mapping of preprocess_name to sequence for all queries and targets (to avoid redundant structure parsing and sequence extraction during alignment) - this assumes that preprocess_name is unique across queries and targets, which should be the case if they are in the format "P12345_A" or "1ABC_A"
+        # Reads the full reference structure rather than the per-chain files under
+        # foldseek_preprocessed_structure_dir: that preprocessing only runs on the Foldseek branch, and
+        # we select the chain ourselves below, so the split copies buy us nothing here.
         name_to_seq = {}
         for record in query_records + target_records:
             name = record["preprocess_name"]
             if name in name_to_seq:
                 continue  # skip if already processed
-            path = record["preprocess_path_gz"]
-            st = gemmi.read_structure(path, format=gemmi.CoorFormat.Mmcif)
+            path = record["struct_path"]
+            st = gemmi.read_structure(path)  # format inferred from the extension, so local .pdb inputs work too
             st.setup_entities()
             aln_chain = record["chain_info"][0]  # e.g., "A" from "A_B" or "A"
             seq = "".join(
