@@ -44,8 +44,8 @@ branch at all, which is how it shipped broken.
 
 ### Invariants worth knowing
 
-**The comparison table has a fixed schema.** `lib.POCKET_COMPARISON_COLUMNS` declares every column
-`compare_pockets` can produce, and the result is reindexed onto it before returning, so all 33 columns exist
+**The comparison table has a fixed schema.** `pocket_comparison.POCKET_COMPARISON_COLUMNS` declares every
+column `compare_pockets` can produce, and the result is reindexed onto it before returning, so all 33 exist
 on every run — rows that stop early (no overlap, no coordinates, an alphafold/foldseek-db target with no
 pocket 2) leave the later fields empty rather than dropping them. Add a new output field to that list as well
 as to the row dict; a column produced but not declared is kept and logged as a warning rather than silently
@@ -120,7 +120,7 @@ invoked via `subprocess.run` and is required for `--foldseek True` and for any `
 3. `_fetch_missing_structures` (or `_fetch_missing_fsdb`) → downloads mmCIF from wwPDB / AlphaFold into `structure_dir`.
 4. `_alignment` → either `_foldseek_preprocessing` + `_foldseek_alignment`, or `_local_alignment`. Both write `alignment.tsv`.
 5. `_get_pockets` → union of `_retrieve_pisa_pockets` | `_retrieve_passthrough_pockets` | `_retrieve_vdw_pockets`.
-6. `_compare_pockets_based_on_alignment` → `lib.compare_pockets` → `pocket_comparison.tsv`.
+6. `_compare_pockets_based_on_alignment` → `pocket_comparison.compare_pockets` → `pocket_comparison.tsv`.
 7. `_align_structs` → superposes the top `align_count` targets onto each query into `aligned_structures/`.
 
 ### Input grammar
@@ -141,7 +141,7 @@ The original input string is kept as `pocket_id` and is the identifier used thro
 **The alignment table's column order is a positional contract.** `SequenceAligner.align_records` builds the
 exact same 18 columns that the Foldseek `--format-output` flag requests
 (`query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,lddt,qaln,taln,u,t,qseq,tseq`),
-and `lib.compare_pockets` reads them **by index** (`row[0]`…`row[17]`). Changing or reordering columns in one
+and `pocket_comparison.compare_pockets` reads them **by index** (`row[0]`…`row[17]`). Changing or reordering columns in one
 producer without the other, or without updating the indices in `compare_pockets`, breaks silently.
 
 **`preprocess_name` is the join key.** It is `<basename>_<chain><md5-of-that>` (e.g. `4Q5J_B_<hash>`), computed
@@ -190,8 +190,8 @@ pocket = parse_pocket_from_struct("./structs/4Q5J.cif.gz", "B", [100, 101, 102])
 ```
 
 Level 3 covers `StructureFetcher`, `StructurePreprocessor`, `PisaDownloader`, `PisaParser`,
-`SequenceAligner`, `StructureAligner`, `PocketCalculator`, and the `lib`/`lib_struct` functions — all
-constructed with no arguments and driven by explicit paths.
+`SequenceAligner`, `StructureAligner`, `PocketCalculator`, and the `lib`/`lib_struct`/`pocket_comparison`
+functions — all constructed with no arguments and driven by explicit paths.
 
 Things to know when consuming it this way:
 
@@ -230,10 +230,13 @@ Things to know when consuming it this way:
 
 ## Repo layout notes
 
-- `lib.py` is the legacy grab-bag; `compare_pockets`, the BLOSUM62 matrix reader, the similarity scorers,
-  `jsonify_dict` and `safe_filename` live there. Everything in it is reachable from `search()` — the older
-  superseded copies of the preprocessing, pocket-calculation and PISA-download logic have been deleted in
-  favour of the class-based modules.
+- `lib.py` holds only generic, stateless helpers — `jsonify_dict`, `safe_filename`, the BLOSUM62 matrix
+  reader and the similarity scorers. Nothing in it knows about `Settings`, the pipeline or the pocket dict
+  shape; keep it that way, and put workflow logic in a component module instead. It used to be a grab-bag:
+  the superseded copies of the preprocessing, pocket-calculation and PISA-download logic were deleted in
+  favour of the class-based modules, and `compare_pockets` moved out to `pocket_comparison.py`.
+- `pocket_comparison.py` owns pipeline step 6 — `POCKET_COMPARISON_COLUMNS`, `compare_pockets`, and the
+  Foldseek column-order contract they depend on.
 - `blosum62.bla` and `human_domains/` (a bundled Foldseek DB) ship as package data — see
   `[tool.setuptools.package-data]` in `pyproject.toml`.
 - `tests/e2e/fixtures/` holds the batch input files and a local `4Q5J.cif.gz`. Cases run with that directory
