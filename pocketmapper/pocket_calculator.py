@@ -113,7 +113,11 @@ class PocketCalculator:
                         "ca_coords": list(res1.get_ca().pos),
                     }
                     pocket_data[str(res1.seqid.num)] = res_data
-                ca_num += 1
+
+            # Counts CA-bearing domain residues, so it must advance once per res1 (in step with
+            # ca_sequence above), not once per res1/res2 pair. Downstream, seq_pos is the residue's
+            # index within this chain's CA sequence, which is what maps it into the alignment.
+            ca_num += 1
 
         pocket_data["res_auth_ids"] = [str(x) for x in pocket_data.keys()]
         pocket_data["id_pos_codes_match"] = True
