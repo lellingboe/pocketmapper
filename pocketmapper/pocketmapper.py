@@ -16,10 +16,11 @@ import os
 import sys
 from datetime import datetime
 import shutil
-from pocketmapper import lib
+from pocketmapper.lib import jsonify_dict, safe_filename
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.pisa_downloader import PisaDownloader
 from pocketmapper.pisa_parser import PisaParser
+from pocketmapper.pocket_comparison import compare_pockets
 from pocketmapper.sequence_aligner import SequenceAligner
 from pocketmapper.pocket_calculator import PocketCalculator
 from pocketmapper.qt_processor import QTProcessor
@@ -845,7 +846,7 @@ class PocketMapper:
                 preproc_to_ids[row["preprocess_name"]] = [row["pocket_id"]]
         logging.debug(f"Preprocessed name to pocket ID mapping: {preproc_to_ids}", extra=stage)
 
-        pockets_df, unknown_alias, incorrect_mapping = lib.compare_pockets(
+        pockets_df, unknown_alias, incorrect_mapping = compare_pockets(
             alignment_df, pockets, preproc_to_ids=preproc_to_ids, blosum_path=blosum_path, alphafold=self.fsdb_target
         )
 
@@ -854,14 +855,14 @@ class PocketMapper:
             unknown_alias_path = os.path.join(self._settings.results_dir, "unknown_ids.json")
             logging.warning("Unknown Foldseek Alias, see unknown_alias.json in results directory", extra=stage)
             with open(unknown_alias_path, "w") as f:
-                json.dump(lib.jsonify_dict(dict(unknown_alias)), f)
+                json.dump(jsonify_dict(dict(unknown_alias)), f)
 
         # logging cases where foldseek mapping had low sequence identity to the parsed structure
         if len(incorrect_mapping) > 0:
             incorrect_mapping_path = os.path.join(self._settings.results_dir, "incorrect_mapping.json")
             logging.warning("Foldseek mapping with low sequence identity to parsed structure", extra=stage)
             with open(incorrect_mapping_path, "w") as f:
-                json.dump(lib.jsonify_dict(dict(incorrect_mapping)), f)
+                json.dump(jsonify_dict(dict(incorrect_mapping)), f)
 
         # Writing pocket comparison results to output file
         output_path = self._settings.pocket_comparison_path
@@ -1005,7 +1006,7 @@ class PocketMapper:
                 aligner.foldseek_transform(
                     aln_records=aln_records,
                     alignment_df=alignment_df,
-                    out_path=os.path.join(self._settings.aligned_structure_dir, f"{lib.safe_filename(query_id)}.pdb"),
+                    out_path=os.path.join(self._settings.aligned_structure_dir, f"{safe_filename(query_id)}.pdb"),
                 )
 
     def _delete_tmp(self):
