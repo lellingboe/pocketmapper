@@ -899,17 +899,29 @@ class PocketMapper:
             query_id = record["pocket_id"]
             logging.debug(f"Processing query {query_id} for structural alignment", extra=stage)
 
-            # Select the top N target structures based on pocket comparison metrics
+            # Select the top N target structures based on pocket comparison metrics. Targets sharing no
+            # pocket residues with the query are excluded: there is no common set of residues to superpose
+            # on, and their overlap metrics are empty so they would sort arbitrarily.
             target_ids = (
-                pocket_comparison_df.query(f"pocket_1 == '{query_id}'")
+                pocket_comparison_df.query(f"pocket_1 == '{query_id}' and overlap_count > 0")
                 .sort_values(by=["pocket_1_pct_overlap", "min_overlap_similarity"], ascending=False)
                 .head(self._settings.align_count)
                 .loc[:, "pocket_2"]
                 .to_list()
             )
+            if not target_ids:
+                logging.info(
+                    f"No target overlaps the pocket of query {query_id}; skipping its structural alignment",
+                    extra=stage,
+                )
+                continue
             logging.debug(f"Top target IDs for query {query_id}: {target_ids}", extra=stage)
             qt_id_map[query_id] = target_ids
             unique_target_ids.update(target_ids)
+
+        if not unique_target_ids:
+            logging.info("No query/target pair shares pocket residues, nothing to superpose", extra=stage)
+            return
 
         self._query_df = self._query_df.set_index("pocket_id")
         if self.fsdb_target is False:

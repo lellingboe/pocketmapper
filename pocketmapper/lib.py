@@ -19,6 +19,49 @@ from pocketmapper import pisa_downloader
 
 from pocketmapper.constants import SINGLE_AA_CODE, VDW_RADII
 
+# Every column compare_pockets can produce, in output order.
+#
+# A comparison stops early whenever there is nothing further to compute -- no overlapping residues, no CA
+# coordinates, fewer than three overlapping residues to superpose, or a foldseek-db/alphafold target with no
+# pocket 2 to describe. Those rows leave the remaining fields empty rather than dropping the columns, so the
+# written table always has this exact schema and consumers can rely on a column existing regardless of what
+# any individual comparison found.
+POCKET_COMPARISON_COLUMNS = [
+    "pocket_1",
+    "pocket_2",
+    "evalue",
+    "lddt",
+    "pocket_1_res_ids",
+    "pocket_1_len",
+    "pocket_1_seq",
+    "pocket_1_pct_aln",
+    "pocket_2_res_ids",
+    "pocket_2_len",
+    "pocket_2_seq",
+    "pocket_2_pct_aln",
+    "overlap_count",
+    "pocket_1_overlap_ids",
+    "pocket_2_overlap_ids",
+    "pocket_1_pct_overlap",
+    "pocket_2_pct_overlap",
+    "min_pct_overlap",
+    "max_pct_overlap",
+    "pocket_1_seq_overlap",
+    "pocket_2_seq_overlap",
+    "overlap_identity",
+    "overlap_similarity_binary",
+    "overlap_similarity_1_2",
+    "overlap_similarity_2_1",
+    "min_overlap_similarity",
+    "max_overlap_similarity",
+    "p2_to_p1_u",
+    "p2_to_p1_t",
+    "p1_to_p2_u",
+    "p1_to_p2_t",
+    "rmsd",
+    "ca_dists",
+]
+
 
 def pdb_preprocessing_gemmi(df, ref_dir, cache_dir, out_dir):
     """
@@ -569,7 +612,18 @@ def compare_pockets(
             )
             raise
 
-    return pd.DataFrame.from_dict(output_rows), unknown_ids, incorrect_mapping
+    # Reindex onto the declared schema so every row carries every column. Any column produced but not
+    # declared is kept and flagged rather than silently dropped, so the list above can't drift out of date.
+    pockets_df = pd.DataFrame.from_dict(output_rows)
+    undeclared = [column for column in pockets_df.columns if column not in POCKET_COMPARISON_COLUMNS]
+    if undeclared:
+        logging.warning(
+            f"Pocket comparison produced undeclared column(s) {undeclared}; add them to POCKET_COMPARISON_COLUMNS",
+            extra={"stage": "Pocket Comparison"},
+        )
+    pockets_df = pockets_df.reindex(columns=POCKET_COMPARISON_COLUMNS + undeclared)
+
+    return pockets_df, unknown_ids, incorrect_mapping
 
 
 def binary_similarity(seqA, seqB, similarity_matrix):
