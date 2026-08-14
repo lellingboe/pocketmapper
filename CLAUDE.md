@@ -96,6 +96,16 @@ regression tests; both fail against the previous code. Note that `_align_structs
 local path — `SequenceAligner` writes `"-"` for the `u`/`t` transforms, which `foldseek_transform` catches and
 logs per record, so the run completes with an aligned PDB containing only the query.
 
+**`_align_structs` superposed every query onto the wrong reference.** It built `aln_records` as
+`[record] + top_target_records`, where `record` was a leaked loop variable from the earlier target-selection
+loop — so it was always the *last* query in `_query_df`, not the query being processed. `foldseek_transform`
+takes `aln_records[0]` as the reference frame, so with more than one query every output PDB led with the same
+wrong structure and the transforms were relative to it; single-query runs were correct, which is why it went
+unnoticed. Now uses `query_record`, which needs `pocket_id` put back by hand (`_query_df` is indexed on it by
+that point, so it is not in the row dict, and `foldseek_transform` reads it for the COMPND metadata). Not
+covered by the e2e suite, which only asserts on `pocket_comparison.tsv` and so passes either way — check the
+`MOLECULE` records in `aligned_structures/*.pdb` after a `test_3` run: each file must lead with its own query.
+
 Foldseek is an optional external binary (`conda install -c conda-forge -c bioconda foldseek`); it is
 invoked via `subprocess.run` and is required for `--foldseek True` and for any `foldseek_db` target.
 

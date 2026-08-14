@@ -988,7 +988,10 @@ class PocketMapper:
             target_record_df = target_record_df.set_index("pocket_id")
 
         for query_id, target_ids in qt_id_map.items():
+            # pocket_id is the index of _query_df, so it is not in the row dict -- put it back, since
+            # foldseek_transform reads it for the COMPND metadata.
             query_record = self._query_df.loc[query_id].to_dict()
+            query_record["pocket_id"] = query_id
             logging.debug(f"Query record for '{query_id}': {json.dumps(query_record, indent=4)}", extra=stage)
             # Fetch the corresponding target records
             top_target_records = target_record_df.loc[target_ids].reset_index().to_dict(orient="records")
@@ -996,7 +999,8 @@ class PocketMapper:
                 f"Top target records for query '{query_id}': {json.dumps(top_target_records, indent=4)}", extra=stage
             )
 
-            aln_records = [record] + top_target_records
+            # The query is the reference frame every target is superposed onto, so it must lead the list.
+            aln_records = [query_record] + top_target_records
             if len(aln_records) > 1:
                 aligner.foldseek_transform(
                     aln_records=aln_records,
