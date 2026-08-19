@@ -24,18 +24,24 @@ There are **no unit tests**, and `.github/workflows/test_and_deploy.yml` has a `
 dependencies — CI's only real gate is lint. What exists is an end-to-end suite in `tests/e2e/`:
 
 ```bash
-tests/e2e/run_e2e.sh --list          # the 13 cases and their tags
+tests/e2e/run_e2e.sh --list          # the 15 cases and their tags
 tests/e2e/run_e2e.sh -t core         # ~35s, no human_domains searches
 tests/e2e/run_e2e.sh -o /tmp/pm_e2e  # everything, results under a chosen directory
-tests/e2e/run_e2e.sh test_4          # one case by name
+tests/e2e/run_e2e.sh test_7          # one case by name
 ```
+
+Cases are grouped by what they exercise and numbered in that order: 1–6 structure-vs-structure pairs
+(all `core`), 7–11 human_domains DB targets, 12–13 the larger Foldseek DB targets, 14–15 the local aligner.
+Blank lines separate the groups in the `CASES` heredoc and are skipped by the runner (a `#` comment there
+would *not* be). Adding a case means inserting it in its group and renumbering what follows, so prefer
+describing a case by what it does rather than pinning to its number.
 
 Each case shells out to the real CLI and hits live wwPDB / AlphaFold / PDBe PISA — there are no mocks, so the
 suite needs network access. It asserts exit status plus the presence (and, where a pair is known to produce
 hits, the non-emptiness) of `pocket_comparison.tsv`. Reuse one `--cache-dir` across runs; a warm cache makes
 reruns dramatically faster. Cases needing resources that aren't present are reported as SKIP rather than
-failing: `test_10` wants `POCKETMAPPER_PDB_FSDB` pointed at a prebuilt Foldseek PDB database, and `test_13`
-downloads the full PDB Foldseek DB (tens of GB) so it only runs when named explicitly.
+failing: `test_12` wants `POCKETMAPPER_PDB_FSDB` pointed at a prebuilt Foldseek PDB database, and `test_13`
+downloads the full PDB Foldseek DB (2GB download, 7GB unzipped) so it only runs when named explicitly.
 
 Whether a case uses Foldseek is decided by `--foldseek` in its own `args` field, not by the runner — cases
 tagged `local` omit it to exercise the BLOSUM62 aligner, and only the Foldseek ones are skipped when the
@@ -71,7 +77,7 @@ infer the columns, so a run in which *every* row had zero overlap never created 
 single-pair comparisons. Fixed by the two invariants above: the fixed schema means the columns always exist,
 and the `overlap_count > 0` filter means the sort only ever sees rows with real metrics. Beyond the crash,
 the run used to abort before `_delete_tmp()`, leaking `query_structures/`/`target_structures/` into the
-results directory. `test_7` and `test_8` cover this.
+results directory. `test_4` and `test_5` cover this.
 
 **`vdw` pockets always scored zero overlap.** `ca_num += 1` in `PocketCalculator.pocket_overlap` sat inside
 the inner `for res2 in motif_residues` loop, so it counted residue *pairs* and inflated `seq_pos` by the
@@ -104,7 +110,7 @@ wrong structure and the transforms were relative to it; single-query runs were c
 unnoticed. Now uses `query_record`, which needs `pocket_id` put back by hand (`_query_df` is indexed on it by
 that point, so it is not in the row dict, and `foldseek_transform` reads it for the COMPND metadata). Not
 covered by the e2e suite, which only asserts on `pocket_comparison.tsv` and so passes either way — check the
-`MOLECULE` records in `aligned_structures/*.pdb` after a `test_3` run: each file must lead with its own query.
+`MOLECULE` records in `aligned_structures/*.pdb` after a `test_2` run: each file must lead with its own query.
 
 Foldseek is an optional external binary (`conda install -c conda-forge -c bioconda foldseek`); it is
 invoked via `subprocess.run` and is required for `--foldseek True` and for any `foldseek_db` target.
