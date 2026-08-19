@@ -343,8 +343,17 @@ class PocketMapper:
         """
         self._log_extra.update({"stage": "Determine Query/Target Types"})
 
-        qtprocessor = QTProcessor(settings=self._settings)
-        q_df, t_df = qtprocessor.process_qt_cmdline_input()
+        qtprocessor = QTProcessor(
+            structure_dir=self._settings.structure_dir,
+            foldseek_preprocessed_structure_dir=self._settings.foldseek_preprocessed_structure_dir,
+            fsdb_dir=self._settings.fsdb_dir,
+        )
+        q_df, t_df = qtprocessor.process_qt_cmdline_input(
+            query=self._settings.query,
+            target=self._settings.target,
+            query_pocket_method=self._settings.query_pocket_method,
+            target_pocket_method=self._settings.target_pocket_method,
+        )
 
         errors = []
         if len(q_df) < 1:

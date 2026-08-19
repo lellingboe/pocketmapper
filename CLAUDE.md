@@ -167,41 +167,41 @@ each target hit rather than looking one up, and `_align_structs` reconstructs ta
 ## Using it as a library
 
 Nothing in the package depends on being launched from a terminal — fire only wraps `PocketMapper` at the
-`main()` boundary. There are three levels of entry, from coarsest to finest:
+`main()` boundary. There are two levels of entry, coarse and fine:
 
 ```python
 # 1. Whole pipeline. Same work as the CLI; writes the same files into results_dir.
 from pocketmapper.pocketmapper import PocketMapper
 PocketMapper().search(query="4Q5J:B_F", target="4Q5J:A_E", results_dir="./out")
 
-# 2. Settings-driven components. resolve_paths() is REQUIRED before use (see gotcha below).
-from pocketmapper.pocketmapper import Settings
+# 2. Individual components. None of them take a Settings -- they are driven by explicit values.
 from pocketmapper.qt_processor import QTProcessor
-settings = Settings(query="4Q5J:B_F", target="4Q5J:A_E").resolve_paths()
-query_df, target_df = QTProcessor(settings=settings).process_qt_cmdline_input()
-
-# 3. Standalone components. These take no Settings and are the easiest pieces to reuse.
 from pocketmapper.structure_fetcher import StructureFetcher
 from pocketmapper.lib_struct import parse_pocket_from_struct
+query_df, target_df = QTProcessor(
+    structure_dir="./structs", foldseek_preprocessed_structure_dir="./preproc", fsdb_dir="./fsdb"
+).process_qt_cmdline_input(query="4Q5J:B_F", target="4Q5J:A_E")
 fetcher = StructureFetcher()
 fetcher.set_output_directory("./structs"); fetcher.update_cache()
 fetcher.fetch_structures([{"struct_type": "pdb", "struct_info": "4Q5J"}])
 pocket = parse_pocket_from_struct("./structs/4Q5J.cif.gz", "B", [100, 101, 102])
 ```
 
-Level 3 covers `StructureFetcher`, `StructurePreprocessor`, `PisaDownloader`, `PisaParser`,
+Level 2 covers `QTProcessor`, `StructureFetcher`, `StructurePreprocessor`, `PisaDownloader`, `PisaParser`,
 `SequenceAligner`, `StructureAligner`, `PocketCalculator`, and the `lib`/`lib_struct`/`pocket_comparison`
-functions — all constructed with no arguments and driven by explicit paths.
+functions. **`Settings` stays inside `pocketmapper.py`** — it is resolved there and unpacked at each call
+site into the individual values a component needs. Keep it that way when adding components: a component
+that reaches into a `Settings` cannot be used without building one, and hides which fields it depends on.
 
 Things to know when consuming it this way:
 
 - **`pocketmapper/__init__.py` only exports `main` and `__version__`.** Submodules are reachable as
   `pocketmapper.lib` etc. only as a side effect of `pocketmapper.pocketmapper` importing them — always use
   explicit `from pocketmapper.<module> import <name>` rather than relying on that.
-- **Always call `Settings(...).resolve_paths()`** before handing a `Settings` to any component. Unresolved
-  derived paths are `None`, and the failure is an opaque `TypeError: expected str, bytes or os.PathLike
-  object, not NoneType` from deep inside `os.path.join`, not a helpful error. `search()` does this for you;
-  direct component use does not.
+- **Always call `Settings(...).resolve_paths()`** if you build a `Settings` yourself to source paths from.
+  Unresolved derived paths are `None`, and passing one on gives an opaque `TypeError: expected str, bytes
+  or os.PathLike object, not NoneType` from deep inside `os.path.join`, not a helpful error. `search()`
+  does this for you.
 - **`search()` has global side effects**: it calls `logging.config.dictConfig`, which reconfigures the *root*
   logger and will stomp on a host application's logging setup. It also creates directories and, at the end,
   `shutil.rmtree`s `query_dir`/`target_dir`/`foldseek_tmp_dir` (`_delete_tmp`, marked `# TODO this is unsafe`)
