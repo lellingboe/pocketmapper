@@ -7,6 +7,10 @@ plain values and returns plain values. Workflow logic belongs in the component m
 """
 
 import hashlib
+import os
+import re
+
+_UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]")
 
 
 def jsonify_dict(item):
@@ -26,16 +30,21 @@ def safe_filename(name, max_len=80):
     """
     Build a filesystem-safe filename stem from a pocket_id.
 
-    pocket_ids can embed long comma-separated residue lists (e.g. for
-    passthrough/VDW queries), which can exceed OS filename length limits.
-    Names longer than max_len are truncated and given an md5 suffix to keep
-    them unique.
+    A pocket_id is a raw input string, so it may be a path ("/data/foo.cif.gz:B_F")
+    and may embed a long comma-separated residue list (passthrough/VDW queries).
+    Only the basename is kept -- a stem with a directory component in it resolves
+    outside the directory the caller joins it onto -- and every remaining character
+    outside [A-Za-z0-9._-] becomes "_".
+
+    Both of those steps are lossy, and truncation to max_len is lossy again, so an
+    md5 of the full original name is always appended: without it two distinct
+    pocket_ids can reduce to one filename and silently overwrite each other. The
+    result is at most max_len characters (or 32, if max_len leaves no room).
     """
-    safe_name = name.replace(":", "_").replace(",", "_")
-    if len(safe_name) <= max_len:
-        return safe_name
     name_hash = hashlib.md5(name.encode()).hexdigest()
-    return f"{safe_name[:max_len]}_{name_hash}"
+    stem = _UNSAFE_FILENAME_CHARS.sub("_", os.path.basename(name.rstrip("/")))
+    stem = stem[: max(max_len - len(name_hash) - 1, 0)].rstrip("_")
+    return f"{stem}_{name_hash}" if stem else name_hash
 
 
 def binary_similarity(seqA, seqB, similarity_matrix):
