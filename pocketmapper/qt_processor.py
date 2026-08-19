@@ -43,7 +43,16 @@ class QTProcessor:
     Class for dealing with the procesing of query and target data, including determining types, processing input files, and preparing data for downstream analysis.
     """
 
-    def __init__(self, settings):
+    def __init__(self, structure_dir, foldseek_preprocessed_structure_dir, fsdb_dir):
+        """
+        Args:
+            structure_dir (str): Directory fetched reference structures are written to; where
+                `pdb`/`alphafold` records get their `struct_path`.
+            foldseek_preprocessed_structure_dir (str): Directory the Foldseek preprocessing step
+                writes to; where records get their `preprocess_path`.
+            fsdb_dir (str): Directory holding downloaded Foldseek databases, used to locate the
+                bundled `pdb` database.
+        """
         # Initialize logger
         self.logger = logging.getLogger(__name__)
         self._log_extra = {"stage": "QTProcessor Initialization"}
@@ -52,7 +61,8 @@ class QTProcessor:
             extra=self._log_extra,
         )
 
-        self.settings = settings
+        self.structure_dir = structure_dir
+        self.foldseek_preprocessed_structure_dir = foldseek_preprocessed_structure_dir
 
         # TODO regexes for validating output when pocket_method is specified
         # Structure type regex patterns
@@ -66,20 +76,31 @@ class QTProcessor:
 
         self._bundled_foldseek_dbs = {
             "human_domains": str(files(human_domains).joinpath("human_v3_20260531")),
-            "pdb": os.path.join(self.settings.fsdb_dir, "pdb"),
+            "pdb": os.path.join(fsdb_dir, "pdb"),
         }
 
-    def process_qt_cmdline_input(self):
+    def process_qt_cmdline_input(self, query, target, query_pocket_method=None, target_pocket_method=None):
         """
-        qt_input: input from parsing query/target on command line
+        Parse the query and target inputs into a DataFrame of `QTRecord`s each.
+
+        Args:
+            query (str): A query string ("struct_info:chain_info:residue_info") or a path to a
+                file holding one such string per line.
+            target (str): A target string or file, in the same form as `query`.
+            query_pocket_method (str | None): Pocket method to force for every query entry,
+                or None to infer it from each input string.
+            target_pocket_method (str | None): The same, for the target entries.
+
+        Returns:
+            tuple[pandas.DataFrame, pandas.DataFrame]: the query and target records.
         """
         dfs = []
-        for name in ["query", "target"]:
+        for name, qt_input, pocket_method in [
+            ("query", query, query_pocket_method),
+            ("target", target, target_pocket_method),
+        ]:
             self._log_extra.update({"stage": f"Processing {name}"})
             self.logger.debug("Processing {name}", extra=self._log_extra)
-
-            qt_input = getattr(self.settings, name)
-            pocket_method = getattr(self.settings, f"{name}_pocket_method")
 
             # Check that query and target are specified
             if isinstance(qt_input, type(None)):
@@ -146,7 +167,7 @@ class QTProcessor:
         name = input_fname + "_" + chain_info[0]  # e.g., "P12345_A" or "1ABC_A"
         name_md5 = hashlib.md5(name.encode()).hexdigest()
         preprocess_name = name + "_" + name_md5
-        preprocess_path = os.path.join(self.settings.foldseek_preprocessed_structure_dir, preprocess_name + ".cif")
+        preprocess_path = os.path.join(self.foldseek_preprocessed_structure_dir, preprocess_name + ".cif")
         preprocess_path_gz = preprocess_path + ".gz"
 
         resolved_pocket_method = (
@@ -210,9 +231,9 @@ class QTProcessor:
         """
         match struct_type:
             case "alphafold":
-                return os.path.join(self.settings.structure_dir, f"{struct_info}.cif.gz")
+                return os.path.join(self.structure_dir, f"{struct_info}.cif.gz")
             case "pdb":
-                return os.path.join(self.settings.structure_dir, f"{struct_info}.cif.gz")
+                return os.path.join(self.structure_dir, f"{struct_info}.cif.gz")
             case "local_file":
                 return struct_info
             case _:
