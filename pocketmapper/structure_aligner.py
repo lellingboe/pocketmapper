@@ -165,7 +165,7 @@ class StructureAligner:
         pdb_str = aligned_struct.make_pdb_string()
 
         model_nums = (str(x) for x in count(1))
-        model_names = [record["pocket_id"].replace(":", "_").replace(",", "_") for record in aln_records]
+        model_names = [record["pocket_id"] for record in aln_records]
         chain_names = self._char_gen()
         header = ""
         for model_num, model_name, chain_name in zip(model_nums, model_names, chain_names):
