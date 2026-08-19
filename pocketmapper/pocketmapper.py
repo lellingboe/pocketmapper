@@ -762,7 +762,7 @@ class PocketMapper:
         for _, row in pt_df.iterrows():
             pocket_residues = [int(x) for x in row["residue_info"].split(",")]
             pocket = parse_pocket_from_struct(
-                struct=os.path.join(self._settings.structure_dir, f"{row['struct_info']}.cif.gz"),
+                struct=row["struct_path"],
                 chain_id=row["chain_info"].split("_")[0],
                 pocket_residues=pocket_residues,
             )
@@ -797,14 +797,9 @@ class PocketMapper:
         vdw_pockets = {}
         pc = PocketCalculator()
         for _, row in vdw_df.iterrows():
-            match row["struct_type"]:
-                case "local_file":
-                    struct_path = row["struct_info"]
-                case _:
-                    struct_path = os.path.join(self._settings.structure_dir, f"{row['struct_info']}.cif.gz")
 
             pocket = pc.pocket_overlap(
-                structure=struct_path,
+                structure=row["struct_path"],
                 domain_chain=row["chain_info"].split("_")[0],
                 motif_chain=row["chain_info"].split("_")[1],
             )
