@@ -57,6 +57,11 @@ pocket 2) leave the later fields empty rather than dropping them. Add a new outp
 as to the row dict; a column produced but not declared is kept and logged as a warning rather than silently
 dropped, so the list cannot quietly drift.
 
+**Aligned structures are named by `lib.safe_filename(query_id)`, not by the `pocket_id` itself.** A
+`pocket_id` is raw user input, so it may be a path or carry a long residue list; `safe_filename` keeps only
+the basename, sanitises it and appends an md5 of the full original. So `aligned_structures/*.pdb` filenames
+are not directly greppable for an input string — match on the `MOLECULE` records inside instead.
+
 **`_align_structs` only superposes targets that actually overlap the query.** It filters on
 `overlap_count > 0` before ranking, because a target sharing no pocket residues has no common residue set to
 superpose on and empty overlap metrics that would sort arbitrarily. Queries with no overlapping target are
@@ -70,28 +75,19 @@ self-comparison must yield `overlap_count == pocket_len`.
 
 ### Recently fixed
 
-**A zero-overlap result crashed the final stage.** `compare_pockets` built each row as a dict and let pandas
-infer the columns, so a run in which *every* row had zero overlap never created `pocket_1_pct_overlap` /
-`min_overlap_similarity` at all, and `_align_structs` sorting by them raised
-`KeyError: 'pocket_1_pct_overlap'`. Mixed runs were unaffected, which is why it only showed up on small
-single-pair comparisons. Fixed by the two invariants above: the fixed schema means the columns always exist,
-and the `overlap_count > 0` filter means the sort only ever sees rows with real metrics. Beyond the crash,
-the run used to abort before `_delete_tmp()`, leaking `query_structures/`/`target_structures/` into the
-results directory. `test_4` and `test_5` cover this.
+**A zero-overlap result crashed the final stage.** `compare_pockets` inferred its columns from the row dicts,
+so a run in which *every* row scored zero overlap never created `pocket_1_pct_overlap` and `_align_structs`
+died sorting on it — and aborted before `_delete_tmp()`, leaking `query_structures/`/`target_structures/`
+into the results directory. Both invariants above exist because of this; `test_4`/`test_5` are the
+regression tests.
 
 **`vdw` pockets always scored zero overlap.** `ca_num += 1` in `PocketCalculator.pocket_overlap` sat inside
-the inner `for res2 in motif_residues` loop, so it counted residue *pairs* and inflated `seq_pos` by the
-partner chain's length (3681 where the reference gives 230). Every vdw residue therefore fell outside the
-alignment region — `pct_aln` 0.0, `overlap_count` 0 on every row, no warning, and otherwise plausible output.
-Dedenting the increment to the outer loop fixes it; `seq_pos` and `ca_sequence` now match
-`parse_pocket_from_struct` exactly. Note `atp_pocket_overlap` never had the bug (it has only one residue
-loop), which is likely how it arose: `pocket_overlap` looks derived from it by wrapping a `for res2` loop
-around the body without dedenting the counter. `atp_pocket_overlap` is uncalled but deliberately retained
-for planned ATP-pocket work — leave it in place.
-
-This was also the main trigger for the `KeyError` above: a run over vdw pockets scored zero everywhere and so
-always crashed in `_align_structs`. Local-file entries like `4Q5J.cif.gz:B_F` resolve to vdw (`B_F` matches
-the vdw regex, and PISA is PDB-only), which is how the mixed-input fixtures reach it.
+the inner `for res2` loop, counting residue *pairs*, so every vdw `seq_pos` was inflated by the partner
+chain's length and fell outside the alignment region — zero overlap on every row, no warning, plausible-looking
+output, and (per the entry above) a crash. Dedenting the increment to the outer loop fixed it. Two things to
+carry forward: `atp_pocket_overlap` never had the bug, and is uncalled but deliberately retained for planned
+ATP-pocket work — leave it in place; and local-file entries like `4Q5J.cif.gz:B_F` resolve to vdw (`B_F`
+matches the vdw regex, and PISA is PDB-only), which is how the mixed-input fixtures reach that code.
 
 `_local_alignment` used to read each record's `preprocess_path_gz`, which only exists after
 `_foldseek_preprocessing()` — a step that runs solely on the Foldseek branch — so every run without
@@ -228,10 +224,14 @@ Things to know when consuming it this way:
   Verbosity is numeric: 4=DEBUG, 3=INFO (default), 2=WARNING, else ERROR.
 - **Errors.** Log with `logging.critical(...)` then `raise PocketMapperError(...)` (from `pocketmapper.exceptions`);
   `main()` catches it and exits 1. Do not call `exit()`/`sys.exit()` inside modules — that was deliberately removed.
+  The one remaining `exit()` is `_check_help_search`, which prints `HELP_MESSAGE` and quits when `--help` is
+  passed; it is a CLI affordance, so `PocketMapper().search(help=True)` will kill a host process — a library
+  caller should never pass it.
 - **Settings.** `Settings` is a frozen-by-convention dataclass updated via `dataclasses.replace`. Resolution order is
   defaults → `--settings` JSON file → explicit CLI args → `resolve_paths()` (which only fills derived paths still `None`,
   so a settings file can pin any individual path). New options go on the dataclass *and* in the `cli_overrides` dict
-  in `_configure_workflow` *and* in the `search()` signature.
+  in `_configure_workflow` *and* in the `search()` signature — and, if they are user-facing, in `HELP_MESSAGE`
+  (`constants.py`) and the README's Options list, neither of which is generated from the dataclass.
 - **Fetcher/preprocessor API.** `StructureFetcher` and `StructurePreprocessor` follow
   `set_output_directory()` → `update_cache()` → `fetch_*`/`preprocess_records()`. Caching is a plain `os.listdir`
   snapshot, so `update_cache()` must be called after the output dir is set and before work begins.
@@ -247,6 +247,9 @@ Things to know when consuming it this way:
   favour of the class-based modules, and `compare_pockets` moved out to `pocket_comparison.py`.
 - `pocket_comparison.py` owns pipeline step 6 — `POCKET_COMPARISON_COLUMNS`, `compare_pockets`, and the
   Foldseek column-order contract they depend on.
+- `constants.py` holds `SINGLE_AA_CODE` (the one three-to-one letter table — duplicates elsewhere were
+  deleted; it maps the modified residues `SEP`/`TPO`/`PTR`/`MSE` and every caller defaults unknowns to `"X"`)
+  and `HELP_MESSAGE`, the `--help` text, which also documents the settings-file-only "Advanced Options".
 - `blosum62.bla` and `human_domains/` (a bundled Foldseek DB) ship as package data — see
   `[tool.setuptools.package-data]` in `pyproject.toml`.
 - `tests/e2e/fixtures/` holds the batch input files and a local `4Q5J.cif.gz`. Cases run with that directory
