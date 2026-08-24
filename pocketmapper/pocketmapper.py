@@ -348,11 +348,15 @@ class PocketMapper:
             foldseek_preprocessed_structure_dir=self._settings.foldseek_preprocessed_structure_dir,
             fsdb_dir=self._settings.fsdb_dir,
         )
-        q_df, t_df = qtprocessor.process_qt_cmdline_input(
-            query=self._settings.query,
-            target=self._settings.target,
-            query_pocket_method=self._settings.query_pocket_method,
-            target_pocket_method=self._settings.target_pocket_method,
+        q_df = qtprocessor.process_qt_cmdline_input(
+            qt_input=self._settings.query,
+            name="query",
+            pocket_method=self._settings.query_pocket_method,
+        )
+        t_df = qtprocessor.process_qt_cmdline_input(
+            qt_input=self._settings.target,
+            name="target",
+            pocket_method=self._settings.target_pocket_method,
         )
 
         errors = []
@@ -623,6 +627,7 @@ class PocketMapper:
         logging.debug(f"Combined pockets: {pockets}", extra=stage)
         return pockets
 
+    # TODO If target is PDB foldseek database, a set of target queries needs to be generated to be used as pockets
     def _retrieve_pisa_pockets(self):
         """
         Request, parse, and translate remote pocket mapping endpoints through the PDBe PISA service.
@@ -648,6 +653,7 @@ class PocketMapper:
         else:
             logging.info(f"{len(pisa_df)} PISA pockets to retrieve", extra=stage)
 
+        # TODO PDB: get list of pdbs from alignment.tsv and extend the query list
         pisa_response_dir = os.path.join(self._settings.pocket_dir, "pisa_responses")
         pisa_pdb_list = pisa_df["struct_info"].unique().tolist()
         logging.debug(f"PDBs for which to retrieve PISA pockets: {pisa_pdb_list}", extra=self._log_extra)
@@ -659,6 +665,7 @@ class PocketMapper:
             interface_dir=os.path.join(pisa_response_dir, "interfaces"),
         )
 
+        # TODO PDB: need a parser that can handle just 1 chain ID
         parser = PisaParser()
         pisa_pockets = parser.get_pockets_from_records(
             records=pisa_df.to_dict(orient="records"),
@@ -666,6 +673,7 @@ class PocketMapper:
         )
         logging.debug(f"Extracted PISA pockets: {pisa_pockets}", extra=self._log_extra)
 
+        # TODO PDB: Should have all the info neeed to rerun earlier parts of the pipeline and set up the target df
         for _, row in pisa_df.iterrows():
             if row["pocket_id"] in pisa_pockets:
                 pisa_pockets[row["pocket_id"]] = parse_pocket_from_struct(

@@ -122,7 +122,8 @@ invoked via `subprocess.run` and is required for `--foldseek True` and for any `
 `search()` in `pocketmapper/pocketmapper.py` is the whole workflow and reads top to bottom:
 
 1. `_configure_workflow` → `Settings` (see below), creates directories, dumps `job_settings.json`, configures logging.
-2. `_configure_query_target` → `QTProcessor` parses `--query`/`--target` into two DataFrames of `QTRecord`s.
+2. `_configure_query_target` → `QTProcessor` parses `--query`/`--target` into two DataFrames of `QTRecord`s
+   (one `process_qt_cmdline_input` call per side).
 3. `_fetch_missing_structures` (or `_fetch_missing_fsdb`) → downloads mmCIF from wwPDB / AlphaFold into `structure_dir`.
 4. `_alignment` → either `_foldseek_preprocessing` + `_foldseek_alignment`, or `_local_alignment`. Both write `alignment.tsv`.
 5. `_get_pockets` → union of `_retrieve_pisa_pockets` | `_retrieve_passthrough_pockets` | `_retrieve_vdw_pockets`.
@@ -184,9 +185,12 @@ PocketMapper().search(query="4Q5J:B_F", target="4Q5J:A_E", results_dir="./out")
 from pocketmapper.qt_processor import QTProcessor
 from pocketmapper.structure_fetcher import StructureFetcher
 from pocketmapper.lib_struct import parse_pocket_from_struct
-query_df, target_df = QTProcessor(
+qtprocessor = QTProcessor(
     structure_dir="./structs", foldseek_preprocessed_structure_dir="./preproc", fsdb_dir="./fsdb"
-).process_qt_cmdline_input(query="4Q5J:B_F", target="4Q5J:A_E")
+)
+# One call per side; `name` labels it in logs and errors.
+query_df = qtprocessor.process_qt_cmdline_input("4Q5J:B_F", name="query")
+target_df = qtprocessor.process_qt_cmdline_input("4Q5J:A_E", name="target")
 fetcher = StructureFetcher()
 fetcher.set_output_directory("./structs"); fetcher.update_cache()
 fetcher.fetch_structures([{"struct_type": "pdb", "struct_info": "4Q5J"}])
