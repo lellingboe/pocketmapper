@@ -79,53 +79,49 @@ class QTProcessor:
             "pdb": os.path.join(fsdb_dir, "pdb"),
         }
 
-    def process_qt_cmdline_input(self, query, target, query_pocket_method=None, target_pocket_method=None):
+    def process_qt_cmdline_input(self, qt_input, name, pocket_method=None):
         """
-        Parse the query and target inputs into a DataFrame of `QTRecord`s each.
+        Parse one side of the comparison -- a query or a target -- into a DataFrame of `QTRecord`s.
+
+        Call it once per side; `name` only labels the side in log messages and errors.
 
         Args:
-            query (str): A query string ("struct_info:chain_info:residue_info") or a path to a
-                file holding one such string per line.
-            target (str): A target string or file, in the same form as `query`.
-            query_pocket_method (str | None): Pocket method to force for every query entry,
-                or None to infer it from each input string.
-            target_pocket_method (str | None): The same, for the target entries.
+            qt_input (str): A query or target string ("struct_info:chain_info:residue_info"), or a
+                path to a file holding one such string per line.
+            name (str): Which side this input is, e.g. "query" or "target". Used in logging and
+                error messages.
+            pocket_method (str | None): Pocket method to force for every entry, or None to infer
+                it from each input string.
 
         Returns:
-            tuple[pandas.DataFrame, pandas.DataFrame]: the query and target records.
+            pandas.DataFrame: the parsed records for this side.
         """
-        dfs = []
-        for name, qt_input, pocket_method in [
-            ("query", query, query_pocket_method),
-            ("target", target, target_pocket_method),
-        ]:
-            self._log_extra.update({"stage": f"Processing {name}"})
-            self.logger.debug("Processing {name}", extra=self._log_extra)
+        self._log_extra.update({"stage": f"Processing {name}"})
+        self.logger.debug(f"Processing {name}", extra=self._log_extra)
 
-            # Check that query and target are specified
-            if isinstance(qt_input, type(None)):
-                self.logger.critical(f"{name} input is required. Exiting.", extra=self._log_extra)
-                raise PocketMapperError(f"{name} input is required.")
+        # Check that the input is specified
+        if isinstance(qt_input, type(None)):
+            self.logger.critical(f"{name} input is required. Exiting.", extra=self._log_extra)
+            raise PocketMapperError(f"{name} input is required.")
 
-            records = []
-            if pocket_method != "foldseek_db" and os.path.isfile(
-                qt_input
-            ):  # if it's a file, process each line as a separate query/target
-                try:
-                    with open(qt_input) as f:
-                        for line in f.readlines():
-                            records.append(self.parse_individual_qt(line.strip(), pocket_method=pocket_method))
-                except Exception as e:
-                    self.logger.critical(f"Problem reading the file {qt_input}: {e}", extra=self._log_extra)
-                    raise PocketMapperError(f"Problem reading the file {qt_input}: {e}") from e
-            else:
-                records.append(self.parse_individual_qt(qt_input, pocket_method=pocket_method))
+        records = []
+        if pocket_method != "foldseek_db" and os.path.isfile(
+            qt_input
+        ):  # if it's a file, process each line as a separate query/target
+            try:
+                with open(qt_input) as f:
+                    for line in f.readlines():
+                        records.append(self.parse_individual_qt(line.strip(), pocket_method=pocket_method))
+            except Exception as e:
+                self.logger.critical(f"Problem reading the file {qt_input}: {e}", extra=self._log_extra)
+                raise PocketMapperError(f"Problem reading the file {qt_input}: {e}") from e
+        else:
+            records.append(self.parse_individual_qt(qt_input, pocket_method=pocket_method))
 
-            records = [
-                r for r in records if r is not None
-            ]  # removing any None entries that may have been added due to errors
-            dfs.append(pd.DataFrame([asdict(r) for r in records]))
-        return dfs[0], dfs[1]  # return query and target dataframes
+        records = [
+            r for r in records if r is not None
+        ]  # removing any None entries that may have been added due to errors
+        return pd.DataFrame([asdict(r) for r in records])
 
     def parse_individual_qt(self, qt, pocket_method):
         """
