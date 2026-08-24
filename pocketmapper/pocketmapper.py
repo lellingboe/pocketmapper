@@ -669,7 +669,7 @@ class PocketMapper:
         for _, row in pisa_df.iterrows():
             if row["pocket_id"] in pisa_pockets:
                 pisa_pockets[row["pocket_id"]] = parse_pocket_from_struct(
-                    struct=os.path.join(self._settings.structure_dir, f"{row['struct_info']}.cif.gz"),
+                    struct=row["struct_path"],
                     chain_id=row["chain_info"].split("_")[0],
                     pocket_residues=[int(x) for x in pisa_pockets[row["pocket_id"]]["res_auth_ids"]],
                     pocket=pisa_pockets[row["pocket_id"]],
