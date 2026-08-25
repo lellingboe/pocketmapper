@@ -9,6 +9,55 @@ class PisaParser:
     def __init__(self):
         logging.getLogger(__name__)
 
+    def _load_interfaces(self, pdb_id, in_dir):
+        """
+        Load the cached interface file for a PDB entry, or None if there isn't one.
+
+        PisaDownloader writes these files under a lower-cased PDB code while callers hold whatever
+        case the user typed, so the name is tried verbatim first and then lower-cased. Without that
+        an upper-cased input finds nothing on a case-sensitive filesystem.
+        """
+        for candidate in (pdb_id, pdb_id.lower()):
+            in_path = os.path.join(in_dir, f"{candidate}.json")
+            if os.path.exists(in_path):
+                with open(in_path, "r") as f:
+                    return json.load(f)
+        return None
+
+    def get_interface_partners(self, pdb_id, chain_id, in_dir):
+        """
+        List the chains a given chain shares a PISA interface with.
+
+        Interface files are keyed by the two chain ids of the interface, sorted and concatenated
+        (e.g. "BF"), so a chain's partners are the other half of every key it appears in. A
+        homodimer key ("BB") yields the chain itself.
+
+        Args:
+            pdb_id (str): PDB entry the chain belongs to.
+            chain_id (str): Chain whose partners are wanted.
+            in_dir (str): Directory of parsed interface files written by PisaDownloader.
+
+        Returns:
+            list[str]: Partner chain ids, in file order. Empty if there is no data for this entry
+                or the chain takes part in no interface.
+        """
+        stage = {"stage": "Calculating Pockets"}
+        pisa_data = self._load_interfaces(pdb_id, in_dir)
+        if pisa_data is None:
+            logging.debug(f"Could not load PISA data for {pdb_id}", extra=stage)
+            return []
+
+        partners = []
+        for interface_chains in pisa_data:
+            if chain_id not in interface_chains:
+                continue
+            partner = interface_chains.replace(chain_id, "", 1)
+            if partner and partner not in partners:
+                partners.append(partner)
+        if not partners:
+            logging.debug(f"No PISA interface involving chain {chain_id} of {pdb_id}", extra=stage)
+        return partners
+
     def get_pockets_from_records(self, records, in_dir):
         stage = {"stage": "Calculating Pockets"}
         """Takes in a path to a pdb file"""
@@ -18,12 +67,10 @@ class PisaParser:
             pdb_id = record["struct_info"]
 
             # Loading PISA pocket file
-            in_path = os.path.join(in_dir, f"{pdb_id}.json")
-            if not os.path.exists(in_path):
+            pisa_data = self._load_interfaces(pdb_id, in_dir)
+            if pisa_data is None:
                 logging.warning(f"Could not load PISA data for {pdb_id}", extra=stage)
                 continue
-            with open(in_path, "r") as f:
-                pisa_data = json.load(f)
 
             # Extracting the relevant interface
             interface_chains = "".join(sorted(record["chain_info"].split("_")))

@@ -121,3 +121,26 @@ def read_blast_similarity_matrix(similarity_matrix_path, delimiter=" "):
         else:
             similarity_matrix["-"][aa] = -4
     return similarity_matrix
+
+
+# Foldseek's PDB database names its entries "<pdbid>-assembly<N>_<chain>", with a "-<copy>" suffix on
+# chains duplicated within an assembly (e.g. "5ian-assembly1_B-2").
+_FOLDSEEK_PDB_ENTRY = re.compile(r"^(?P<pdb>[0-9A-Za-z]{4})-assembly(?P<assembly>\d+)_(?P<chain>.+)$")
+
+
+def parse_foldseek_pdb_entry_name(name):
+    """
+    Resolve a Foldseek PDB-database entry name into the PDB ID and chain it came from.
+
+    The assembly number and any chain-copy suffix are discarded, so "5ian-assembly1_B-2" and
+    "5ian-assembly2_B" both resolve to ("5IAN", "B"). The PDB ID is upper-cased to match the form
+    QTProcessor derives from user input, so a structure already fetched for a query is reused
+    rather than downloaded a second time.
+
+    Returns None for anything that is not a PDB-style entry name -- which is also how a caller can
+    tell a PDB Foldseek database apart from one built on something else (e.g. human_domains).
+    """
+    match = _FOLDSEEK_PDB_ENTRY.match(name)
+    if match is None:
+        return None
+    return match.group("pdb").upper(), match.group("chain").split("-")[0]
