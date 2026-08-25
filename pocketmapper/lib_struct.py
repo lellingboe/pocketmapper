@@ -11,7 +11,9 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
 
     Struct: gemmi.Structure object or path to file which will be read by gemmi.read_structure
     chain_id: the chain id to extract from the structure
-    pocket_residues: list of residue ids that are in the pocket
+    pocket_residues: list of residue ids that are in the pocket, or None for an open search, where
+        every CA-bearing residue of the chain is treated as the pocket. The returned dict records
+        which of the two it was under "whole_chain".
 
     """
     stage = {"stage": "Parsing Pocket from Structure"}
@@ -34,12 +36,18 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
     seq_pos = (
         -1
     )  # To keep track of the position in the sequence, starting at -1 so that the first residue is 0 after incrementing
+    # An open search has no residue list to seed res_auth_ids from -- it is filled in as the chain is
+    # walked, so it holds exactly the CA-bearing residues, in chain order.
+    whole_chain = pocket_residues is None
+    if whole_chain:
+        pocket_residues = []
     if pocket is None:
         pocket = {
-            "res_auth_ids": [str(x) for x in pocket_residues],
+            "res_auth_ids": [] if whole_chain else [str(x) for x in pocket_residues],
             "pocket_exists": False,
             "has_coords": False,
         }
+    pocket["whole_chain"] = whole_chain
     ca_sequence = []
     for res in chain:
         res_id = res.seqid.num
@@ -58,7 +66,9 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
         seq_pos += 1
         res_single_code = SINGLE_AA_CODE.get(res.name, "X")
         ca_sequence.append(res_single_code)
-        if res_id not in pocket_residues:  # Only recording residue info for pocket residues
+        if whole_chain:
+            pocket["res_auth_ids"].append(str(res_id))
+        elif res_id not in pocket_residues:  # Only recording residue info for pocket residues
             continue
 
         if pocket.get(str(res_id)) is None:

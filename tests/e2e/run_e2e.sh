@@ -56,17 +56,21 @@ test_5|core|ok|PISA interface vs single-residue AlphaFold pocket (mouse ortholog
 test_6|core|rows|AlphaFold passthrough vs AlphaFold passthrough|P06493:A:160,161,162,163,164,165 P24941:A:160,161,162,163,164,165 --foldseek
 test_7|core|rows|Two pockets on one query chain (pisa + passthrough)|multi_pocket_chain.txt 4Q5J:B_F --foldseek
 
-test_8|human_domains|rows|Single PISA interface vs human domains|4Q5J:B_F human_domains --foldseek
-test_9|human_domains|rows|Mixed batch file (PDB, local mmCIF, AlphaFold) vs human domains|testfile.txt human_domains --foldseek
-test_10|human_domains|rows|AlphaFold passthrough residues vs human domains|P06493:A:160,161,162,163,164,165 human_domains --foldseek
-test_11|human_domains|rows|Large CDK2 pocket residue list vs human domains|--query 1B38:A:8,9,10,11,12,13,14,15,16,17,18,19,20,30,31,32,33,34,35,47,48,49,50,51,52,53,54,55,56,57,58,59,61,62,63,64,65,66,67,68,69,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,143,144,145,146,147,148,149 --target human_domains --foldseek
-test_12|human_domains|rows|Large kinase pocket residue list vs human domains|--query 4WB5:A:47,48,49,50,51,52,53,54,55,56,57,58,59,69,70,71,72,73,74,87,88,89,90,91,92,93,94,95,96,97,98,99,101,102,103,104,105,106,107,108,109,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,182,183,184,185,186,187,188 --target human_domains --foldseek
+test_8|core|rows|PISA interface vs an open whole-chain target|4Q5J:A_E 4Q5J:B --foldseek
+test_9|core|rows|PISA interface vs a bare structure, chain defaulting to A|4Q5J:B_F 4Q5J --foldseek
 
-test_13|needs-pdb-fsdb slow|rows|PISA interface vs a local Foldseek PDB database|4Q5J:B_F @PDB_FSDB@ --target_pocket_method foldseek_db --foldseek
-test_14|needs-pdb-download huge|rows|PISA interface vs the bundled full-PDB Foldseek database|4Q5J:A_E pdb --foldseek
+test_10|human_domains|rows|Single PISA interface vs human domains|4Q5J:B_F human_domains --foldseek
+test_11|human_domains|rows|Mixed batch file (PDB, local mmCIF, AlphaFold) vs human domains|testfile.txt human_domains --foldseek
+test_12|human_domains|rows|AlphaFold passthrough residues vs human domains|P06493:A:160,161,162,163,164,165 human_domains --foldseek
+test_13|human_domains|rows|Large CDK2 pocket residue list vs human domains|--query 1B38:A:8,9,10,11,12,13,14,15,16,17,18,19,20,30,31,32,33,34,35,47,48,49,50,51,52,53,54,55,56,57,58,59,61,62,63,64,65,66,67,68,69,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,143,144,145,146,147,148,149 --target human_domains --foldseek
+test_14|human_domains|rows|Large kinase pocket residue list vs human domains|--query 4WB5:A:47,48,49,50,51,52,53,54,55,56,57,58,59,69,70,71,72,73,74,87,88,89,90,91,92,93,94,95,96,97,98,99,101,102,103,104,105,106,107,108,109,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,182,183,184,185,186,187,188 --target human_domains --foldseek
 
-test_15|core local|rows|Local BLOSUM62 sequence alignment, no Foldseek (same pair as test_1)|4Q5J:A_E 4Q5J:B_F --foldseek False
-test_16|local|rows|Local aligner over mixed input types (PDB, local mmCIF, AlphaFold)|testfile.txt testfile.txt --foldseek False
+test_15|needs-pdb-fsdb slow|rows|PISA interface vs a local Foldseek PDB database|4Q5J:B_F @PDB_FSDB@ --target_pocket_method foldseek_db --foldseek
+test_16|needs-pdb-download huge|rows|PISA interface vs the bundled full-PDB Foldseek database|4Q5J:A_E pdb --foldseek
+
+test_17|core local|rows|Local BLOSUM62 sequence alignment, no Foldseek (same pair as test_1)|4Q5J:A_E 4Q5J:B_F --foldseek False
+test_18|local|rows|Local aligner over mixed input types (PDB, local mmCIF, AlphaFold)|testfile.txt testfile.txt --foldseek False
+test_19|core local|rows|Open whole-chain target on the local aligner|4Q5J:A_E 4Q5J:B --foldseek False
 EOF
 
 # ---------------------------------------------------------------------------

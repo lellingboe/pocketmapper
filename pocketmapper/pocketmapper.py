@@ -681,7 +681,7 @@ class PocketMapper:
 
     def _get_pockets(self):
         """
-        Aggregate pocket coordinate arrays based on configured mapping logic (PISA, Passthrough, VDW).
+        Aggregate pocket coordinate arrays based on configured mapping logic (PISA, Passthrough, VDW, Whole Chain).
 
         Executes targeted extraction requests across the configured pocket methodologies. Combines all derived
         pocket residues/points into a standard composite mapping object.
@@ -699,8 +699,9 @@ class PocketMapper:
         pisa_pockets = self._retrieve_pisa_pockets()
         passthrough_pockets = self._retrieve_passthrough_pockets()
         vdw_pockets = self._retrieve_vdw_pockets()
+        whole_chain_pockets = self._retrieve_whole_chain_pockets()
 
-        pockets = pisa_pockets | passthrough_pockets | vdw_pockets
+        pockets = pisa_pockets | passthrough_pockets | vdw_pockets | whole_chain_pockets
         logging.debug(f"Combined pockets: {pockets}", extra=stage)
         return pockets
 
@@ -896,6 +897,54 @@ class PocketMapper:
 
         return passthrough_pockets
 
+    def _retrieve_whole_chain_pockets(self):
+        """
+        Build the "pocket" for an open search: every CA-bearing residue of the chain.
+
+        An entry that names a structure but no pocket ("4Q5J:B", or "4Q5J" for the default chain) asks
+        whether the query pocket resembles anything on that chain at all. Unlike the whole-chain pseudo-pocket
+        `compare_pockets` synthesises for Foldseek-database hits, this is a real pocket dict parsed from the
+        structure, so it carries residue codes and CA coordinates and can be superposed.
+
+        Returns:
+            dict: Translated pocket coordinates indexed by `pocket_id`.
+        """
+        stage = {"stage": "Whole Chain Pocket Calculation"}
+        logging.info("Checking for whole chain pockets...", extra=stage)
+
+        wc_df = pd.concat([self._query_df, self._target_df], ignore_index=True).query(
+            "success and pocket_method == 'whole_chain'"
+        )
+        if len(wc_df) == 0:
+            logging.info("No whole chain pockets to retrieve", extra=stage)
+            return {}
+        else:
+            logging.info(f"{len(wc_df)} whole chain pockets to retrieve", extra=stage)
+
+        whole_chain_pockets = {}
+        for _, row in wc_df.iterrows():
+            pocket = parse_pocket_from_struct(
+                struct=row["struct_path"],
+                chain_id=row["chain_info"].split("_")[0],
+                pocket_residues=None,  # None means the whole chain
+            )
+            # A missing structure or chain gives None back. Storing that would fail later with an opaque
+            # TypeError inside compare_pockets, so drop the entry and say which one it was -- an unreadable
+            # chain is much more likely here, where the chain can come from the default rather than the user.
+            if pocket is None:
+                logging.warning(
+                    f"Could not parse chain {row['chain_info']} of {row['struct_info']} for {row['pocket_id']}, "
+                    "skipping this entry",
+                    extra=stage,
+                )
+                continue
+            whole_chain_pockets[row["pocket_id"]] = pocket
+        with open(os.path.join(self._settings.pocket_dir, "whole_chain_pockets.json"), "w") as f:
+            json.dump(whole_chain_pockets, f, indent=4)
+        logging.debug(f"Extracted whole chain pockets: {whole_chain_pockets}", extra=self._log_extra)
+
+        return whole_chain_pockets
+
     def _retrieve_vdw_pockets(self):
         """
         Evaluate pocket clusters structurally using Van-der-Waals (VDW) interaction overlapping metrics.
@@ -972,8 +1021,8 @@ class PocketMapper:
             preproc_to_ids=preproc_to_ids,
             blosum_path=blosum_path,
             # A PDB Foldseek database has real PISA pockets for its hits (see _expand_fsdb_pdb_targets);
-            # every other database still needs the synthesised whole-chain pocket.
-            alphafold=self.fsdb_target and not self._fsdb_pdb_target,
+            # every other database has no target records at all, so its pockets must be synthesised.
+            synthesise_target_pockets=self.fsdb_target and not self._fsdb_pdb_target,
         )
 
         # Logging cases where a residue was given a single cahr name unfamiliar to pocketmapper
@@ -1137,8 +1186,18 @@ class PocketMapper:
             query_record = self._query_df.loc[query_id].to_dict()
             query_record["pocket_id"] = query_id
             logging.debug(f"Query record for '{query_id}': {json.dumps(query_record, indent=4)}", extra=stage)
-            # Fetch the corresponding target records
-            top_target_records = target_record_df.loc[target_ids].reset_index().to_dict(orient="records")
+            # Fetch the corresponding target records. A pocket_2 need not be a target: when a query and a
+            # target share a chain they share a preprocess_name, so compare_pockets pairs every pocket on
+            # that chain with every other and some rows come back with a query-only pocket_id in pocket_2.
+            # Those have no target structure to superpose, so drop them rather than let .loc raise.
+            known_target_ids = [target_id for target_id in target_ids if target_id in target_record_df.index]
+            missing_target_ids = [target_id for target_id in target_ids if target_id not in target_record_df.index]
+            if missing_target_ids:
+                logging.debug(
+                    f"Skipping non-target pocket(s) {missing_target_ids} when superposing onto '{query_id}'",
+                    extra=stage,
+                )
+            top_target_records = target_record_df.loc[known_target_ids].reset_index().to_dict(orient="records")
             logging.debug(
                 f"Top target records for query '{query_id}': {json.dumps(top_target_records, indent=4)}", extra=stage
             )

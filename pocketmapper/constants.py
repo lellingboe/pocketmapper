@@ -33,6 +33,10 @@ FOLDSEEK_INSTALL_HINT = (
     "(precompiled binaries: https://dev.mmseqs.com/foldseek/)."
 )
 
+# The chain used when an entry names a structure but no chain at all ("4Q5J"). AlphaFold models are
+# always a single chain A, and it is the first chain of most PDB entries.
+DEFAULT_CHAIN = "A"
+
 HELP_MESSAGE = """
     PocketMapper - A tool for mapping and analyzing protein pockets.
 
@@ -41,10 +45,13 @@ HELP_MESSAGE = """
 
     Primary options:
         --query QUERY            Query identifier or path. Accepts:
-                    - 'STRUCT:CHAINS[:RESIDUES]' (e.g., 1ABC:A_B, 1ABC:A:10,11,12, P12345:A:10,11)
+                    - 'STRUCT[:CHAINS[:RESIDUES]]' (e.g., 1ABC:A_B, 1ABC:A:10,11,12, P12345:A:10,11)
+                    - 'STRUCT[:CHAIN]' with no pocket (e.g., 1ABC:A, or 1ABC for chain A) for an open
+                      search, where the whole chain is treated as the pocket
                     - path to a file listing such entries, one per line
         --target TARGET          Target identifier or path. Accepts:
-                    - 'STRUCT:CHAINS[:RESIDUES]' (e.g., 2XYZ:C_D)
+                    - 'STRUCT[:CHAINS[:RESIDUES]]' (e.g., 2XYZ:C_D)
+                    - 'STRUCT[:CHAIN]' with no pocket, for an open search against that whole chain
                     - path to a file listing such entries, one per line
                     - a bundled Foldseek DB name ('human_domains', 'pdb'), which requires the foldseek binary
         --settings FILE          Path to a JSON file of {"ARG": "VALUE", ...} (overridden by explicit CLI args)
@@ -62,8 +69,10 @@ HELP_MESSAGE = """
                                             unavailable there, so aligned_structures/*.pdb hold only
                                             the query.
         --align_count N          Number of top targets to superpose onto each query (0 disables, default 10)
-        --query_pocket_method M  Force the query pocket method ('pisa', 'passthrough' or 'vdw')
-        --target_pocket_method M Force the target pocket method ('pisa', 'passthrough' or 'vdw')
+        --query_pocket_method M  Force the query pocket method ('pisa', 'passthrough', 'vdw' or
+                                 'whole_chain')
+        --target_pocket_method M Force the target pocket method ('pisa', 'passthrough', 'vdw',
+                                 'whole_chain' or 'foldseek_db')
         --help                   Show this help message and exit
 
     Advanced Options (set via settings JSON):
@@ -82,7 +91,7 @@ HELP_MESSAGE = """
 
     Description:
         Orchestrates fetching/preprocessing of structures, runs local or Foldseek alignments,
-        derives pockets (PISA, explicit residue lists, or VdW contacts), extracts atom coordinates
+        derives pockets (PISA, explicit residue lists, VdW contacts, or a whole chain), extracts coordinates
         from mmCIF files, compares pockets using alignments and scoring, and writes results to the
         results directory.
 
@@ -95,6 +104,9 @@ HELP_MESSAGE = """
 
         # Search the built-in human_domains Foldseek DB (requires the foldseek binary)
         pocketmapper search --query 1ABC:A_B --target human_domains --results_dir ./out_fs
+
+        # Open search: is this pocket anywhere on chain C of 2XYZ?
+        pocketmapper search --query 1ABC:A_B --target 2XYZ:C --results_dir ./out_open
 
         # Force the local BLOSUM62 aligner even when foldseek is installed
         pocketmapper search --query 1ABC:A_B --target 2XYZ:C_D --foldseek False --results_dir ./out_local

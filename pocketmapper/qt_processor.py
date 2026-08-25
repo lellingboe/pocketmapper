@@ -13,6 +13,7 @@ import re
 import pandas as pd
 import json
 from pocketmapper import human_domains
+from pocketmapper.constants import DEFAULT_CHAIN
 from pocketmapper.exceptions import PocketMapperError
 
 
@@ -69,9 +70,12 @@ class QTProcessor:
         self.pdb_regex = r"^[a-zA-Z0-9]{4}$"
         self.uniprot_regex = r"^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})$"  # https://www.uniprot.org/help/accession_numbers
 
-        # Pocket method regex patterns
+        # Pocket method regex patterns.
+        # whole_chain is checked before the others: a bare chain also matches the passthrough and vdw
+        # patterns, so it has to win or an open entry would be read as an empty pocket.
+        self.whole_chain_regex = r"^[A-Za-z0-9]?\:?$"  # pattern like "A", "A:", or nothing at all
         self.pisa_regex = r"^[A-Za-z0-9]_[A-Za-z0-9]$"  # pattern like "A_B"
-        self.passthrough_regex = r"^[A-Za-z0-9](\:(\d+\,?)*)?$"  # pattern like "A(:1,2,3)"
+        self.passthrough_regex = r"^[A-Za-z0-9]\:(\d+\,?)+$"  # pattern like "A:1,2,3"
         self.vdw_regex = r"^[A-Za-z0-9](_[A-Za-z0-9])?(\:(\d+\,?)*)?$"  # pattern like "A_B:1,2,3"
 
         self._bundled_foldseek_dbs = {
@@ -146,10 +150,11 @@ class QTProcessor:
         chain_info = parts[1] if len(parts) > 1 else None
         residue_info = parts[2] if len(parts) > 2 else None
 
-        # If chain info is not provided skip this entry, as we need a chain
-        if chain_info is None:
-            self.logger.warning(f"No specified chain for {qt}, skipping", extra=self._log_extra)
-            return None
+        # An entry that names no chain is an open search over DEFAULT_CHAIN. A chain is still required
+        # downstream -- preprocess_name bakes it in, and the pocket methods all index by it -- so fill
+        # it in here rather than carrying a None through the pipeline.
+        if not chain_info:
+            chain_info = DEFAULT_CHAIN
 
         # determining structure info
         struct_type = self.determine_struct_type(struct_info)
@@ -241,20 +246,28 @@ class QTProcessor:
     def determine_pocket_method(self, qt_str, struct_type):
         """
         Determine pocket method based on regex pattern matching.
-        Returns one of {"pisa", "passthrough", "vdw"}, or None if no pattern matches.
+        Returns one of {"whole_chain", "pisa", "passthrough", "vdw"}, or None if no pattern matches.
+
+        An entry that names no pocket -- a bare chain, or no chain at all -- is an open search:
+        "whole_chain", meaning every CA-bearing residue of the chain is treated as the pocket.
         """
-        pocket_info_str = qt_str.split(":", 1)[1]  # Assuming pocket info is always after the first ":"
+        # An entry may be a bare structure ("4Q5J"), in which case there is no pocket info at all.
+        pocket_info_str = qt_str.split(":", 1)[1] if ":" in qt_str else ""
         self.logger.debug(
             f"Determining pocket method for {pocket_info_str} using regex patterns", extra=self._log_extra
         )
         match struct_type:
             case "alphafold":
-                if re.match(self.passthrough_regex, pocket_info_str):
+                if re.match(self.whole_chain_regex, pocket_info_str):
+                    return "whole_chain"
+                elif re.match(self.passthrough_regex, pocket_info_str):
                     return "passthrough"
                 else:
                     return None
             case "pdb":
-                if re.match(self.pisa_regex, pocket_info_str):
+                if re.match(self.whole_chain_regex, pocket_info_str):
+                    return "whole_chain"
+                elif re.match(self.pisa_regex, pocket_info_str):
                     return "pisa"
                 elif re.match(self.passthrough_regex, pocket_info_str):
                     return "passthrough"
@@ -263,7 +276,9 @@ class QTProcessor:
                 else:
                     return None
             case "local_file":
-                if re.match(self.passthrough_regex, pocket_info_str):
+                if re.match(self.whole_chain_regex, pocket_info_str):
+                    return "whole_chain"
+                elif re.match(self.passthrough_regex, pocket_info_str):
                     return "passthrough"
                 elif re.match(self.vdw_regex, pocket_info_str):
                     return "vdw"
