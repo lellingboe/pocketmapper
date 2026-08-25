@@ -66,10 +66,7 @@ POCKET_COMPARISON_COLUMNS = [
     "overlap_count",
     "pocket_1_overlap_ids",
     "pocket_2_overlap_ids",
-    "pocket_1_pct_overlap",
-    "pocket_2_pct_overlap",
-    "min_pct_overlap",
-    "max_pct_overlap",
+    "jaccard_index",
     "pocket_1_seq_overlap",
     "pocket_2_seq_overlap",
     "overlap_identity",
@@ -104,10 +101,11 @@ def compare_pockets(
     the target up in pocket_dict. Only for a Foldseek database that has no target records of its own
     (see _expand_fsdb_pdb_targets); it is a property of the job.
 
-    Whether the pocket_2_* descriptor columns are written, by contrast, is a property of each pocket:
-    an open search -- a whole chain rather than a pocket on it -- leaves them empty, because the
-    residue list is the whole chain and the percentages are diluted by its length. That is flagged on
-    the pocket dict itself ("whole_chain"), so one run can mix open and pocketed targets.
+    Whether the pocket_2_* descriptor columns and the jaccard_index are written, by contrast, is a
+    property of each pocket: an open search -- a whole chain rather than a pocket on it -- leaves them
+    empty, because the residue list is the whole chain and its length would swamp both the descriptors
+    and the union the index is normalised by. That is flagged on the pocket dict itself
+    ("whole_chain"), so one run can mix open and pocketed targets.
     """
 
     blosum_similarity_matrix = read_blast_similarity_matrix(blosum_path)
@@ -287,15 +285,13 @@ def compare_pockets(
                         p2_overlap_ids.append(res)
                 output["pocket_2_overlap_ids"] = ",".join(p2_overlap_ids)
 
-                # percent overlap
-                p1_pct_overlap = len(overlapping_residues) / len(p1["res_auth_ids"])
-                output["pocket_1_pct_overlap"] = p1_pct_overlap
-
+                # Jaccard index: the overlapping residues as a fraction of the union of the two pockets.
+                # A whole-chain pocket 2 -- an open search, or a synthesised Foldseek-DB pocket -- has no
+                # pocket to size against, and the chain's length would swamp the union, so the index is
+                # left empty alongside the other pocket_2_* columns.
                 if not p2.get("whole_chain"):
-                    p2_pct_overlap = len(overlapping_residues) / len(p2["res_auth_ids"])
-                    output["pocket_2_pct_overlap"] = p2_pct_overlap
-                    output["min_pct_overlap"] = min(p1_pct_overlap, p2_pct_overlap)
-                    output["max_pct_overlap"] = max(p1_pct_overlap, p2_pct_overlap)
+                    union_size = len(p1["res_auth_ids"]) + len(p2["res_auth_ids"]) - len(overlapping_residues)
+                    output["jaccard_index"] = len(overlapping_residues) / union_size
 
                 #####
                 # Aligned residues as a sequence
