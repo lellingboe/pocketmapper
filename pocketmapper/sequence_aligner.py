@@ -8,7 +8,7 @@ import gemmi
 from itertools import product
 import pandas as pd
 
-from pocketmapper.constants import SINGLE_AA_CODE
+from pocketmapper.constants import ALIGNMENT_COLUMNS, SINGLE_AA_CODE
 
 
 class SequenceAligner:
@@ -107,4 +107,6 @@ class SequenceAligner:
             }
 
             result_rows.append(result)
-        return pd.DataFrame(result_rows)
+        # Columns are pinned to the shared contract rather than left to dict order: pocket_comparison
+        # unpacks these rows positionally, so the order matters as much as the names.
+        return pd.DataFrame(result_rows, columns=ALIGNMENT_COLUMNS)

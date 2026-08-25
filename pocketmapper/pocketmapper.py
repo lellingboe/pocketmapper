@@ -28,7 +28,7 @@ from pocketmapper.structure_aligner import StructureAligner
 from pocketmapper.structure_fetcher import StructureFetcher
 from pocketmapper.structure_preprocessor import StructurePreprocessor
 from pocketmapper.lib_struct import parse_pocket_from_struct
-from pocketmapper.constants import FOLDSEEK_INSTALL_HINT, HELP_MESSAGE
+from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT, FOLDSEEK_INSTALL_HINT, HELP_MESSAGE
 
 
 @dataclass
@@ -632,7 +632,7 @@ class PocketMapper:
             self._settings.alignment_path,
             self._settings.foldseek_tmp_dir,
             "--format-output",
-            "query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,lddt,qaln,taln,u,t,qseq,tseq",
+            FOLDSEEK_FORMAT_OUTPUT,
             "--format-mode",
             "4",
             "-e",

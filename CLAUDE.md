@@ -115,6 +115,14 @@ The top level also carries `whole_chain`, set by `parse_pocket_from_struct` from
 residue list or `None`. It is what `compare_pockets` branches on to suppress the `pocket_2_*` columns, so it
 is a property of each pocket rather than of the run — see "Open searches".
 
+**`compare_pockets` never writes to a pocket dict.** It used to `deepcopy` both sides on every alignment row
+so it could hang `fs_pos`/`fs_res_code`/`foldseek_pos` off them; that projection is now returned as a
+`_MappedPocket` instead, so pockets are read straight out of `pocket_dict`. Keep it that way — the copy was
+the single largest cost in step 6, and a pocket method that relied on the comparison mutating its dict would
+now silently see nothing. Note the projection is computed once per pocket per alignment row and shared across
+pairings, but `unknown_ids` names *both* pockets in each entry, so its records are replayed per pairing
+(`_record_code_mismatches`).
+
 ### Open searches
 
 An entry that names a structure but no pocket (`4Q5J:B`, or `4Q5J` for the default chain) is an *open
@@ -220,12 +228,14 @@ are not directly greppable for an input string — match on the `MOLECULE` recor
 
 ### Table schemas
 
-**The alignment table's column order is a positional contract.** `SequenceAligner.align_records` builds the
-exact same 18 columns that the Foldseek `--format-output` flag requests
-(`query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,lddt,qaln,taln,u,t,qseq,tseq`),
-and `pocket_comparison.compare_pockets` reads them **by index** (`row[0]`…`row[17]`). Changing or reordering
-columns in one producer without the other, or without updating the indices in `compare_pockets`, breaks
-silently.
+**The alignment table's column order is a positional contract**, declared once as
+`constants.ALIGNMENT_COLUMNS`. All three parties derive from it: `_foldseek_alignment` passes
+`constants.FOLDSEEK_FORMAT_OUTPUT` (the same list, comma-joined) to Foldseek's `--format-output`,
+`SequenceAligner.align_records` pins its DataFrame to `columns=ALIGNMENT_COLUMNS`, and
+`pocket_comparison` unpacks each row positionally into an `AlignmentRow` namedtuple built from the
+same list. Reorder the constant and all three move together; the reads are still positional
+(`AlignmentRow(*values)`), they just say which column they mean. Adding a column to one producer
+alone still breaks silently, so add it to `ALIGNMENT_COLUMNS`.
 
 **The comparison table has a fixed schema.** `pocket_comparison.POCKET_COMPARISON_COLUMNS` declares every
 column `compare_pockets` can produce, and the result is reindexed onto it before returning, so all 30 exist
@@ -342,11 +352,18 @@ Things to know when consuming it this way:
   favour of the class-based modules, and `compare_pockets` moved out to `pocket_comparison.py`.
 - `PocketCalculator.atp_pocket_overlap` is uncalled but deliberately retained for planned ATP-pocket work —
   leave it in place rather than pruning it as dead code.
-- `pocket_comparison.py` owns pipeline step 6 — `POCKET_COMPARISON_COLUMNS`, `compare_pockets`, and the
-  Foldseek column-order contract they depend on.
+- `pocket_comparison.py` owns pipeline step 6 — `POCKET_COMPARISON_COLUMNS`, `compare_pockets` and the
+  helpers it decomposes into (`_map_pocket_into_alignment`, `_compare_pocket_pair`, `_superpose`, …). The
+  column-order contract it depends on lives in `constants.ALIGNMENT_COLUMNS` because three modules share it.
+  Several caches are local to one `compare_pockets` call (`_describe_pocket`, `_seq_identity`): they hold
+  values that depend only on a pocket, not on the alignment row, which matters when thousands of rows name
+  the same query. There are no unit tests, so behaviour-preserving changes here are best checked by
+  capturing `compare_pockets`' arguments from a real run and diffing old against new output.
 - `constants.py` holds `SINGLE_AA_CODE` (the one three-to-one letter table — duplicates elsewhere were
   deleted; it maps the modified residues `SEP`/`TPO`/`PTR`/`MSE` and every caller defaults unknowns to `"X"`)
   and `HELP_MESSAGE`, the `--help` text, which also documents the settings-file-only "Advanced Options".
+  It also holds `ALIGNMENT_COLUMNS`/`FOLDSEEK_FORMAT_OUTPUT` (see "Table schemas") — it is the right home
+  precisely because it imports nothing, so all three modules on that contract can depend on it.
 - `blosum62.bla` and `human_domains/` (a bundled Foldseek DB) ship as package data — see
   `[tool.setuptools.package-data]` in `pyproject.toml`.
 - `tests/e2e/fixtures/` holds the batch input files and a local `4Q5J.cif.gz`. Cases run with that directory
