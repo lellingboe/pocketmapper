@@ -788,7 +788,9 @@ class PocketMapper:
 
         preproc_to_ids = {}
         for _, row in pd.concat([self._query_df, self._target_df], ignore_index=True).iterrows():
-            if row["pocket_id"] in preproc_to_ids:
+            # Keyed by preprocess_name: one chain can carry several pockets (several pocket_ids), so
+            # membership must be tested on the key, not on the pocket_id, or each chain keeps only its last.
+            if row["preprocess_name"] in preproc_to_ids:
                 if row["pocket_id"] not in preproc_to_ids[row["preprocess_name"]]:
                     preproc_to_ids[row["preprocess_name"]].append(row["pocket_id"])
             else:
