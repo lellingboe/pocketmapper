@@ -46,7 +46,7 @@ from pocketmapper.lib import binary_similarity, full_similarity, read_blast_simi
 # Every column compare_pockets can produce, in output order.
 #
 # A comparison stops early whenever there is nothing further to compute -- no overlapping residues, no CA
-# coordinates, fewer than three overlapping residues to superpose, or a foldseek-db/alphafold target with no
+# coordinates, fewer than three overlapping residues to superpose, or an open (whole-chain) target with no
 # pocket 2 to describe. Those rows leave the remaining fields empty rather than dropping the columns, so the
 # written table always has this exact schema and consumers can rely on a column existing regardless of what
 # any individual comparison found.
@@ -92,13 +92,22 @@ def compare_pockets(
     pocket_dict,
     preproc_to_ids,
     blosum_path,
-    alphafold=False,
+    synthesise_target_pockets=False,
 ):
     """
     Compare two pockets based on foldseek alignment
 
     blosum_path: path to a BLAST-format similarity matrix. The packaged one is
     os.path.join(os.path.dirname(pocketmapper.__file__), "blosum62.bla").
+
+    synthesise_target_pockets: build a whole-chain pseudo-pocket per alignment row instead of looking
+    the target up in pocket_dict. Only for a Foldseek database that has no target records of its own
+    (see _expand_fsdb_pdb_targets); it is a property of the job.
+
+    Whether the pocket_2_* descriptor columns are written, by contrast, is a property of each pocket:
+    an open search -- a whole chain rather than a pocket on it -- leaves them empty, because the
+    residue list is the whole chain and the percentages are diluted by its length. That is flagged on
+    the pocket dict itself ("whole_chain"), so one run can mix open and pocketed targets.
     """
 
     blosum_similarity_matrix = read_blast_similarity_matrix(blosum_path)
@@ -140,13 +149,14 @@ def compare_pockets(
             if len(pockets_1) == 0:
                 continue
 
-            if alphafold:
+            if synthesise_target_pockets:
                 pockets_2 = {
                     domain_2: {
                         "res_auth_ids": [str(k) for k in range(row[9])],
                         "id_pos_codes_match": True,
                         "pocket_exists": True,
                         "has_coords": False,
+                        "whole_chain": True,
                         "ca_sequence": row[17],
                     }
                 }
@@ -246,11 +256,13 @@ def compare_pockets(
 
                         # Checking fs single res code and pocektmapper single res codes match
 
-                        if not alphafold and (p2[res]["fs_res_code"] != p2[res]["res_code_single"]):
+                        # A synthesised pocket carries no residue codes, so there is nothing to check
+                        # against. A real whole-chain pocket does, and the check is worth running there.
+                        if "res_code_single" in p2[res] and (p2[res]["fs_res_code"] != p2[res]["res_code_single"]):
                             debug_id = ",".join([pocket_id_1, pocket_id_2, res])
                             unknown_ids[p2[res]["fs_res_code"]][p2[res]["res_code"]].add(debug_id)
 
-                if not alphafold:
+                if not p2.get("whole_chain"):
                     output["pocket_2_res_ids"] = ",".join(p2["res_auth_ids"])
                     output["pocket_2_len"] = len(p2["res_auth_ids"])
                     output["pocket_2_seq"] = "".join([p2[x]["res_code_single"] for x in p2["res_auth_ids"]])
@@ -279,7 +291,7 @@ def compare_pockets(
                 p1_pct_overlap = len(overlapping_residues) / len(p1["res_auth_ids"])
                 output["pocket_1_pct_overlap"] = p1_pct_overlap
 
-                if not alphafold:
+                if not p2.get("whole_chain"):
                     p2_pct_overlap = len(overlapping_residues) / len(p2["res_auth_ids"])
                     output["pocket_2_pct_overlap"] = p2_pct_overlap
                     output["min_pct_overlap"] = min(p1_pct_overlap, p2_pct_overlap)

@@ -6,8 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 PocketMapper compares the binding surfaces (pockets) of protein chains. It ships as a CLI (`pocketmapper`)
 and is equally usable as an importable Python library — see "Using it as a library" below. It fetches
-structures (PDB / AlphaFold), derives pocket residues (PISA interfaces, explicit residue lists, or VdW
-contact calculation), aligns query chains to target chains (BLOSUM62 sequence alignment or Foldseek),
+structures (PDB / AlphaFold), derives pocket residues (PISA interfaces, explicit residue lists, VdW
+contact calculation, or a whole chain for an open search), aligns query chains to target chains (BLOSUM62 sequence alignment or Foldseek),
 maps pocket residues through the alignment, and writes a comparison table.
 
 ## Commands
@@ -24,14 +24,14 @@ There are **no unit tests**, and `.github/workflows/test_and_deploy.yml` has a `
 dependencies — CI's only real gate is lint. What exists is an end-to-end suite in `tests/e2e/`:
 
 ```bash
-tests/e2e/run_e2e.sh --list          # the 16 cases and their tags
+tests/e2e/run_e2e.sh --list          # the 19 cases and their tags
 tests/e2e/run_e2e.sh -t core         # ~35s, no human_domains searches
 tests/e2e/run_e2e.sh -o /tmp/pm_e2e  # everything, results under a chosen directory
 tests/e2e/run_e2e.sh test_7          # one case by name
 ```
 
-Cases are grouped by what they exercise and numbered in that order: 1–7 structure-vs-structure pairs
-(all `core`), 8–12 human_domains DB targets, 13–14 the larger Foldseek DB targets, 15–16 the local aligner.
+Cases are grouped by what they exercise and numbered in that order: 1–9 structure-vs-structure pairs
+(all `core`), 10–14 human_domains DB targets, 15–16 the larger Foldseek DB targets, 17–19 the local aligner.
 Blank lines separate the groups in the `CASES` heredoc and are skipped by the runner (a `#` comment there
 would *not* be). Adding a case means inserting it in its group and renumbering what follows, so prefer
 describing a case by what it does rather than pinning to its number.
@@ -75,20 +75,28 @@ Note that the skip gate matches `--foldseek False` *before* the catch-all, so th
    (one `process_qt_cmdline_input` call per side).
 3. `_fetch_missing_structures` (or `_fetch_missing_fsdb`) → downloads mmCIF from wwPDB / AlphaFold into `structure_dir`.
 4. `_alignment` → either `_foldseek_preprocessing` + `_foldseek_alignment`, or `_local_alignment`. Both write `alignment.tsv`.
-5. `_get_pockets` → union of `_retrieve_pisa_pockets` | `_retrieve_passthrough_pockets` | `_retrieve_vdw_pockets`.
+5. `_get_pockets` → union of `_retrieve_pisa_pockets` | `_retrieve_passthrough_pockets` | `_retrieve_vdw_pockets`
+   | `_retrieve_whole_chain_pockets`.
 6. `_compare_pockets_based_on_alignment` → `pocket_comparison.compare_pockets` → `pocket_comparison.tsv`.
 7. `_align_structs` → superposes the top `align_count` targets onto each query into `aligned_structures/`.
 
 ### Input grammar
 
-Query/target strings are `struct_info:chain_info:residue_info` (colon-separated; the README's
+Query/target strings are `struct_info[:chain_info[:residue_info]]` (colon-separated; the README's
 `4Q5J_B_F` form is stale). Either side may instead be a path to a file with one such string per line.
 `QTProcessor` infers two things from the string:
 
 - `struct_type` — `pdb` (4-char ID), `alphafold` (UniProt accession), `local_file` (existing path), or
   `foldseek_db` (a bundled DB name: `human_domains`, `pdb`).
-- `pocket_method` — `pisa` (`A_B`), `passthrough` (`A:1,2,3`), `vdw` (`A_B:1,2,3`), chosen by regex and
-  constrained by `struct_type`. Overridable with `--query_pocket_method` / `--target_pocket_method`.
+- `pocket_method` — `whole_chain` (`A`, or nothing at all), `pisa` (`A_B`), `passthrough` (`A:1,2,3`),
+  `vdw` (`A_B:1,2,3`), chosen by regex and constrained by `struct_type`. Overridable with
+  `--query_pocket_method` / `--target_pocket_method`.
+
+Both trailing parts are optional, and dropping them means "no pocket specified" — an **open search**, where
+the whole chain is the pocket (see below). `chain_info` then defaults to `constants.DEFAULT_CHAIN` (`"A"`),
+so `4Q5J` is `4Q5J:A`. The `whole_chain` regex is checked **first**, because a bare chain also matches the
+passthrough and vdw patterns; conversely `passthrough_regex` requires at least one residue, so an entry with
+an empty residue list can no longer reach `_retrieve_passthrough_pockets` and die on `None.split(",")`.
 
 The original input string is kept as `pocket_id` and is the identifier used throughout the results.
 
@@ -102,6 +110,40 @@ top-level `res_auth_ids` (list of author seqids as strings), `ca_sequence`, `poc
 one entry per residue keyed by the **string** author seqid holding `res_code`, `res_code_single`, `seq_pos`
 (0-based index among CA-bearing residues — this is what maps into the alignment) and `ca_coords`.
 Residues without a CA atom get `seq_pos = -1` and are excluded, because Foldseek only sees CA-bearing residues.
+
+The top level also carries `whole_chain`, set by `parse_pocket_from_struct` from whether it was given a
+residue list or `None`. It is what `compare_pockets` branches on to suppress the `pocket_2_*` columns, so it
+is a property of each pocket rather than of the run — see "Open searches".
+
+### Open searches
+
+An entry that names a structure but no pocket (`4Q5J:B`, or `4Q5J` for the default chain) is an *open
+search*: `_retrieve_whole_chain_pockets` calls `parse_pocket_from_struct(..., pocket_residues=None)`, which
+treats every CA-bearing residue of the chain as the pocket. It is an ordinary pocket in every other respect —
+keyed by `pocket_id`, joined through `preproc_to_ids`, carrying residue codes and CA coordinates — so nothing
+downstream needs a special case, and `_align_structs` superposes these targets like any other.
+
+What *is* special is the output: because there is no pocket on the target to describe, and its length would
+dilute every ratio, `compare_pockets` leaves `pocket_2_res_ids`, `pocket_2_len`, `pocket_2_seq`,
+`pocket_2_pct_aln`, `pocket_2_pct_overlap`, `min_pct_overlap` and `max_pct_overlap` empty — the same shape a
+`human_domains` row has. Everything else is still written, including `pocket_2_overlap_ids` (real author
+seqids, and only the overlapping ones) and the RMSD/transform columns, which the synthesised Foldseek-DB
+pocket cannot produce because it has no coordinates.
+
+**The suppression is per pocket, not per run.** It branches on `p2.get("whole_chain")`, so one run can mix an
+open target and a pocketed one and get both row shapes in one table. `compare_pockets`'s remaining global
+flag, `synthesise_target_pockets` (formerly `alphafold`), now means only "the target side has no records at
+all, build a pseudo-pocket from the alignment row" — the non-PDB Foldseek-DB case, and nothing else. The
+synthesised pocket sets `whole_chain` on itself, which is how it keeps its old column suppression.
+
+The residue-code sanity check against Foldseek's alignment is gated on `"res_code_single" in p2[res]` rather
+than on `whole_chain`: the synthesised pocket has no residue codes and must skip it, but a real whole-chain
+pocket has them and the check is worth running there.
+
+A `pocket_2` value is not guaranteed to be a target. When a query and a target share a chain they share a
+`preprocess_name`, so `compare_pockets` pairs every pocket on that chain with every other and some rows come
+back with a query-only `pocket_id` in `pocket_2`. `_align_structs` filters those out before its `.loc`
+lookup; without that it raises a bare pandas `KeyError`.
 
 ### Foldseek-DB targets
 
@@ -118,10 +160,10 @@ What the target "pocket" is then depends on which DB it is, and the two cases ar
   `alignment.tsv`, resolves each through `lib.parse_foldseek_pdb_entry_name`, asks PISA which chains each hit
   chain touches, and appends one ordinary `pisa` record per interface to `_target_df` — so
   `_retrieve_pisa_pockets` then handles them like any other pisa entry and no separate pocket code exists.
-  `self._fsdb_pdb_target` is set and `compare_pockets` is called with `alphafold=False`, so every `pocket_2_*`
+  `self._fsdb_pdb_target` is set and `compare_pockets` is called with `synthesise_target_pockets=False`, so every `pocket_2_*`
   column is populated. **Hits with no usable PISA data are dropped**, not compared against a stand-in.
 - **Any other DB** (`human_domains`, built from AlphaFold models) keeps the old behaviour:
-  `compare_pockets(alphafold=True)` synthesises a whole-chain "pocket" per hit and the `pocket_2_*` columns
+  `compare_pockets(synthesise_target_pockets=True)` synthesises a whole-chain "pocket" per hit and the `pocket_2_*` columns
   stay empty.
 
 Three things about the PDB path are load-bearing:
@@ -187,7 +229,7 @@ silently.
 
 **The comparison table has a fixed schema.** `pocket_comparison.POCKET_COMPARISON_COLUMNS` declares every
 column `compare_pockets` can produce, and the result is reindexed onto it before returning, so all 33 exist
-on every run — rows that stop early (no overlap, no coordinates, an alphafold/foldseek-db target with no
+on every run — rows that stop early (no overlap, no coordinates, an open/foldseek-db target with no
 pocket 2) leave the later fields empty rather than dropping them. Add a new output field to that list as well
 as to the row dict; a column produced but not declared is kept and logged as a warning rather than silently
 dropped, so the list cannot quietly drift.

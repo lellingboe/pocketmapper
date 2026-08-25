@@ -23,11 +23,11 @@ Foldseek also has precompiled binaries available at https://dev.mmseqs.com/folds
 ### Input format
 Query and target entries are colon-separated:
 ```
-STRUCTURE:CHAIN[:RESIDUES]
+STRUCTURE[:CHAIN[:RESIDUES]]
 ```
 - **STRUCTURE** — a 4-character PDB ID (`4Q5J`), a UniProt accession (`P04637`, fetched from AlphaFold), or a path to a local structure file.
-- **CHAIN** — the chain the pocket belongs to. For the interface-based methods this is two chains joined by an underscore (`B_F`), where the first is the chain carrying the pocket and the second is its binding partner.
-- **RESIDUES** — optional comma-separated author residue numbers (`10,11,12`).
+- **CHAIN** — the chain the pocket belongs to. For the interface-based methods this is two chains joined by an underscore (`B_F`), where the first is the chain carrying the pocket and the second is its binding partner. Optional; omitted, it defaults to chain `A`.
+- **RESIDUES** — optional comma-separated author residue numbers (`10,11,12`). Omitting the whole pocket part makes the entry an open search — see below.
 
 How the pocket residues are derived is inferred from the shape of the entry:
 
@@ -37,11 +37,28 @@ How the pocket residues are derived is inferred from the shape of the entry:
 | `4Q5J:A:10,11,12` | passthrough | Exactly the residues listed, on chain A |
 | `4Q5J:A_B:10,11,12` | vdw | Van der Waals contact residues on chain A against chain B |
 | `P04637:A:10,11,12` | passthrough | AlphaFold model for the accession, residues listed |
+| `4Q5J:B` | whole_chain | Open search — the whole of chain B is treated as the pocket |
+| `4Q5J` | whole_chain | Open search over the default chain, `A` |
 | `human_domains` | — | Bundled Foldseek database (valid as a target only) |
 
-PISA is only available for PDB entries, and AlphaFold/local-file entries only support `passthrough` and
-`vdw`. A passthrough entry needs an explicit residue list. The inferred method can be overridden with
-`--query_pocket_method` / `--target_pocket_method`.
+PISA is only available for PDB entries, and AlphaFold/local-file entries only support `passthrough`,
+`vdw` and `whole_chain`. A passthrough entry needs an explicit residue list — without one the entry is
+an open search instead. The inferred method can be overridden with `--query_pocket_method` /
+`--target_pocket_method`.
+
+### Open searches
+An entry that names a structure but no pocket asks a different question: *does the query pocket resemble
+anything on this chain at all?* The whole chain becomes the pocket, so the answer is carried by
+`pocket_1_pct_overlap` — how much of the query pocket the target chain covers.
+
+Because there is no pocket on the target to describe, the descriptive and length-normalised columns
+(`pocket_2_res_ids`, `pocket_2_len`, `pocket_2_seq`, `pocket_2_pct_aln`, `pocket_2_pct_overlap`,
+`min_pct_overlap`, `max_pct_overlap`) are left empty — the same shape a Foldseek-database row has. The
+overlap itself is still fully reported: `pocket_2_overlap_ids` gives the author residue numbers the query
+pocket maps onto, and because a named structure has real coordinates the superposition columns (`rmsd`,
+`ca_dists`, the transforms) are populated too, which a Foldseek-database row cannot offer.
+
+Open and pocketed targets can be mixed freely in one batch file.
 
 For batch runs, pass a path to a file containing one such entry per line instead of a single entry.
 
@@ -71,7 +88,7 @@ pocketmapper search --query queries.txt --target targets.txt --settings config.j
 --results_dir: Directory to write results and temporary divided structures.\
 --verbosity: Log level, 4=DEBUG, 3=INFO (default), 2=WARNING, anything else=ERROR.\
 --foldseek: Whether to run Foldseek alignments instead of the local BLOSUM62 aligner. Left unset, Foldseek is used when its binary is on `PATH` and the local aligner is used with a warning when it is not. `True` requires Foldseek and errors if the binary is missing; `False` always uses the local aligner. A Foldseek DB target always needs the binary.\
---query_pocket_method / --target_pocket_method: Force the pocket method ('pisa', 'passthrough', 'vdw') instead of inferring it from the entry.\
+--query_pocket_method / --target_pocket_method: Force the pocket method ('pisa', 'passthrough', 'vdw', 'whole_chain', or 'foldseek_db' for a target) instead of inferring it from the entry.\
 --align_count: Number of top-scoring targets to superpose onto each query (default 10, 0 disables).\
 --help: Display the help message
 
@@ -86,7 +103,7 @@ pocketmapper search --query queries.txt --target targets.txt --settings config.j
 ### Outputs
 - alignment.tsv: Alignment report (Foldseek or local aligner)
 - pocket_comparison.tsv: Final pocket comparison table
-- pisa_pockets.json / passthrough_pockets.json / vdw_pockets.json and cached PISA API responses under the cache pocket directory
+- pisa_pockets.json / passthrough_pockets.json / vdw_pockets.json / whole_chain_pockets.json and cached PISA API responses under the cache pocket directory
 - unknown_ids.json (if unknown Foldseek aliases are encountered e.g., MSE -> M)
 - Divided mmCIF files and temporary directories under results_dir
 
