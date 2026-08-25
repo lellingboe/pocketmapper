@@ -54,12 +54,15 @@ case wants `POCKETMAPPER_PDB_FSDB` pointed at a prebuilt Foldseek PDB database, 
 downloads the full PDB Foldseek DB (2GB download, 7GB unzipped) so it only runs when named explicitly.
 
 Foldseek is an optional external binary (`conda install -c conda-forge -c bioconda foldseek`); it is
-invoked via `subprocess.run` and is required for `--foldseek True` and for any `foldseek_db` target.
+invoked via `subprocess.run` and is required for any `foldseek_db` target. It is also the **default
+aligner** — `_resolve_foldseek` probes for it with `shutil.which` and falls back to the local aligner
+when it is absent (see "The foldseek setting" below).
 
-Whether a case uses Foldseek is decided by `--foldseek` in its own `args` field, not by the runner — cases
-tagged `local` omit it to exercise the BLOSUM62 aligner, and only the Foldseek ones are skipped when the
-binary is missing. Keep it that way: when every case forced `--foldseek`, the suite could not see the local
-branch at all, which is how it shipped broken.
+Because Foldseek is the default, a case is assumed to need the binary and is skipped when it is missing;
+a case opts *out* with an explicit `--foldseek False` in its own `args` field. Cases tagged `local` carry
+that flag to exercise the BLOSUM62 aligner, and they still run without the binary. Keep it that way: when
+every case ran Foldseek, the suite could not see the local branch at all, which is how it shipped broken.
+Note that the skip gate matches `--foldseek False` *before* the catch-all, so the two forms stay distinct.
 
 ## Pipeline
 
@@ -104,7 +107,9 @@ Residues without a CA atom get `seq_pos = -1` and are excluded, because Foldseek
 
 When the target is a bundled Foldseek DB, `self.fsdb_target` is set and several branches change: no target
 structures are fetched or preprocessed, and `_align_structs` reconstructs target PDBs from the DB via
-`foldseek createsubdb` + `convert2pdb`. A `foldseek_db` target without `--foldseek True` is a hard error.
+`foldseek createsubdb` + `convert2pdb`. A `foldseek_db` target with foldseek off is a hard error, and the
+message splits on `self._foldseek_available` so it says whether the binary is missing or the user
+disabled it — the fixes differ.
 
 What the target "pocket" is then depends on which DB it is, and the two cases are genuinely different:
 
@@ -263,6 +268,20 @@ Things to know when consuming it this way:
   so a settings file can pin any individual path). New options go on the dataclass *and* in the `cli_overrides` dict
   in `_configure_workflow` *and* in the `search()` signature — and, if they are user-facing, in `HELP_MESSAGE`
   (`constants.py`) and the README's Options list, neither of which is generated from the dataclass.
+- **The `foldseek` setting is tri-state.** `Settings.foldseek` defaults to `None`, meaning "auto".
+  `_resolve_foldseek` collapses it to a concrete `bool` — `None` → foldseek if `shutil.which("foldseek")`
+  finds it, else a warning and the local aligner; `True` → a hard requirement, `PocketMapperError` if the
+  binary is absent; `False` → local, and the binary is never probed for. Everything downstream
+  (`_configure_query_target`, `_alignment`, `_delete_tmp`) only ever sees `True`/`False`, so branch on
+  `self._settings.foldseek` as before rather than re-testing for `None`.
+
+  Its call site is load-bearing: it sits in `_configure_workflow` **after** `_configure_logging` (the root
+  logger is at `CRITICAL` until then, so the fallback warning would vanish) and **before** the settings are
+  logged and dumped, so `job_settings.json` records the resolved value rather than `null`. It also runs
+  ahead of `_configure_query_target` and all fetching, so an unmet `--foldseek True` fails immediately
+  instead of as a raw `FileNotFoundError` from the first `foldseek` subprocess — after every structure has
+  already been downloaded. Keep any new foldseek-availability logic there rather than at the subprocess
+  call sites.
 - **Fetcher/preprocessor API.** `StructureFetcher` and `StructurePreprocessor` follow
   `set_output_directory()` → `update_cache()` → `fetch_*`/`preprocess_records()`. Caching is a plain `os.listdir`
   snapshot, so `update_cache()` must be called after the output dir is set and before work begins.

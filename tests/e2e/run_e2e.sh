@@ -35,9 +35,11 @@ FIXTURES_DIR="$SCRIPT_DIR/fixtures"
 #          least one data row; `ok` = run must succeed and write the file, but
 #          zero hits is a legitimate outcome for that pair.
 # args     passed to `pocketmapper search` verbatim (word-split on spaces).
-#          @PDB_FSDB@ expands to $POCKETMAPPER_PDB_FSDB. Cases carrying
-#          --foldseek here are skipped when the foldseek binary is missing;
-#          cases without it exercise the local BLOSUM62 aligner instead.
+#          @PDB_FSDB@ expands to $POCKETMAPPER_PDB_FSDB. Foldseek is the
+#          CLI's default, so a case is assumed to need the binary and is
+#          skipped when it is missing; a case opts out with an explicit
+#          `--foldseek False`, which exercises the local BLOSUM62 aligner
+#          and still runs without the binary.
 #
 # Cases are grouped by what they exercise -- structure-vs-structure pairs, then
 # human_domains DB targets, then the larger Foldseek DB targets, then the local
@@ -63,8 +65,8 @@ test_12|human_domains|rows|Large kinase pocket residue list vs human domains|--q
 test_13|needs-pdb-fsdb slow|rows|PISA interface vs a local Foldseek PDB database|4Q5J:B_F @PDB_FSDB@ --target_pocket_method foldseek_db --foldseek
 test_14|needs-pdb-download huge|rows|PISA interface vs the bundled full-PDB Foldseek database|4Q5J:A_E pdb --foldseek
 
-test_15|core local|rows|Local BLOSUM62 sequence alignment, no Foldseek (same pair as test_1)|4Q5J:A_E 4Q5J:B_F
-test_16|local|rows|Local aligner over mixed input types (PDB, local mmCIF, AlphaFold)|testfile.txt testfile.txt
+test_15|core local|rows|Local BLOSUM62 sequence alignment, no Foldseek (same pair as test_1)|4Q5J:A_E 4Q5J:B_F --foldseek False
+test_16|local|rows|Local aligner over mixed input types (PDB, local mmCIF, AlphaFold)|testfile.txt testfile.txt --foldseek False
 EOF
 
 # ---------------------------------------------------------------------------
@@ -113,8 +115,9 @@ Environment:
                           for test_13, which is skipped when unset.
 
 Notes:
-  * Most cases need the 'foldseek' binary on PATH and are skipped without it.
-    Cases tagged 'local' use the built-in BLOSUM62 aligner and do not.
+  * Foldseek is the CLI default, so most cases need the 'foldseek' binary on
+    PATH and are skipped without it. Cases tagged 'local' pass
+    '--foldseek False' to force the built-in BLOSUM62 aligner and still run.
   * Cases hit wwPDB, AlphaFold and PDBe PISA, so they need network access.
   * test_14 downloads the full PDB Foldseek database (2GB download, 7Gb unzipped) and is
     therefore excluded unless named explicitly.
@@ -169,7 +172,7 @@ fi
 HAVE_FOLDSEEK=1
 if ! command -v foldseek >/dev/null 2>&1; then
     HAVE_FOLDSEEK=0
-    echo "WARNING: 'foldseek' not found on PATH; every case will be skipped." >&2
+    echo "WARNING: 'foldseek' not found on PATH; only the '--foldseek False' cases will run." >&2
 fi
 
 echo "pocketmapper : $(command -v "$POCKETMAPPER_BIN")"
@@ -206,8 +209,8 @@ while IFS='|' read -r name tags expect desc args; do
     # --- gating -----------------------------------------------------------
     skip_reason=""
     case "$args" in
-        *--foldseek*) uses_foldseek=1 ;;
-        *)            uses_foldseek=0 ;;
+        *"--foldseek False"*) uses_foldseek=0 ;;
+        *)                    uses_foldseek=1 ;;
     esac
     if [ "$uses_foldseek" -eq 1 ] && [ "$HAVE_FOLDSEEK" -eq 0 ]; then
         skip_reason="foldseek not installed"
