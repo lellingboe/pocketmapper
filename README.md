@@ -49,14 +49,16 @@ an open search instead. The inferred method can be overridden with `--query_pock
 ### Open searches
 An entry that names a structure but no pocket asks a different question: *does the query pocket resemble
 anything on this chain at all?* The whole chain becomes the pocket, so the answer is carried by
-`pocket_1_pct_overlap` — how much of the query pocket the target chain covers.
+`overlap_count` and `pocket_1_overlap_ids` — how many of the query pocket's residues the target chain
+covers, and which ones.
 
 Because there is no pocket on the target to describe, the descriptive and length-normalised columns
-(`pocket_2_res_ids`, `pocket_2_len`, `pocket_2_seq`, `pocket_2_pct_aln`, `pocket_2_pct_overlap`,
-`min_pct_overlap`, `max_pct_overlap`) are left empty — the same shape a Foldseek-database row has. The
-overlap itself is still fully reported: `pocket_2_overlap_ids` gives the author residue numbers the query
-pocket maps onto, and because a named structure has real coordinates the superposition columns (`rmsd`,
-`ca_dists`, the transforms) are populated too, which a Foldseek-database row cannot offer.
+(`pocket_2_res_ids`, `pocket_2_len`, `pocket_2_seq`, `pocket_2_pct_aln`, `jaccard_index`) are left empty —
+the same shape a Foldseek-database row has. `jaccard_index` in particular needs a second pocket to size
+against, and a whole chain's length would swamp the union it normalises by. The overlap itself is still
+fully reported: `pocket_2_overlap_ids` gives the author residue numbers the query pocket maps onto, and
+because a named structure has real coordinates the superposition columns (`rmsd`, `ca_dists`, the
+transforms) are populated too, which a Foldseek-database row cannot offer.
 
 Open and pocketed targets can be mixed freely in one batch file.
 

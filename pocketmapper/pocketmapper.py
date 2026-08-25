@@ -1082,9 +1082,12 @@ class PocketMapper:
             # Select the top N target structures based on pocket comparison metrics. Targets sharing no
             # pocket residues with the query are excluded: there is no common set of residues to superpose
             # on, and their overlap metrics are empty so they would sort arbitrarily.
+            #
+            # A whole-chain target -- an open search, or a Foldseek-DB hit -- has no jaccard_index, so it
+            # sorts to the end and is ranked by the secondary key, min_overlap_similarity, instead.
             target_ids = (
                 pocket_comparison_df.query(f"pocket_1 == '{query_id}' and overlap_count > 0")
-                .sort_values(by=["pocket_1_pct_overlap", "min_overlap_similarity"], ascending=False)
+                .sort_values(by=["jaccard_index", "min_overlap_similarity"], ascending=False)
                 .head(self._settings.align_count)
                 .loc[:, "pocket_2"]
                 .to_list()

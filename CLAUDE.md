@@ -125,10 +125,10 @@ downstream needs a special case, and `_align_structs` superposes these targets l
 
 What *is* special is the output: because there is no pocket on the target to describe, and its length would
 dilute every ratio, `compare_pockets` leaves `pocket_2_res_ids`, `pocket_2_len`, `pocket_2_seq`,
-`pocket_2_pct_aln`, `pocket_2_pct_overlap`, `min_pct_overlap` and `max_pct_overlap` empty — the same shape a
-`human_domains` row has. Everything else is still written, including `pocket_2_overlap_ids` (real author
-seqids, and only the overlapping ones) and the RMSD/transform columns, which the synthesised Foldseek-DB
-pocket cannot produce because it has no coordinates.
+`pocket_2_pct_aln` and `jaccard_index` empty — the same shape a `human_domains` row has. Everything else is
+still written, including `pocket_2_overlap_ids` (real author seqids, and only the overlapping ones) and the
+RMSD/transform columns, which the synthesised Foldseek-DB pocket cannot produce because it has no
+coordinates.
 
 **The suppression is per pocket, not per run.** It branches on `p2.get("whole_chain")`, so one run can mix an
 open target and a pocketed one and get both row shapes in one table. `compare_pockets`'s remaining global
@@ -228,7 +228,7 @@ columns in one producer without the other, or without updating the indices in `c
 silently.
 
 **The comparison table has a fixed schema.** `pocket_comparison.POCKET_COMPARISON_COLUMNS` declares every
-column `compare_pockets` can produce, and the result is reindexed onto it before returning, so all 33 exist
+column `compare_pockets` can produce, and the result is reindexed onto it before returning, so all 30 exist
 on every run — rows that stop early (no overlap, no coordinates, an open/foldseek-db target with no
 pocket 2) leave the later fields empty rather than dropping them. Add a new output field to that list as well
 as to the row dict; a column produced but not declared is kept and logged as a warning rather than silently
@@ -238,8 +238,11 @@ dropped, so the list cannot quietly drift.
 
 **`_align_structs` only superposes targets that actually overlap the query.** It filters on
 `overlap_count > 0` before ranking, because a target sharing no pocket residues has no common residue set to
-superpose on and empty overlap metrics that would sort arbitrarily. Queries with no overlapping target are
-skipped with a log line, and a run where nothing overlaps returns early instead of proceeding.
+superpose on and empty overlap metrics that would sort arbitrarily. It then ranks on `jaccard_index`, then
+`min_overlap_similarity` — and since a whole-chain target has no `jaccard_index`, an open or Foldseek-DB
+search sorts every candidate to the NaN block and is ordered by the similarity alone. Queries with no
+overlapping target are skipped with a log line, and a run where nothing overlaps returns early instead of
+proceeding.
 
 **It does not work at all on the local-aligner path.** `SequenceAligner` writes `"-"` for the `u`/`t`
 transforms, which `foldseek_transform` catches and logs per record, so a non-Foldseek run still completes but
