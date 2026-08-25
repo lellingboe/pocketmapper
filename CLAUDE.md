@@ -24,92 +24,42 @@ There are **no unit tests**, and `.github/workflows/test_and_deploy.yml` has a `
 dependencies — CI's only real gate is lint. What exists is an end-to-end suite in `tests/e2e/`:
 
 ```bash
-tests/e2e/run_e2e.sh --list          # the 15 cases and their tags
+tests/e2e/run_e2e.sh --list          # the 16 cases and their tags
 tests/e2e/run_e2e.sh -t core         # ~35s, no human_domains searches
 tests/e2e/run_e2e.sh -o /tmp/pm_e2e  # everything, results under a chosen directory
 tests/e2e/run_e2e.sh test_7          # one case by name
 ```
 
-Cases are grouped by what they exercise and numbered in that order: 1–6 structure-vs-structure pairs
-(all `core`), 7–11 human_domains DB targets, 12–13 the larger Foldseek DB targets, 14–15 the local aligner.
+Cases are grouped by what they exercise and numbered in that order: 1–7 structure-vs-structure pairs
+(all `core`), 8–12 human_domains DB targets, 13–14 the larger Foldseek DB targets, 15–16 the local aligner.
 Blank lines separate the groups in the `CASES` heredoc and are skipped by the runner (a `#` comment there
 would *not* be). Adding a case means inserting it in its group and renumbering what follows, so prefer
 describing a case by what it does rather than pinning to its number.
 
 Each case shells out to the real CLI and hits live wwPDB / AlphaFold / PDBe PISA — there are no mocks, so the
 suite needs network access. It asserts exit status plus the presence (and, where a pair is known to produce
-hits, the non-emptiness) of `pocket_comparison.tsv`. Reuse one `--cache-dir` across runs; a warm cache makes
-reruns dramatically faster. Cases needing resources that aren't present are reported as SKIP rather than
-failing: `test_12` wants `POCKETMAPPER_PDB_FSDB` pointed at a prebuilt Foldseek PDB database, and `test_13`
+hits, the non-emptiness) of `pocket_comparison.tsv`.
+
+**Always run against the existing cache at `tests/e2e/e2e_results/pocketmapper_cache`** — pass
+`POCKETMAPPER_E2E_CACHE="$PWD/tests/e2e/e2e_results/pocketmapper_cache"`, or `--cache-dir` for a direct
+`pocketmapper search`. It is several GB of already-downloaded structures, PISA responses and Foldseek DBs, and
+a cold cache is dramatically slower: PISA is fetched per entry behind a rate-limiting sleep, so a full-PDB run
+means thousands of calls at ~3/s. Note the runner's `-o` default is `$PWD/e2e_results`, *not* relative to the
+script — running it from the repo root silently creates a second, empty cache at the top level and re-downloads
+everything. To deliberately test cold-cache behaviour, point at a throwaway directory *inside*
+`tests/e2e/e2e_results/` rather than at /tmp, so the downloads are still reusable.
+
+Cases needing resources that aren't present are reported as SKIP rather than failing: the `needs-pdb-fsdb`
+case wants `POCKETMAPPER_PDB_FSDB` pointed at a prebuilt Foldseek PDB database, and `needs-pdb-download`
 downloads the full PDB Foldseek DB (2GB download, 7GB unzipped) so it only runs when named explicitly.
+
+Foldseek is an optional external binary (`conda install -c conda-forge -c bioconda foldseek`); it is
+invoked via `subprocess.run` and is required for `--foldseek True` and for any `foldseek_db` target.
 
 Whether a case uses Foldseek is decided by `--foldseek` in its own `args` field, not by the runner — cases
 tagged `local` omit it to exercise the BLOSUM62 aligner, and only the Foldseek ones are skipped when the
 binary is missing. Keep it that way: when every case forced `--foldseek`, the suite could not see the local
 branch at all, which is how it shipped broken.
-
-### Invariants worth knowing
-
-**The comparison table has a fixed schema.** `pocket_comparison.POCKET_COMPARISON_COLUMNS` declares every
-column `compare_pockets` can produce, and the result is reindexed onto it before returning, so all 33 exist
-on every run — rows that stop early (no overlap, no coordinates, an alphafold/foldseek-db target with no
-pocket 2) leave the later fields empty rather than dropping them. Add a new output field to that list as well
-as to the row dict; a column produced but not declared is kept and logged as a warning rather than silently
-dropped, so the list cannot quietly drift.
-
-**Aligned structures are named by `lib.safe_filename(query_id)`, not by the `pocket_id` itself.** A
-`pocket_id` is raw user input, so it may be a path or carry a long residue list; `safe_filename` keeps only
-the basename, sanitises it and appends an md5 of the full original. So `aligned_structures/*.pdb` filenames
-are not directly greppable for an input string — match on the `MOLECULE` records inside instead.
-
-**`_align_structs` only superposes targets that actually overlap the query.** It filters on
-`overlap_count > 0` before ranking, because a target sharing no pocket residues has no common residue set to
-superpose on and empty overlap metrics that would sort arbitrarily. Queries with no overlapping target are
-skipped with a log line, and a run where nothing overlaps returns early instead of proceeding.
-
-Note that `seq_pos` is the single value everything hinges on: it is the residue's index among the CA-bearing
-residues *of its own chain*, and it is what maps a pocket residue into the alignment. Any pocket method that
-computes it differently from `lib_struct.parse_pocket_from_struct` will silently produce zero overlap rather
-than an error — that was the `vdw` bug below. When adding a pocket method, check a pocket against itself:
-self-comparison must yield `overlap_count == pocket_len`.
-
-### Recently fixed
-
-**A zero-overlap result crashed the final stage.** `compare_pockets` inferred its columns from the row dicts,
-so a run in which *every* row scored zero overlap never created `pocket_1_pct_overlap` and `_align_structs`
-died sorting on it — and aborted before `_delete_tmp()`, leaking `query_structures/`/`target_structures/`
-into the results directory. Both invariants above exist because of this; `test_4`/`test_5` are the
-regression tests.
-
-**`vdw` pockets always scored zero overlap.** `ca_num += 1` in `PocketCalculator.pocket_overlap` sat inside
-the inner `for res2` loop, counting residue *pairs*, so every vdw `seq_pos` was inflated by the partner
-chain's length and fell outside the alignment region — zero overlap on every row, no warning, plausible-looking
-output, and (per the entry above) a crash. Dedenting the increment to the outer loop fixed it. Two things to
-carry forward: `atp_pocket_overlap` never had the bug, and is uncalled but deliberately retained for planned
-ATP-pocket work — leave it in place; and local-file entries like `4Q5J.cif.gz:B_F` resolve to vdw (`B_F`
-matches the vdw regex, and PISA is PDB-only), which is how the mixed-input fixtures reach that code.
-
-`_local_alignment` used to read each record's `preprocess_path_gz`, which only exists after
-`_foldseek_preprocessing()` — a step that runs solely on the Foldseek branch — so every run without
-`--foldseek` died with `FileNotFoundError`. `SequenceAligner.align_records` now reads `struct_path` (the full
-reference structure) and selects the chain itself, which is what it was already doing to the pre-split copy.
-Verified to produce results identical to the Foldseek path on the same pair. `test_14`/`test_15` are the
-regression tests; both fail against the previous code. Note that `_align_structs` still can't superpose on the
-local path — `SequenceAligner` writes `"-"` for the `u`/`t` transforms, which `foldseek_transform` catches and
-logs per record, so the run completes with an aligned PDB containing only the query.
-
-**`_align_structs` superposed every query onto the wrong reference.** It built `aln_records` as
-`[record] + top_target_records`, where `record` was a leaked loop variable from the earlier target-selection
-loop — so it was always the *last* query in `_query_df`, not the query being processed. `foldseek_transform`
-takes `aln_records[0]` as the reference frame, so with more than one query every output PDB led with the same
-wrong structure and the transforms were relative to it; single-query runs were correct, which is why it went
-unnoticed. Now uses `query_record`, which needs `pocket_id` put back by hand (`_query_df` is indexed on it by
-that point, so it is not in the row dict, and `foldseek_transform` reads it for the COMPND metadata). Not
-covered by the e2e suite, which only asserts on `pocket_comparison.tsv` and so passes either way — check the
-`MOLECULE` records in `aligned_structures/*.pdb` after a `test_2` run: each file must lead with its own query.
-
-Foldseek is an optional external binary (`conda install -c conda-forge -c bioconda foldseek`); it is
-invoked via `subprocess.run` and is required for `--foldseek True` and for any `foldseek_db` target.
 
 ## Pipeline
 
@@ -139,18 +89,8 @@ Query/target strings are `struct_info:chain_info:residue_info` (colon-separated;
 
 The original input string is kept as `pocket_id` and is the identifier used throughout the results.
 
-### Two invariants that hold the pipeline together
-
-**The alignment table's column order is a positional contract.** `SequenceAligner.align_records` builds the
-exact same 18 columns that the Foldseek `--format-output` flag requests
-(`query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,lddt,qaln,taln,u,t,qseq,tseq`),
-and `pocket_comparison.compare_pockets` reads them **by index** (`row[0]`…`row[17]`). Changing or reordering columns in one
-producer without the other, or without updating the indices in `compare_pockets`, breaks silently.
-
-**`preprocess_name` is the join key.** It is `<basename>_<chain><md5-of-that>` (e.g. `4Q5J_B_<hash>`), computed
-once in `QTProcessor.parse_individual_qt`. Alignments are keyed by it; pockets are keyed by `pocket_id`;
-`_compare_pockets_based_on_alignment` builds `preproc_to_ids` to bridge the two. One `preprocess_name` can map
-to several `pocket_id`s (same chain, different pockets).
+A local-file entry like `4Q5J.cif.gz:B_F` resolves to `vdw`, not `pisa` — `B_F` matches the vdw regex and PISA
+is PDB-only. That is how the mixed-input fixtures reach the vdw code.
 
 ### Pocket dict shape
 
@@ -163,9 +103,100 @@ Residues without a CA atom get `seq_pos = -1` and are excluded, because Foldseek
 ### Foldseek-DB targets
 
 When the target is a bundled Foldseek DB, `self.fsdb_target` is set and several branches change: no target
-structures are fetched or preprocessed, `compare_pockets(alphafold=True)` synthesises a whole-chain "pocket" for
-each target hit rather than looking one up, and `_align_structs` reconstructs target PDBs from the DB via
+structures are fetched or preprocessed, and `_align_structs` reconstructs target PDBs from the DB via
 `foldseek createsubdb` + `convert2pdb`. A `foldseek_db` target without `--foldseek True` is a hard error.
+
+What the target "pocket" is then depends on which DB it is, and the two cases are genuinely different:
+
+- **A PDB DB** (`pdb`, or a local prebuilt one) has hits that are real PDB chains, so they get real PISA
+  pockets. `_expand_fsdb_pdb_targets` runs first in `_get_pockets`: it reads the hit names out of
+  `alignment.tsv`, resolves each through `lib.parse_foldseek_pdb_entry_name`, asks PISA which chains each hit
+  chain touches, and appends one ordinary `pisa` record per interface to `_target_df` — so
+  `_retrieve_pisa_pockets` then handles them like any other pisa entry and no separate pocket code exists.
+  `self._fsdb_pdb_target` is set and `compare_pockets` is called with `alphafold=False`, so every `pocket_2_*`
+  column is populated. **Hits with no usable PISA data are dropped**, not compared against a stand-in.
+- **Any other DB** (`human_domains`, built from AlphaFold models) keeps the old behaviour:
+  `compare_pockets(alphafold=True)` synthesises a whole-chain "pocket" per hit and the `pocket_2_*` columns
+  stay empty.
+
+Three things about the PDB path are load-bearing:
+
+**The generated records carry the Foldseek entry name as their `preprocess_name`**, not the one `QTProcessor`
+derives. That field is the alignment join key — it is what links these pockets back to their alignment rows
+(via `preproc_to_ids`) and to their Foldseek transforms (`foldseek_transform` looks up `u`/`t` by it). The
+records are otherwise built by `QTProcessor.parse_individual_qt` on a synthesised `"<PDB>:<chain>_<partner>"`
+string, so that method is now part of the pipeline and not only of CLI parsing — its output shape is depended
+on in two places.
+
+**The assembly id is deliberately discarded.** `4q5j-assembly1_B` and `4q5j-assembly2_B` both resolve to
+`4Q5J:B_F`, so one `pocket_id` can sit behind two `preprocess_name`s. The pocket is computed once, and
+`compare_pockets`'s `existing_calcs` set means only the first assembly's alignment row is scored — so the
+transform used is whichever assembly Foldseek reported first. `_align_structs` de-duplicates on `pocket_id`
+when mapping back to entry names for exactly this reason; without that its `.loc` lookup returns extra rows
+and superposes the same structure twice.
+
+**Pockets come from the wwPDB asymmetric unit while Foldseek's `tseq` comes from the assembly.** These agree
+in the ordinary case (verified: a 4Q5J self-comparison through a PDB-named DB gives `overlap_count ==
+pocket_len`, identity 1.0, RMSD ~1e-14), and `compare_pockets`'s 0.8 sequence-identity guard catches them when
+they don't — a populated `incorrect_mapping.json` is the signal that an entry's assembly and AU numbering have
+diverged.
+
+**There is no cap on how many hits get enriched**, by choice. A full-PDB search is genuinely large — `4Q5J:B_F`
+against the bundled `pdb` DB returns ~4,970 hits across ~3,620 entries, and PISA is fetched per entry with a
+rate-limiting sleep, so the first run takes hours. The interface cache makes reruns cheap, and
+`_expand_fsdb_pdb_targets` logs both counts before starting so the wait is legible. Add a cap here if that
+ever becomes untenable.
+
+## Invariants
+
+The contracts that hold the pipeline together. Breaking one of these generally produces silently wrong
+output rather than an error, which is what makes them worth stating. The Foldseek-DB path carries three
+more of its own — see that section.
+
+### Identifiers and join keys
+
+**`seq_pos` is the value everything hinges on.** It is the residue's index among the CA-bearing residues *of
+its own chain*, and it is what maps a pocket residue into the alignment. Any pocket method that computes it
+differently from `lib_struct.parse_pocket_from_struct` will silently produce zero overlap rather than an
+error. When adding a pocket method, check a pocket against itself: self-comparison must yield
+`overlap_count == pocket_len`.
+
+**`preprocess_name` is the join key.** It is `<basename>_<chain><md5-of-that>` (e.g. `4Q5J_B_<hash>`), computed
+once in `QTProcessor.parse_individual_qt`. Alignments are keyed by it; pockets are keyed by `pocket_id`;
+`_compare_pockets_based_on_alignment` builds `preproc_to_ids` to bridge the two. One `preprocess_name` can map
+to several `pocket_id`s (same chain, different pockets).
+
+**Aligned structures are named by `lib.safe_filename(query_id)`, not by the `pocket_id` itself.** A
+`pocket_id` is raw user input, so it may be a path or carry a long residue list; `safe_filename` keeps only
+the basename, sanitises it and appends an md5 of the full original. So `aligned_structures/*.pdb` filenames
+are not directly greppable for an input string — match on the `MOLECULE` records inside instead.
+
+### Table schemas
+
+**The alignment table's column order is a positional contract.** `SequenceAligner.align_records` builds the
+exact same 18 columns that the Foldseek `--format-output` flag requests
+(`query,target,fident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,lddt,qaln,taln,u,t,qseq,tseq`),
+and `pocket_comparison.compare_pockets` reads them **by index** (`row[0]`…`row[17]`). Changing or reordering
+columns in one producer without the other, or without updating the indices in `compare_pockets`, breaks
+silently.
+
+**The comparison table has a fixed schema.** `pocket_comparison.POCKET_COMPARISON_COLUMNS` declares every
+column `compare_pockets` can produce, and the result is reindexed onto it before returning, so all 33 exist
+on every run — rows that stop early (no overlap, no coordinates, an alphafold/foldseek-db target with no
+pocket 2) leave the later fields empty rather than dropping them. Add a new output field to that list as well
+as to the row dict; a column produced but not declared is kept and logged as a warning rather than silently
+dropped, so the list cannot quietly drift.
+
+### Structural alignment (step 7)
+
+**`_align_structs` only superposes targets that actually overlap the query.** It filters on
+`overlap_count > 0` before ranking, because a target sharing no pocket residues has no common residue set to
+superpose on and empty overlap metrics that would sort arbitrarily. Queries with no overlapping target are
+skipped with a log line, and a run where nothing overlaps returns early instead of proceeding.
+
+**It does not work at all on the local-aligner path.** `SequenceAligner` writes `"-"` for the `u`/`t`
+transforms, which `foldseek_transform` catches and logs per record, so a non-Foldseek run still completes but
+its aligned PDB contains only the query.
 
 ## Using it as a library
 
@@ -245,6 +276,8 @@ Things to know when consuming it this way:
   shape; keep it that way, and put workflow logic in a component module instead. It used to be a grab-bag:
   the superseded copies of the preprocessing, pocket-calculation and PISA-download logic were deleted in
   favour of the class-based modules, and `compare_pockets` moved out to `pocket_comparison.py`.
+- `PocketCalculator.atp_pocket_overlap` is uncalled but deliberately retained for planned ATP-pocket work —
+  leave it in place rather than pruning it as dead code.
 - `pocket_comparison.py` owns pipeline step 6 — `POCKET_COMPARISON_COLUMNS`, `compare_pockets`, and the
   Foldseek column-order contract they depend on.
 - `constants.py` holds `SINGLE_AA_CODE` (the one three-to-one letter table — duplicates elsewhere were
