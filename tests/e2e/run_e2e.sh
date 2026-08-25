@@ -9,6 +9,16 @@
 #
 # Run `./run_e2e.sh --help` for usage.
 
+# Must be executed, never sourced: `set -u` below -- and every `exit` further
+# down -- would otherwise apply to the calling shell. Under Terminal.app that
+# surfaces as "-bash: HISTTIMEFORMAT: unbound variable" at each prompt (its
+# per-prompt history hook reads that unset variable) and --list/--help kill the
+# login shell outright, leaving a dead window.
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then
+    echo "run_e2e.sh must be run, not sourced -- use: ./run_e2e.sh $*" >&2
+    return 2
+fi
+
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
