@@ -134,7 +134,7 @@ def compare_pockets(
 
             # GETTING POCKETS WHICH CORRESPOND TO THE FOLDSEEK NAME
             pockets_1 = {}
-            for pocket_id in preproc_to_ids.get(domain_1):
+            for pocket_id in preproc_to_ids.get(domain_1) or []:
                 if pocket_id in pocket_dict:
                     pockets_1[pocket_id] = pocket_dict[pocket_id]
             if len(pockets_1) == 0:
@@ -153,7 +153,7 @@ def compare_pockets(
                 pockets_2[domain_2].update({str(k): {"seq_pos": k} for k in range(row[9])})
             else:
                 pockets_2 = {}
-                for pocket_id in preproc_to_ids.get(domain_2):
+                for pocket_id in preproc_to_ids.get(domain_2) or []:
                     if pocket_id in pocket_dict:
                         pockets_2[pocket_id] = pocket_dict[pocket_id]
                 if len(pockets_2) == 0:

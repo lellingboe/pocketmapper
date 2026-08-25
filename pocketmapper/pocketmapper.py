@@ -16,7 +16,7 @@ import os
 import sys
 from datetime import datetime
 import shutil
-from pocketmapper.lib import jsonify_dict, safe_filename
+from pocketmapper.lib import jsonify_dict, parse_foldseek_pdb_entry_name, safe_filename
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.pisa_downloader import PisaDownloader
 from pocketmapper.pisa_parser import PisaParser
@@ -105,6 +105,7 @@ class PocketMapper:
         logging.basicConfig(level=logging.CRITICAL, format=self._log_fmt)
 
         self.fsdb_target = False
+        self._fsdb_pdb_target = False
 
     def _configure_logging(self, settings):
         """
@@ -619,6 +620,10 @@ class PocketMapper:
         stage = {"stage": "Getting Pockets"}
         logging.info("Starting pocket retrieval...", extra=stage)
 
+        # Turns PDB Foldseek-database hits into ordinary pisa target records, so the retrieval below
+        # picks them up like any other pisa entry. No-op for every other kind of target.
+        self._expand_fsdb_pdb_targets()
+
         pisa_pockets = self._retrieve_pisa_pockets()
         passthrough_pockets = self._retrieve_passthrough_pockets()
         vdw_pockets = self._retrieve_vdw_pockets()
@@ -627,7 +632,102 @@ class PocketMapper:
         logging.debug(f"Combined pockets: {pockets}", extra=stage)
         return pockets
 
-    # TODO If target is PDB foldseek database, a set of target queries needs to be generated to be used as pockets
+    def _expand_fsdb_pdb_targets(self):
+        """
+        Turn the hits of a PDB Foldseek-database search into ordinary PISA target records.
+
+        A Foldseek-database target has no per-chain records of its own, so `compare_pockets` normally
+        synthesises a whole-chain pseudo-pocket for each hit and leaves every `pocket_2_*` column empty.
+        The PDB database is built from real PDB entries, though, so its hits have real PISA interfaces:
+        this reads the hit names out of the alignment table, resolves each to a PDB ID and chain, asks
+        PISA which chains that chain touches, and appends one `pisa` record per interface to
+        `self._target_df`. `_retrieve_pisa_pockets` then handles them like any other pisa entry.
+
+        The generated records carry the Foldseek entry name as their `preprocess_name` rather than the
+        one `QTProcessor` derives, because that is the key alignments are stored under -- it is what
+        joins these pockets back to their alignment rows and to their Foldseek transforms.
+
+        Runs after `_alignment`, so `alignment.tsv` exists. Does nothing unless the target is a Foldseek
+        database whose entries are named in the PDB style; a database of anything else (human_domains)
+        keeps the synthesised whole-chain pockets.
+
+        Returns:
+            None: appends to `self._target_df` and sets `self._fsdb_pdb_target`.
+        """
+        if not self.fsdb_target:
+            return
+
+        stage = {"stage": "Expanding Foldseek DB Targets"}
+
+        alignment_df = pd.read_csv(self._settings.alignment_path, sep="\t", engine="c")
+        hits = {}  # foldseek entry name -> (pdb_id, chain_id)
+        for hit_name in alignment_df["target"].unique().tolist():
+            resolved = parse_foldseek_pdb_entry_name(hit_name)
+            if resolved is not None:
+                hits[hit_name] = resolved
+        if not hits:
+            logging.info(
+                "Foldseek database target is not a PDB database; keeping whole-chain target pockets",
+                extra=stage,
+            )
+            return
+        self._fsdb_pdb_target = True
+
+        pdb_list = sorted({pdb_id for pdb_id, _ in hits.values()})
+        logging.info(
+            f"Retrieving PISA interfaces for {len(pdb_list)} PDB entries behind {len(hits)} Foldseek hits",
+            extra=stage,
+        )
+
+        # Same directories _retrieve_pisa_pockets uses, so the two share one cache and its own call is a
+        # no-op for everything downloaded here.
+        pisa_response_dir = os.path.join(self._settings.pocket_dir, "pisa_responses")
+        interface_dir = os.path.join(pisa_response_dir, "interfaces")
+        downloader = PisaDownloader()
+        downloader.get_interfaces(
+            pdb_list=pdb_list,
+            summary_dir=os.path.join(pisa_response_dir, "summaries"),
+            asm_dir=os.path.join(pisa_response_dir, "assemblies"),
+            interface_dir=interface_dir,
+        )
+
+        # Building one record per interface the hit chain takes part in
+        parser = PisaParser()
+        qtprocessor = QTProcessor(
+            structure_dir=self._settings.structure_dir,
+            foldseek_preprocessed_structure_dir=self._settings.foldseek_preprocessed_structure_dir,
+            fsdb_dir=self._settings.fsdb_dir,
+        )
+        records = []
+        for hit_name, (pdb_id, chain_id) in hits.items():
+            for partner in parser.get_interface_partners(pdb_id, chain_id, interface_dir):
+                record = qtprocessor.parse_individual_qt(f"{pdb_id}:{chain_id}_{partner}", pocket_method="pisa")
+                if record is None:
+                    continue
+                # The alignment is keyed by the Foldseek entry name, not by the name QTProcessor derives.
+                # Nothing preprocesses these structures, so the preprocessing paths are meaningless here.
+                record.preprocess_name = hit_name
+                record.preprocess_path = None
+                record.preprocess_path_gz = None
+                records.append(asdict(record))
+        if not records:
+            logging.warning("No PISA interfaces found for any Foldseek hit", extra=stage)
+            return
+
+        # Fetching structures last, so only entries that actually produced a pocket are downloaded.
+        # Hits whose structure can't be fetched come back marked success=False and are dropped here;
+        # _fetch_missing_structures raises only if not one of them could be fetched, which would leave
+        # nothing to compare against at all.
+        target_df = self._fetch_missing_structures("foldseek hit", pd.DataFrame(records), self._settings.structure_dir)
+        target_df = target_df.query("success")
+
+        logging.info(
+            f"Added {len(target_df)} PISA target pockets from {target_df['preprocess_name'].nunique()} Foldseek hits",
+            extra=stage,
+        )
+        # Row 0 stays the database record itself -- _foldseek_alignment and _align_structs read its struct_path.
+        self._target_df = pd.concat([self._target_df, target_df], ignore_index=True)
+
     def _retrieve_pisa_pockets(self):
         """
         Request, parse, and translate remote pocket mapping endpoints through the PDBe PISA service.
@@ -653,7 +753,6 @@ class PocketMapper:
         else:
             logging.info(f"{len(pisa_df)} PISA pockets to retrieve", extra=stage)
 
-        # TODO PDB: get list of pdbs from alignment.tsv and extend the query list
         pisa_response_dir = os.path.join(self._settings.pocket_dir, "pisa_responses")
         pisa_pdb_list = pisa_df["struct_info"].unique().tolist()
         logging.debug(f"PDBs for which to retrieve PISA pockets: {pisa_pdb_list}", extra=self._log_extra)
@@ -665,7 +764,6 @@ class PocketMapper:
             interface_dir=os.path.join(pisa_response_dir, "interfaces"),
         )
 
-        # TODO PDB: need a parser that can handle just 1 chain ID
         parser = PisaParser()
         pisa_pockets = parser.get_pockets_from_records(
             records=pisa_df.to_dict(orient="records"),
@@ -673,7 +771,6 @@ class PocketMapper:
         )
         logging.debug(f"Extracted PISA pockets: {pisa_pockets}", extra=self._log_extra)
 
-        # TODO PDB: Should have all the info neeed to rerun earlier parts of the pipeline and set up the target df
         for _, row in pisa_df.iterrows():
             if row["pocket_id"] in pisa_pockets:
                 pisa_pockets[row["pocket_id"]] = parse_pocket_from_struct(
@@ -798,7 +895,13 @@ class PocketMapper:
         logging.debug(f"Preprocessed name to pocket ID mapping: {preproc_to_ids}", extra=stage)
 
         pockets_df, unknown_alias, incorrect_mapping = compare_pockets(
-            alignment_df, pockets, preproc_to_ids=preproc_to_ids, blosum_path=blosum_path, alphafold=self.fsdb_target
+            alignment_df,
+            pockets,
+            preproc_to_ids=preproc_to_ids,
+            blosum_path=blosum_path,
+            # A PDB Foldseek database has real PISA pockets for its hits (see _expand_fsdb_pdb_targets);
+            # every other database still needs the synthesised whole-chain pocket.
+            alphafold=self.fsdb_target and not self._fsdb_pdb_target,
         )
 
         # Logging cases where a residue was given a single cahr name unfamiliar to pocketmapper
@@ -886,13 +989,27 @@ class PocketMapper:
             source_db_path = self._target_df.loc[0, "struct_path"]
             logging.debug(f"Using Foldseek database at {source_db_path} for structural alignment", extra=stage)
 
-            # Get chain IDs corresponding to the unique target IDs from the Foldseek database lookup file
+            # With a PDB database the target IDs are pocket IDs ("4Q5J:B_F"), not database entry names, so
+            # map them back through the records built by _expand_fsdb_pdb_targets. One pocket ID can come
+            # from more than one entry (the same chain in two assemblies) -- keep the first, or the lookup
+            # below returns duplicate rows and the structure gets superposed twice.
+            if self._fsdb_pdb_target:
+                id_to_entry = (
+                    self._target_df.dropna(subset=["preprocess_name"])
+                    .drop_duplicates(subset="pocket_id", keep="first")
+                    .set_index("pocket_id")["preprocess_name"]
+                )
+                target_entry_names = {target_id: id_to_entry[target_id] for target_id in unique_target_ids}
+            else:
+                target_entry_names = {target_id: target_id for target_id in unique_target_ids}
+
+            # Get chain IDs corresponding to the required entries from the Foldseek database lookup file
             source_db_lookup_path = source_db_path + ".lookup"
             source_db_lookup_df = pd.read_csv(
                 source_db_lookup_path, sep="\t", header=None, names=["chain_id", "name", "struct_id"]
             )
             source_db_lookup_df = source_db_lookup_df.set_index("name")
-            chain_ids = source_db_lookup_df.loc[list(unique_target_ids), "chain_id"].tolist()
+            chain_ids = source_db_lookup_df.loc[list(target_entry_names.values()), "chain_id"].tolist()
 
             # Make directory for subdb
             subdb_dir = os.path.join(self._settings.aligned_structure_dir, "fsdb")
@@ -930,10 +1047,13 @@ class PocketMapper:
             ]
             subprocess.run(convert2pdb_command, check=True)
 
-            # Make record df for the target records based on the unique target IDs and the subdb structure directory
-            target_record_df = pd.DataFrame({"preprocess_name": list(unique_target_ids)})
+            # Make record df for the target records based on the unique target IDs and the subdb structure
+            # directory. chain_info stays None: each extracted structure holds exactly the one chain of its
+            # database entry, which foldseek_transform takes as the domain chain.
+            target_record_df = pd.DataFrame(
+                {"pocket_id": list(target_entry_names.keys()), "preprocess_name": list(target_entry_names.values())}
+            )
             target_record_df["chain_info"] = None
-            target_record_df["pocket_id"] = target_record_df["preprocess_name"]
             target_record_df["struct_path"] = target_record_df["preprocess_name"].apply(
                 lambda x: os.path.join(subdb_struct_dir, f"{x}.pdb")
             )
