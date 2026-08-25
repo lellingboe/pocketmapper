@@ -26,6 +26,13 @@ SINGLE_AA_CODE = {
     "MSE": "M",  # selenomethionine
 }
 
+# Appended to every error/warning about a missing foldseek binary, so the install line is
+# written once. Foldseek is an optional external dependency and is never bundled.
+FOLDSEEK_INSTALL_HINT = (
+    "Install it with: conda install -c conda-forge -c bioconda foldseek "
+    "(precompiled binaries: https://dev.mmseqs.com/foldseek/)."
+)
+
 HELP_MESSAGE = """
     PocketMapper - A tool for mapping and analyzing protein pockets.
 
@@ -39,12 +46,21 @@ HELP_MESSAGE = """
         --target TARGET          Target identifier or path. Accepts:
                     - 'STRUCT:CHAINS[:RESIDUES]' (e.g., 2XYZ:C_D)
                     - path to a file listing such entries, one per line
-                    - a bundled Foldseek DB name ('human_domains', 'pdb'), which requires --foldseek True
+                    - a bundled Foldseek DB name ('human_domains', 'pdb'), which requires the foldseek binary
         --settings FILE          Path to a JSON file of {"ARG": "VALUE", ...} (overridden by explicit CLI args)
         --cache_dir DIR          Directory for caching files
         --results_dir DIR        Directory for writing results
         --verbosity LEVEL        Set verbosity level (4=DEBUG, 3=INFO, 2=WARNING, else ERROR)
-        --foldseek BOOL          Whether to use foldseek for structure alignment instead of local sequence alignment
+        --foldseek BOOL          Whether to use foldseek for structure alignment instead of local sequence
+                                 alignment. Foldseek is an external binary that must be on PATH; if it is not
+                                 installed it can be added with:
+                                     conda install -c conda-forge -c bioconda foldseek
+                                 Left unset, foldseek is used when the binary is available and the local
+                                 BLOSUM62 aligner is used with a warning when it is not.
+                                   True  -- require foldseek; a missing binary is an error.
+                                   False -- always use the local aligner. Structural superposition is
+                                            unavailable there, so aligned_structures/*.pdb hold only
+                                            the query.
         --align_count N          Number of top targets to superpose onto each query (0 disables, default 10)
         --query_pocket_method M  Force the query pocket method ('pisa', 'passthrough' or 'vdw')
         --target_pocket_method M Force the target pocket method ('pisa', 'passthrough' or 'vdw')
@@ -71,21 +87,24 @@ HELP_MESSAGE = """
         results directory.
 
     Examples:
-        # Single pair using local alignment and default settings
+        # Single pair with default settings (uses Foldseek when the binary is installed)
         pocketmapper search --query 1ABC:A_B --target 2XYZ:C_D --results_dir ./out
 
         # Batch mode using files with one entry per line
         pocketmapper search --query queries.txt --target targets.txt --settings config.json
 
-        # Use Foldseek (set foldseek True). When using the built-in human_domains DB:
-        pocketmapper search --query 1ABC:A_B --target human_domains --foldseek True --results_dir ./out_fs
+        # Search the built-in human_domains Foldseek DB (requires the foldseek binary)
+        pocketmapper search --query 1ABC:A_B --target human_domains --results_dir ./out_fs
+
+        # Force the local BLOSUM62 aligner even when foldseek is installed
+        pocketmapper search --query 1ABC:A_B --target 2XYZ:C_D --foldseek False --results_dir ./out_local
 
         # Override cache and set verbosity to debug
         pocketmapper search --query 1ABC:A_B --target 2XYZ:C_D --cache_dir /tmp/cache --verbosity 4
 
     Notes:
         - Query/target inputs are interpreted either as single 'STRUCT:CHAINS[:RESIDUES]' strings or as file paths.
-        - Boolean settings can be provided on the command line (e.g., --foldseek True).
+        - Boolean settings can be provided on the command line (e.g., --foldseek False).
         - Use a settings JSON to persist complex configurations; CLI options override settings file values.
 
     For more information, see the project README or the github repository.

@@ -5,7 +5,7 @@ PocketMapper fetches protein structures from the PDB, fetches contact residues f
 It is intended for comparative analysis of binding pockets between query and target protein chains.
 
 ## Installation
-PocketMapper has been tested with Python 3.12 and is available on [PyPI](https://pypi.org/project/pocketmapper/). Optionally, [Foldseek](https://github.com/steineggerlab/foldseek) can be installed to enable efficient structural alignment.
+PocketMapper has been tested with Python 3.12 and is available on [PyPI](https://pypi.org/project/pocketmapper/). [Foldseek](https://github.com/steineggerlab/foldseek) is an optional external binary, but installing it is recommended: PocketMapper uses it by default when it is on `PATH`, and falls back to the built-in BLOSUM62 sequence aligner (with a warning) when it is not. Foldseek is required to search a bundled Foldseek database, and structural superposition is only available on the Foldseek path.
 ```
 # Setup conda environment for pocketmapper
 conda create --name=pocketmapper python=3.12
@@ -46,13 +46,17 @@ PISA is only available for PDB entries, and AlphaFold/local-file entries only su
 For batch runs, pass a path to a file containing one such entry per line instead of a single entry.
 
 ### Example commands
-Structural (Foldseek) alignment for a single pair:
+A single pair, using Foldseek if it is installed and the local aligner otherwise:
 ```
-pocketmapper search --query 4Q5J:B_F --target 4Q5J:A_E --foldseek True --results_dir ./out_fs
+pocketmapper search --query 4Q5J:B_F --target 4Q5J:A_E --results_dir ./out_fs
 ```
-Searching a chain against the bundled Foldseek DB of human domains:
+Forcing the local BLOSUM62 aligner even when Foldseek is available:
 ```
-pocketmapper search --query 4Q5J:B_F --target human_domains --foldseek True --results_dir ./out_hd
+pocketmapper search --query 4Q5J:B_F --target 4Q5J:A_E --foldseek False --results_dir ./out_local
+```
+Searching a chain against the bundled Foldseek DB of human domains (requires the foldseek binary):
+```
+pocketmapper search --query 4Q5J:B_F --target human_domains --results_dir ./out_hd
 ```
 Batch mode using files with one entry per line:
 ```
@@ -66,7 +70,7 @@ pocketmapper search --query queries.txt --target targets.txt --settings config.j
 --cache_dir: Directory for caching downloaded or intermediate files.\
 --results_dir: Directory to write results and temporary divided structures.\
 --verbosity: Log level, 4=DEBUG, 3=INFO (default), 2=WARNING, anything else=ERROR.\
---foldseek: If true, run Foldseek alignments (requires foldseek binary). Required when the target is a Foldseek DB.\
+--foldseek: Whether to run Foldseek alignments instead of the local BLOSUM62 aligner. Left unset, Foldseek is used when its binary is on `PATH` and the local aligner is used with a warning when it is not. `True` requires Foldseek and errors if the binary is missing; `False` always uses the local aligner. A Foldseek DB target always needs the binary.\
 --query_pocket_method / --target_pocket_method: Force the pocket method ('pisa', 'passthrough', 'vdw') instead of inferring it from the entry.\
 --align_count: Number of top-scoring targets to superpose onto each query (default 10, 0 disables).\
 --help: Display the help message

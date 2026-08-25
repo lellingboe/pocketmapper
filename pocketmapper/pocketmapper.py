@@ -28,7 +28,7 @@ from pocketmapper.structure_aligner import StructureAligner
 from pocketmapper.structure_fetcher import StructureFetcher
 from pocketmapper.structure_preprocessor import StructurePreprocessor
 from pocketmapper.lib_struct import parse_pocket_from_struct
-from pocketmapper.constants import HELP_MESSAGE
+from pocketmapper.constants import FOLDSEEK_INSTALL_HINT, HELP_MESSAGE
 
 
 @dataclass
@@ -48,7 +48,10 @@ class Settings:
     results_dir: str = field(default_factory=lambda: f"pocketmapper_results_{datetime.now().strftime('%y%m%d_%H%M%S')}")
     query_pocket_method: str | None = None
     target_pocket_method: str | None = None
-    foldseek: bool = False
+    # Tri-state: None (the default) means "auto" -- use Foldseek when the binary is on PATH and
+    # fall back to the local aligner when it is not. _resolve_foldseek() turns this into a concrete
+    # bool before anything else reads it, so the rest of the pipeline only ever sees True/False.
+    foldseek: bool | None = None
     align_count: int = 10
     verbosity: int = 3
 
@@ -106,6 +109,10 @@ class PocketMapper:
 
         self.fsdb_target = False
         self._fsdb_pdb_target = False
+        # Set for real by _resolve_foldseek(); read by _configure_query_target to explain *why*
+        # a Foldseek-DB target was rejected. True here so a caller that skips search() is not
+        # told the binary is missing when nothing has looked for it.
+        self._foldseek_available = True
 
     def _configure_logging(self, settings):
         """
@@ -183,7 +190,10 @@ class PocketMapper:
             results_dir (str, optional): Directory to output results to.
             verbosity (int, optional): Control logging level.
             help (bool, optional): Output the help message and exit.
-            foldseek (bool, optional): Use foldseek for structure alignment instead of local sequence alignment.
+            foldseek (bool, optional): Use foldseek for structure alignment instead of local sequence
+                alignment. Left unset, foldseek is used when the binary is on PATH and the local
+                aligner is used with a warning when it is not. True makes foldseek a hard
+                requirement -- a missing binary is an error; False always uses the local aligner.
             align_count (int, optional): Number of top targets to superpose onto each query.
         """
         self._log_extra = {
@@ -320,6 +330,13 @@ class PocketMapper:
                 raise PocketMapperError(f"Error creating directory {path}") from e
 
         self._configure_logging(settings)
+
+        # 4b. Resolve the tri-state foldseek setting into a concrete bool. Must come after
+        # _configure_logging (the root logger is still at CRITICAL before it, so the fallback
+        # warning would be swallowed) and before the settings are logged and dumped below, so
+        # job_settings.json records what the run actually did.
+        settings = self._resolve_foldseek(settings)
+
         logging.info(f"Settings: {json.dumps(asdict(settings), indent=4)}", extra=self._log_extra)
 
         # 5. Output dump
@@ -331,6 +348,54 @@ class PocketMapper:
         except Exception as e:
             logging.error(f"Failed to dump settings to {settings.job_settings_path}: {e}", extra=self._log_extra)
         return settings
+
+    def _resolve_foldseek(self, settings):
+        """
+        Turn the tri-state `foldseek` setting into a concrete bool.
+
+        Foldseek is an optional external binary, so the default (None, "auto") is resolved against
+        what is actually installed: foldseek when it is on PATH, the local BLOSUM62 aligner with a
+        warning when it is not. An explicit True is a hard requirement and errors instead of falling
+        back; an explicit False always means the local aligner and never probes for the binary.
+
+        Called before any structure is fetched, so an unmet requirement fails without wasted
+        downloads rather than as a raw FileNotFoundError from the first `foldseek` subprocess call.
+
+        Args:
+            settings (Settings): Settings whose `foldseek` field may still be None.
+
+        Returns:
+            Settings: A copy with `foldseek` set to True or False.
+
+        Raises:
+            PocketMapperError: If foldseek was explicitly requested but is not installed.
+        """
+        # Local stage dict: _configure_logging leaves self._log_extra reading "Configuring Logging".
+        stage = {"stage": "Configuring Settings"}
+
+        if settings.foldseek is False:
+            return settings
+
+        self._foldseek_available = shutil.which("foldseek") is not None
+        if self._foldseek_available:
+            return replace(settings, foldseek=True)
+
+        if settings.foldseek is True:
+            msg = (
+                "Foldseek alignment was requested but 'foldseek' was not found on PATH. "
+                f"{FOLDSEEK_INSTALL_HINT} Alternatively, set --foldseek False to use the local "
+                "BLOSUM62 sequence aligner."
+            )
+            logging.critical(msg, extra=stage)
+            raise PocketMapperError(msg)
+
+        logging.warning(
+            "'foldseek' not found on PATH; falling back to the local BLOSUM62 sequence aligner. "
+            "Structural superposition is unavailable on this path, so aligned_structures/*.pdb will "
+            f"contain only the query. {FOLDSEEK_INSTALL_HINT}",
+            extra=stage,
+        )
+        return replace(settings, foldseek=False)
 
     def _configure_query_target(self):
         """
@@ -374,13 +439,20 @@ class PocketMapper:
             if self._settings.foldseek:
                 self.fsdb_target = True
             else:
-                logging.critical(
-                    "Foldseek database specified as target but foldseek is not enabled. Please set --foldseek True.",
-                    extra=self._log_extra,
-                )
-                raise PocketMapperError(
-                    "Foldseek database specified as target but foldseek is not enabled. Please set --foldseek True."
-                )
+                # foldseek is already resolved to a concrete bool here, so False means either the
+                # binary is missing or the user turned it off -- say which, since the fixes differ.
+                if not self._foldseek_available:
+                    msg = (
+                        "A Foldseek database was specified as the target, which requires the "
+                        f"'foldseek' binary, but it was not found on PATH. {FOLDSEEK_INSTALL_HINT}"
+                    )
+                else:
+                    msg = (
+                        "Foldseek database specified as target but foldseek is not enabled. "
+                        "Remove --foldseek False to use it."
+                    )
+                logging.critical(msg, extra=self._log_extra)
+                raise PocketMapperError(msg)
         return q_df, t_df
 
     def _fetch_missing_structures(self, name, qt_df, out_dir):
