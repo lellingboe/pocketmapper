@@ -15,14 +15,6 @@ target chains (BLOSUM62 or Foldseek), maps pocket residues through the alignment
 
 ## Commands
 
-```bash
-pip install -e ".[dev]"            # dev install
-black ./ -l 120                    # format (CI: black ./ --check -l 120)
-flake8                             # lint (max-line-length 120, E501 ignored)
-pre-commit install                 # black + flake8 on commit
-bump2version rc|patch|minor|major  # bumps pyproject.toml + pocketmapper/__init__.py, commits and tags
-```
-
 **No unit tests.** CI (`.github/workflows/test_and_deploy.yml`) gates on lint plus two e2e cases — `test_core_1`
 and `test_local_1`, one per aligner — on Linux and macOS; the `test` job only installs deps, and is all that
 covers Windows (foldseek has no Windows build). The rest of the suite is manual:
@@ -371,8 +363,6 @@ building one, and hides which fields it depends on.
   it maps `SEP`/`TPO`/`PTR`/`MSE` and every caller defaults unknowns to `"X"`), `HELP_MESSAGE` (the `--help`
   text, which also documents the settings-file-only "Advanced Options"), and
   `ALIGNMENT_COLUMNS`/`FOLDSEEK_FORMAT_OUTPUT`. It's the right home precisely because it imports nothing.
-- `blosum62.bla` and `human_domains/` (a bundled Foldseek DB) ship as package data — see
-  `[tool.setuptools.package-data]` in `pyproject.toml`.
 - `tests/e2e/fixtures/` holds the batch input files and a local `4Q5J.cif.gz`. Cases run with that directory as
   their working directory because `testfile.txt` refers to `4Q5J.cif.gz` by relative path — which is also what
   makes it a local-file-input test. Keep that relative reference if you edit the fixtures.
