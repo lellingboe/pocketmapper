@@ -6,9 +6,9 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install dependencies
@@ -27,12 +27,77 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.12"]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install .[dev]
+  # One end-to-end case per aligner, on each OS foldseek supports. Windows is
+  # absent because foldseek has no Windows build -- bioconda carries only
+  # linux-64, linux-aarch64, osx-64 and osx-arm64.
+  e2e:
+    needs: lint
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    defaults:
+      run:
+        # Login shell, so the micromamba env is active and foldseek is on PATH.
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+      # foldseek is left unpinned deliberately: bioconda's osx-arm64 builds
+      # start at 9.427df8a, so any pin below 9 resolves on Linux but fails to
+      # solve on the arm64 macos-latest runner.
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: pm
+          condarc: |
+            channels:
+              - conda-forge
+              - bioconda
+          create-args: >-
+            python=3.12
+            foldseek
+          init-shell: bash
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install .[dev]
+      # run_e2e.sh reports a missing binary as SKIP and still exits 0, so a
+      # silently failed install would leave a green job that ran only the local
+      # case. Fail here instead.
+      - name: Verify foldseek
+        run: foldseek version
+      - name: Cache PocketMapper downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/pm_cache
+          key: pocketmapper-e2e-${{ matrix.os }}-v1
+      # The same 4Q5J PISA pair through the foldseek and the local BLOSUM62
+      # aligner. The cases hit live wwPDB and PDBe PISA, so one retry absorbs a
+      # transient outage while a real regression fails twice. -o/-c are explicit
+      # because the runner's default out-dir is $PWD/e2e_results, which would
+      # land in the working tree.
+      - name: Run e2e cases
+        run: |
+          for attempt in 1 2; do
+            tests/e2e/run_e2e.sh test_core_1 test_local_1 \
+              -o "$RUNNER_TEMP/pm_e2e" -c "$RUNNER_TEMP/pm_cache" && exit 0
+            echo "e2e attempt $attempt failed; retrying" >&2
+            sleep 30
+          done
+          exit 1
+      - name: Upload e2e logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs-${{ matrix.os }}
+          path: ${{ runner.temp }}/pm_e2e/*.log
