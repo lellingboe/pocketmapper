@@ -36,6 +36,25 @@
   `update_cache()` must be called after the output dir is set and before work begins.
 - **Structure parsing** is gemmi throughout (`.cif.gz` on disk); Biopython only for pairwise alignment and SVD
   superposition.
+- **Module homes.** `lib.py` holds generic stateless helpers only — nothing that knows about `Settings`, the
+  pipeline or the pocket dict shape; workflow logic belongs in a component module.
+
+## Extending the pipeline
+
+These are the additions that break things silently (see "Invariants" in `project-overview.md`).
+
+- **A new pocket method** must compute `seq_pos` exactly as `lib_struct.parse_pocket_from_struct` does — the
+  index among the CA-bearing residues of its own chain. A different convention yields zero overlap with no
+  error. Check it by comparing a pocket against itself: `overlap_count == pocket_len`.
+- **A new alignment column** goes into `constants.ALIGNMENT_COLUMNS`, never into one producer alone.
+- **A new comparison output field** goes into `pocket_comparison.POCKET_COMPARISON_COLUMNS` as well as the row
+  dict; a column produced but not declared is kept with a warning.
+- **`compare_pockets` must not write to a pocket dict** — return the projection (`_MappedPocket`) instead. A
+  pocket method relying on mutation would silently see nothing.
+- **Never hand a raw `p2_to_p1_u`/`p2_to_p1_t` cell to gemmi**; go through
+  `pocket_comparison.parse_pocket_transform`, which converts both the convention and the serialisation.
+- **Changing step 6 without changing behaviour**: there are no unit tests, so capture `compare_pockets`'
+  arguments from a real run and diff old against new output.
 
 ## As a library
 
