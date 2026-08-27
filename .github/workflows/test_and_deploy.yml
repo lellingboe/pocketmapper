@@ -50,7 +50,13 @@ jobs:
     defaults:
       run:
         # Login shell, so the micromamba env is active and foldseek is on PATH.
-        shell: bash -el {0}
+        # Deliberately no -e: a login shell sources ~/.bash_logout on exit, and
+        # Ubuntu's copy runs `clear_console -q` when SHLVL is 1 (it is -- Actions
+        # launches the step shell directly). That fails with no controlling
+        # terminal, and under -e the shell exits with its status, overriding an
+        # explicit `exit 0`. Every step below is one command or ends in one, so
+        # the step status is still the status that matters.
+        shell: bash -l {0}
     steps:
       - uses: actions/checkout@v4
       # foldseek is left unpinned deliberately: bioconda's osx-arm64 builds
@@ -67,10 +73,12 @@ jobs:
             python=3.12
             foldseek
           init-shell: bash
+      # Chained, not one per line: without -e (see `shell:` above) only the
+      # last command's status would reach the step.
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install .[dev]
+          python -m pip install --upgrade pip \
+            && pip install .[dev]
       # run_e2e.sh reports a missing binary as SKIP and still exits 0, so a
       # silently failed install would leave a green job that ran only the local
       # case. Fail here instead.
