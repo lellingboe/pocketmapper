@@ -61,6 +61,10 @@ ALIGNMENT_COLUMNS = [
 
 FOLDSEEK_FORMAT_OUTPUT = ",".join(ALIGNMENT_COLUMNS)
 
+# The structural-alignment methods step 7 accepts. "auto" is resolved to one of the other two by
+# _resolve_align_struct_method before anything downstream reads it.
+ALIGN_STRUCT_METHODS = ("auto", "pocket", "foldseek")
+
 # The chain used when an entry names a structure but no chain at all ("4Q5J"). AlphaFold models are
 # always a single chain A, and it is the first chain of most PDB entries.
 DEFAULT_CHAIN = "A"
@@ -93,10 +97,18 @@ HELP_MESSAGE = """
                                  Left unset, foldseek is used when the binary is available and the local
                                  BLOSUM62 aligner is used with a warning when it is not.
                                    True  -- require foldseek; a missing binary is an error.
-                                   False -- always use the local aligner. Structural superposition is
-                                            unavailable there, so aligned_structures/*.pdb hold only
-                                            the query.
+                                   False -- always use the local aligner, which produces no whole-chain
+                                            transform, so structural superposition there is always on
+                                            the pocket (see --align_struct_method).
         --align_count N          Number of top targets to superpose onto each query (0 disables, default 10)
+        --align_struct_method M  Which transform superposes a target onto its query ('auto', 'pocket' or
+                                 'foldseek', default 'auto')
+                                   foldseek -- Foldseek's whole-chain fit. Needs the binary.
+                                   pocket   -- the fit of the two pockets on their overlapping residues,
+                                               taken from pocket_comparison.tsv. Puts the pockets on top
+                                               of each other rather than the chains. Unavailable against
+                                               a Foldseek database target.
+                                   auto     -- 'foldseek' when foldseek is in use, else 'pocket'.
         --query_pocket_method M  Force the query pocket method ('pisa', 'passthrough', 'vdw' or
                                  'whole_chain')
         --target_pocket_method M Force the target pocket method ('pisa', 'passthrough', 'vdw',

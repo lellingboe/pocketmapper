@@ -20,7 +20,7 @@ from pocketmapper.lib import jsonify_dict, parse_foldseek_pdb_entry_name, safe_f
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.pisa_downloader import PisaDownloader
 from pocketmapper.pisa_parser import PisaParser
-from pocketmapper.pocket_comparison import compare_pockets
+from pocketmapper.pocket_comparison import compare_pockets, parse_pocket_transform
 from pocketmapper.sequence_aligner import SequenceAligner
 from pocketmapper.pocket_calculator import PocketCalculator
 from pocketmapper.qt_processor import QTProcessor
@@ -28,7 +28,12 @@ from pocketmapper.structure_aligner import StructureAligner
 from pocketmapper.structure_fetcher import StructureFetcher
 from pocketmapper.structure_preprocessor import StructurePreprocessor
 from pocketmapper.lib_struct import parse_pocket_from_struct
-from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT, FOLDSEEK_INSTALL_HINT, HELP_MESSAGE
+from pocketmapper.constants import (
+    ALIGN_STRUCT_METHODS,
+    FOLDSEEK_FORMAT_OUTPUT,
+    FOLDSEEK_INSTALL_HINT,
+    HELP_MESSAGE,
+)
 
 
 @dataclass
@@ -53,6 +58,10 @@ class Settings:
     # bool before anything else reads it, so the rest of the pipeline only ever sees True/False.
     foldseek: bool | None = None
     align_count: int = 10
+    # Which transform superposes a target onto its query in step 7: "foldseek" (Foldseek's whole-chain
+    # fit) or "pocket" (the fit of the two pockets on their overlapping residues). The default "auto"
+    # is collapsed to one of those by _resolve_align_struct_method(), so nothing downstream sees it.
+    align_struct_method: str = "auto"
     verbosity: int = 3
 
     # Derived paths -- left unset (None) until resolve_paths() fills them in,
@@ -176,6 +185,7 @@ class PocketMapper:
         help=None,
         foldseek=None,
         align_count=None,
+        align_struct_method=None,
         query_pocket_method=None,
         target_pocket_method=None,
     ):
@@ -195,6 +205,10 @@ class PocketMapper:
                 aligner is used with a warning when it is not. True makes foldseek a hard
                 requirement -- a missing binary is an error; False always uses the local aligner.
             align_count (int, optional): Number of top targets to superpose onto each query.
+            align_struct_method (str, optional): Which transform superposes a target onto its query --
+                'foldseek' for Foldseek's whole-chain fit, 'pocket' for the fit of the two pockets
+                on their overlapping residues, or 'auto' (the default) for 'foldseek' when Foldseek is
+                in use and 'pocket' with the local aligner, which produces no chain transform at all.
         """
         self._log_extra = {
             "stage": "Starting Search"
@@ -210,6 +224,7 @@ class PocketMapper:
         self._help = help
         self._foldseek = foldseek
         self._align_count = align_count
+        self._align_struct_method = align_struct_method
         self._query_pocket_method = query_pocket_method
         self._target_pocket_method = target_pocket_method
 
@@ -303,6 +318,7 @@ class PocketMapper:
             "foldseek": self._foldseek,
             "verbosity": self._verbosity,
             "align_count": self._align_count,
+            "align_struct_method": self._align_struct_method,
             "query_pocket_method": self._query_pocket_method,
             "target_pocket_method": self._target_pocket_method,
         }
@@ -336,6 +352,9 @@ class PocketMapper:
         # warning would be swallowed) and before the settings are logged and dumped below, so
         # job_settings.json records what the run actually did.
         settings = self._resolve_foldseek(settings)
+
+        # 4c. Same reasoning, and it reads the bool _resolve_foldseek just settled, so it must follow it.
+        settings = self._resolve_align_struct_method(settings)
 
         logging.info(f"Settings: {json.dumps(asdict(settings), indent=4)}", extra=self._log_extra)
 
@@ -391,11 +410,69 @@ class PocketMapper:
 
         logging.warning(
             "'foldseek' not found on PATH; falling back to the local BLOSUM62 sequence aligner. "
-            "Structural superposition is unavailable on this path, so aligned_structures/*.pdb will "
-            f"contain only the query. {FOLDSEEK_INSTALL_HINT}",
+            "The local aligner produces no whole-chain transform, so aligned_structures/*.pdb are "
+            f"superposed on the pocket instead (see --align_struct_method). {FOLDSEEK_INSTALL_HINT}",
             extra=stage,
         )
         return replace(settings, foldseek=False)
+
+    def _resolve_align_struct_method(self, settings):
+        """
+        Turn the tri-value `align_struct_method` setting into "pocket" or "foldseek".
+
+        "foldseek" uses Foldseek's whole-chain transform from alignment.tsv; "pocket" uses the
+        superposition of the two pockets on their overlapping residues, which `compare_pockets`
+        already writes to pocket_comparison.tsv. The default "auto" picks whichever the run can
+        actually do: the local BLOSUM62 aligner writes "-" for the chain transform, so it has only
+        the pocket one.
+
+        An explicit "foldseek" without the binary is an error rather than a silent switch to "pocket" --
+        the same call as an unmet `--foldseek True`, and for the same reason: better to fail before
+        anything is downloaded than to hand back a method the user did not ask for.
+
+        Called from _configure_workflow after _resolve_foldseek, whose resolved bool it reads, and
+        before the settings are logged and dumped, so job_settings.json records what the run did.
+
+        Args:
+            settings (Settings): Settings whose `foldseek` is already a concrete bool.
+
+        Returns:
+            Settings: A copy with `align_struct_method` set to "pocket" or "foldseek".
+
+        Raises:
+            PocketMapperError: If the value is not one of ALIGN_STRUCT_METHODS, or "foldseek" was
+                asked for on the local-aligner path.
+        """
+        stage = {"stage": "Configuring Settings"}
+
+        method = settings.align_struct_method
+        # fire hands over whatever was typed, and a settings file can hold anything at all.
+        method = method.lower() if isinstance(method, str) else method
+        if method not in ALIGN_STRUCT_METHODS:
+            msg = (
+                f"Unknown align_struct_method {settings.align_struct_method!r}. "
+                f"Choose one of: {', '.join(ALIGN_STRUCT_METHODS)}."
+            )
+            logging.critical(msg, extra=stage)
+            raise PocketMapperError(msg)
+
+        if method == "auto":
+            method = "foldseek" if settings.foldseek else "pocket"
+            logging.info(
+                f"align_struct_method 'auto' resolved to '{method}' "
+                f"({'foldseek' if settings.foldseek else 'the local aligner'} is in use)",
+                extra=stage,
+            )
+        elif method == "foldseek" and not settings.foldseek:
+            msg = (
+                "align_struct_method 'foldseek' needs Foldseek's whole-chain transform, but this run "
+                "uses the local BLOSUM62 aligner, which does not produce one. Use "
+                "--align_struct_method pocket, or enable foldseek."
+            )
+            logging.critical(msg, extra=stage)
+            raise PocketMapperError(msg)
+
+        return replace(settings, align_struct_method=method)
 
     def _configure_query_target(self):
         """
@@ -438,6 +515,20 @@ class PocketMapper:
         if t_df.loc[0, "struct_type"] == "foldseek_db":
             if self._settings.foldseek:
                 self.fsdb_target = True
+                # Neither kind of Foldseek DB can be superposed on its pocket, and which kind this is
+                # is not known until _expand_fsdb_pdb_targets has read the hit names -- so reject both
+                # here, before anything is fetched. Unreachable from "auto": a DB target forces
+                # foldseek on, and auto resolves to "foldseek" whenever it is on.
+                if self._settings.align_struct_method == "pocket":
+                    msg = (
+                        "align_struct_method 'pocket' is not available against a Foldseek database "
+                        "target. A human_domains-style hit has no coordinates to superpose at all, and "
+                        "a PDB database's structures are assemblies while its pockets come from the "
+                        "wwPDB asymmetric unit, so a pocket fit would be applied in the wrong frame. "
+                        "Use --align_struct_method foldseek."
+                    )
+                    logging.critical(msg, extra=self._log_extra)
+                    raise PocketMapperError(msg)
             else:
                 # foldseek is already resolved to a concrete bool here, so False means either the
                 # binary is missing or the user turned it off -- say which, since the fixes differ.
@@ -1059,18 +1150,27 @@ class PocketMapper:
         if self._settings.align_count <= 0:
             logging.info("No Aligned Structures to Process", extra=stage)
             return
-        else:
-            logging.info("Performing structural alignment of target structures...", extra=stage)
+
+        method = self._settings.align_struct_method  # already "pocket" or "foldseek"
+        logging.info(f"Performing structural alignment of target structures on the {method}...", extra=stage)
 
         # Pre-loading
         aligner = StructureAligner()
-        alignment_df = pd.read_csv(
-            self._settings.alignment_path,
-            sep="\t",
-            engine="c",
-            index_col=["query", "target"],
-        )
         pocket_comparison_df = pd.read_csv(self._settings.pocket_comparison_path, sep="\t", engine="c")
+        alignment_df = None
+        pocket_transform_df = None
+        if method == "foldseek":
+            alignment_df = pd.read_csv(
+                self._settings.alignment_path,
+                sep="\t",
+                engine="c",
+                index_col=["query", "target"],
+            )
+        else:
+            # (pocket_1, pocket_2) is unique -- compare_pockets' existing_calcs scores each pair once.
+            pocket_transform_df = pocket_comparison_df.dropna(subset=["p2_to_p1_u", "p2_to_p1_t"]).set_index(
+                ["pocket_1", "pocket_2"]
+            )[["p2_to_p1_u", "p2_to_p1_t"]]
 
         # For each query structure, align the top N target structures
         qt_id_map = {}
@@ -1085,18 +1185,32 @@ class PocketMapper:
             #
             # A whole-chain target -- an open search, or a Foldseek-DB hit -- has no jaccard_index, so it
             # sorts to the end and is ranked by the secondary key, min_overlap_similarity, instead.
+            candidates = pocket_comparison_df.query(f"pocket_1 == '{query_id}' and overlap_count > 0")
+            overlapping_count = len(candidates)
+            if method == "pocket":
+                # _superpose fits nothing below three overlapping residues, so those targets have no
+                # transform. Drop them here rather than when writing, or they would eat align_count
+                # slots and the run would quietly produce fewer structures than asked for.
+                candidates = candidates.dropna(subset=["p2_to_p1_u", "p2_to_p1_t"])
+
             target_ids = (
-                pocket_comparison_df.query(f"pocket_1 == '{query_id}' and overlap_count > 0")
-                .sort_values(by=["jaccard_index", "min_overlap_similarity"], ascending=False)
+                candidates.sort_values(by=["jaccard_index", "min_overlap_similarity"], ascending=False)
                 .head(self._settings.align_count)
                 .loc[:, "pocket_2"]
                 .to_list()
             )
             if not target_ids:
-                logging.info(
-                    f"No target overlaps the pocket of query {query_id}; skipping its structural alignment",
-                    extra=stage,
-                )
+                if overlapping_count:
+                    logging.info(
+                        f"No target overlaps the pocket of query {query_id} by the three residues a "
+                        "superposition needs; skipping its structural alignment",
+                        extra=stage,
+                    )
+                else:
+                    logging.info(
+                        f"No target overlaps the pocket of query {query_id}; skipping its structural alignment",
+                        extra=stage,
+                    )
                 continue
             logging.debug(f"Top target IDs for query {query_id}: {target_ids}", extra=stage)
             qt_id_map[query_id] = target_ids
@@ -1208,11 +1322,29 @@ class PocketMapper:
             # The query is the reference frame every target is superposed onto, so it must lead the list.
             aln_records = [query_record] + top_target_records
             if len(aln_records) > 1:
-                aligner.foldseek_transform(
-                    aln_records=aln_records,
-                    alignment_df=alignment_df,
-                    out_path=os.path.join(self._settings.aligned_structure_dir, f"{safe_filename(query_id)}.pdb"),
-                )
+                out_path = os.path.join(self._settings.aligned_structure_dir, f"{safe_filename(query_id)}.pdb")
+                if method == "foldseek":
+                    aligner.foldseek_transform(
+                        aln_records=aln_records,
+                        alignment_df=alignment_df,
+                        out_path=out_path,
+                    )
+                else:
+                    # transforms is positional, not keyed by pocket_id: a self-comparison gives the
+                    # query and a target the same pocket_id, so a dict would collide.
+                    transforms = [None]  # the query is the reference frame, placed untransformed
+                    for record in top_target_records:
+                        try:
+                            row = pocket_transform_df.loc[(query_id, record["pocket_id"])]
+                        except KeyError:
+                            transforms.append(None)
+                            logging.warning(
+                                f"No pocket superposition for {query_id} against {record['pocket_id']}",
+                                extra=stage,
+                            )
+                            continue
+                        transforms.append(parse_pocket_transform(row["p2_to_p1_u"], row["p2_to_p1_t"]))
+                    aligner.transform(aln_records=aln_records, transforms=transforms, out_path=out_path)
 
     def _delete_tmp(self):
         """

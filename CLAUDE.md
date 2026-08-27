@@ -28,7 +28,7 @@ and `test_local_1`, one per aligner — on Linux and macOS; the `test` job only 
 covers Windows (foldseek has no Windows build). The rest of the suite is manual:
 
 ```bash
-tests/e2e/run_e2e.sh --list           # the 19 cases and their tags
+tests/e2e/run_e2e.sh --list           # the 23 cases and their tags
 tests/e2e/run_e2e.sh -t core          # ~35s, no human_domains searches
 tests/e2e/run_e2e.sh -o /tmp/pm_e2e   # everything, results under a chosen directory
 tests/e2e/run_e2e.sh test_core_7      # one case by name
@@ -188,6 +188,12 @@ in the ordinary case (verified: a 4Q5J self-comparison through a PDB-named DB gi
 pocket_len`, identity 1.0, RMSD ~1e-14), and `compare_pockets`'s 0.8 sequence-identity guard catches them when
 they don't — a populated `incorrect_mapping.json` signals that an entry's assembly and AU numbering diverged.
 
+`--align_struct_method pocket` is rejected for any Foldseek-DB target (leaving `foldseek`), in `_configure_query_target` before
+anything is fetched: a `human_domains` hit has no coordinates at all, and on the PDB path the pocket is fitted
+on asymmetric-unit coordinates while the structure superposed is the assembly `convert2pdb` extracts, so the
+transform would be applied in the wrong frame. Which kind of DB it is isn't known until `_expand_fsdb_pdb_targets`
+has read the hit names, hence the single early rejection covering both.
+
 **No cap on how many hits get enriched**, by choice. `4Q5J:B_F` against the bundled `pdb` DB returns ~4,970
 hits across ~3,620 entries, and PISA is fetched per entry behind a sleep, so the first run takes hours. Reruns
 are cheap from the interface cache, and `_expand_fsdb_pdb_targets` logs both counts before starting so the
@@ -240,9 +246,26 @@ since a whole-chain target has no `jaccard_index`, an open or Foldseek-DB search
 NaN block and is ordered by similarity alone. Queries with no overlapping target are skipped with a log line;
 a run where nothing overlaps returns early.
 
-**It does not work at all on the local-aligner path.** `SequenceAligner` writes `"-"` for the `u`/`t`
-transforms, which `foldseek_transform` catches and logs per record, so a non-Foldseek run completes but its
-aligned PDB contains only the query.
+**Two transform sources, chosen by `align_struct_method`.** `foldseek` is the whole-chain `u`/`t` from
+`alignment.tsv` (`StructureAligner.foldseek_transform`); `pocket` is the fit of the two pockets on their
+overlapping residues, read out of `pocket_comparison.tsv`'s `p2_to_p1_u`/`p2_to_p1_t` and handed to
+`StructureAligner.transform`. `SequenceAligner` writes `"-"` for `u`/`t`, so `foldseek` is impossible on the
+local-aligner path — rejected in `_resolve_align_struct_method` at settings time, not per record at write
+time. `p1` is always the query, so `p2_to_p1_*` needs no inversion.
+
+**`p2_to_p1_u` is Biopython's *right*-multiplying rotation; `gemmi.Transform` *left*-multiplies, as Foldseek's
+`u` already does.** `pocket_comparison.parse_pocket_transform` transposes it, and is the only place that may —
+never hand a raw cell to gemmi. It also parses the list-repr serialisation those cells use (`_superpose` writes
+lists, `to_csv` reprs them), where `alignment.tsv` comma-joins the same quantities.
+
+**Under `pocket` the candidate filter is `overlap_count > 0` *and* a present `p2_to_p1_u`**, applied before
+`head(align_count)`. `_superpose` fits nothing below three overlapping residues, so without it those targets
+would consume slots and the run would quietly write fewer structures than asked for.
+
+**`StructureAligner.transform` takes transforms positionally, not keyed by `pocket_id`.** A query compared
+against itself gives the reference and a target the same `pocket_id`. A record whose transform is `None` is
+dropped, and the COMPND header is built from the records that survived — it used to be built from all of them,
+naming models the file did not contain.
 
 ## As a library
 
@@ -317,6 +340,11 @@ building one, and hides which fields it depends on.
   all fetching, so an unmet `--foldseek True` fails immediately rather than as a raw `FileNotFoundError` from the
   first subprocess after everything has downloaded. Keep new foldseek-availability logic there, not at the
   subprocess call sites.
+- **The `align_struct_method` setting is tri-value**, and `_resolve_align_struct_method` collapses `"auto"` to
+  `"pocket"` or `"foldseek"` so nothing downstream sees it. Same load-bearing call site as `_resolve_foldseek`, and
+  immediately after it: it reads the resolved `foldseek` bool, needs logging configured, and must precede the
+  settings dump so `job_settings.json` records the resolved value. Both of its errors are pure config, so an
+  impossible combination fails before anything is downloaded.
 - **Fetcher/preprocessor API.** `StructureFetcher` and `StructurePreprocessor` follow `set_output_directory()`
   → `update_cache()` → `fetch_*`/`preprocess_records()`. Caching is a plain `os.listdir` snapshot, so
   `update_cache()` must be called after the output dir is set and before work begins.
@@ -332,7 +360,8 @@ building one, and hides which fields it depends on.
   and `compare_pockets` moved to `pocket_comparison.py`.
 - `PocketCalculator.atp_pocket_overlap` is uncalled but retained for planned ATP-pocket work — don't prune it.
 - `pocket_comparison.py` owns step 6 — `POCKET_COMPARISON_COLUMNS`, `compare_pockets` and its helpers
-  (`_map_pocket_into_alignment`, `_compare_pocket_pair`, `_superpose`, …). Its column-order contract lives in
+  (`_map_pocket_into_alignment`, `_compare_pocket_pair`, `_superpose`, …), plus `parse_pocket_transform`, which
+  step 7 uses to read `_superpose`'s output back. Its column-order contract lives in
   `constants.ALIGNMENT_COLUMNS` because three modules share it. Several caches are local to one
   `compare_pockets` call (`_describe_pocket`, `_seq_identity`): they hold values depending only on a pocket, not
   the alignment row, which matters when thousands of rows name the same query. With no unit tests,

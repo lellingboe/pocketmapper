@@ -16,6 +16,7 @@ returned as a _MappedPocket instead of being written back into the pocket, which
 same pocket be read straight out of pocket_dict on every alignment row rather than deep-copied.
 """
 
+import json
 import logging
 from collections import defaultdict, namedtuple
 from itertools import product
@@ -248,6 +249,31 @@ def _superpose(p1, p2, p1_overlap_ids, p2_overlap_ids, overlap_count, sup):
     ca_dists = LA.norm(sup.get_transformed() - y, axis=1)
     fields["ca_dists"] = ",".join([str(round(dist, 3)) for dist in ca_dists])
     return fields
+
+
+def parse_pocket_transform(u_cell, t_cell):
+    """
+    Turn a p2_to_p1_u / p2_to_p1_t cell of pocket_comparison.tsv into a gemmi-convention (u, t).
+
+    Two conversions, both easy to get silently wrong:
+
+    _superpose stores Biopython's SVDSuperimposer.get_rotran() output verbatim, and that rotation is
+    RIGHT-multiplying (dot(coords, u) + t). gemmi.Transform LEFT-multiplies (u @ v + t), which is the
+    convention Foldseek's own u already uses, so the matrix must be TRANSPOSED here. Checked against
+    the two fits of the same pair in tests/e2e/e2e_results/test_core_1: |u.T - foldseek_u|max = 0.049,
+    |u - foldseek_u|max = 1.08. Never hand a raw cell to gemmi.
+
+    The cells are Python list reprs rather than the comma-joined strings alignment.tsv uses for the
+    same quantities, because _superpose writes lists and to_csv reprs them.
+
+    Returns None when the pair has no transform -- fewer than three overlapping residues, or a pocket
+    with no coordinates, both of which leave _superpose returning nothing and the cells empty.
+    """
+    if not isinstance(u_cell, str) or not isinstance(t_cell, str):
+        return None
+    u = array(json.loads(u_cell)).reshape((3, 3)).T
+    t = array(json.loads(t_cell))
+    return u, t
 
 
 def _score_overlap(aln, overlap_positions, similarity_matrix):

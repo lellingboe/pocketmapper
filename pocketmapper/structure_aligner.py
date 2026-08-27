@@ -11,7 +11,10 @@ single, human-readable PDB file. This module provides that glue around `gemmi`:
 - emit a combined PDB with simple COMPND metadata
 
 The public entry point is :class:`StructureAligner`, which is currently used by
-the PocketMapper structural-alignment step after pocket comparison.
+the PocketMapper structural-alignment step after pocket comparison. `transform` applies
+transforms it is handed; `foldseek_transform` sources them from a Foldseek alignment table
+first. Which of the two the pipeline uses is the `align_struct_method` setting
+("pocket" and "foldseek" respectively).
 """
 
 import logging
@@ -88,55 +91,52 @@ class StructureAligner:
         ref_st.setup_entities()
         return ref_st
 
-    def foldseek_transform(self, aln_records, alignment_df, out_path):
+    def transform(self, aln_records, transforms, out_path):
         """
-        Build an aligned multi-structure PDB from Foldseek-style alignment results.
+        Build an aligned multi-structure PDB from ready-made rigid-body transforms.
 
-        The first record in ``aln_records`` is treated as the reference structure.
-        Every subsequent record must correspond to a row in ``alignment_df`` whose
-        index is the reference ``preprocess_name`` and whose columns include the
-        target ``preprocess_name``. The stored Foldseek transform strings are
-        parsed into a 3x3 rotation matrix ``u`` and a 3-vector translation ``t``.
+        The general entry point: it knows nothing about where a transform came from, only how to
+        apply it. :meth:`foldseek_transform` sources them from Foldseek's whole-chain alignment;
+        `_align_structs` sources them from the pocket superposition in pocket_comparison.tsv.
 
-        Each structure is read from ``record["struct_path"]`` using mmCIF parsing,
-        transformed into the reference frame, and written to ``out_path`` as a
-        single PDB containing one model per input record.
+        The first record is the reference frame and is always placed untransformed, so
+        ``transforms[0]`` is ignored. Every other entry is applied to its record's whole structure.
 
-        Expected record fields:
-            - ``pocket_id``: stable identifier used in output metadata
-            - ``preprocess_name``: alignment key used to look up ``u`` and ``t``
-            - ``struct_path``: path to the mmCIF or mmCIF.GZ structure file
-            - ``chain_info``: domain chain or ``domain_motif`` pair
+        `transforms` is positional rather than keyed by ``pocket_id`` on purpose: a query can be
+        compared against itself, so the reference and a target may carry the same ``pocket_id``.
 
         Args:
-            aln_records (list[dict]): Ordered alignment records, with the reference first.
-            alignment_df (pandas.DataFrame): Alignment table containing Foldseek transforms.
+            aln_records (list[dict]): Ordered records, reference first. Fields read: ``pocket_id``,
+                ``struct_path``, ``chain_info``.
+            transforms (list): Parallel to `aln_records`. Entry 0 is ignored; entry i is either a
+                ``(u, t)`` pair -- a 3x3 rotation in gemmi's LEFT-multiplying convention plus a
+                3-vector translation -- or None to drop that record from the output. A caller
+                passing None is expected to have logged why.
             out_path (str): Destination path for the aligned PDB file.
 
         Returns:
             None
         """
-
-        target_preprocess_name = aln_records[0]["preprocess_name"]
         structs = []
         domain_chains = []
         motif_chains = []
         us = []
         ts = []
+        kept_records = []
+        dropped = []
+
         for i, record in enumerate(aln_records):
             try:
-                # Load the structure
-                struct_path = record["struct_path"]
-                struct = gemmi.read_structure(struct_path)  # , format=gemmi.CoorFormat.Mmcif)
-
-                # If the structure is not the target, get the transformation matrices from the alignment dataframe
-                if i > 0:
-                    row = alignment_df.loc[target_preprocess_name, record["preprocess_name"]]
-                    struct_u = np.array([float(x) for x in row["u"].split(",")]).reshape((3, 3))
-                    struct_t = np.array([float(x) for x in row["t"].split(",")])
-                else:
+                if i == 0:
                     struct_u = np.eye(3)
                     struct_t = np.zeros(3)
+                else:
+                    if transforms[i] is None:
+                        dropped.append(record["pocket_id"])
+                        continue
+                    struct_u, struct_t = transforms[i]
+
+                struct = gemmi.read_structure(record["struct_path"])
 
                 if record["chain_info"] is None:
                     domain_chain = 0  # first chain
@@ -155,17 +155,37 @@ class StructureAligner:
                 ts.append(struct_t)
                 domain_chains.append(domain_chain)
                 motif_chains.append(motif_chain)
+                kept_records.append(record)
 
             except Exception as e:
-                self.logger.error(
-                    f"Problem processing {record['pocket_id']}: {e}", extra={"stage": "foldseek_transform"}
-                )
+                dropped.append(record["pocket_id"])
+                self.logger.error(f"Problem processing {record['pocket_id']}: {e}", extra={"stage": "StructureAligner"})
+
+        if dropped:
+            self.logger.warning(
+                f"Not superposing {dropped}; they are absent from {out_path}",
+                extra={"stage": "StructureAligner"},
+            )
+        if not kept_records:
+            self.logger.error(f"No structure could be placed, not writing {out_path}", extra=self._log_extra)
+            return
 
         aligned_struct = self._apply_transformation(structs, domain_chains, motif_chains, us, ts)
+        self._write_aligned(kept_records, aligned_struct, out_path)
+
+    def _write_aligned(self, kept_records, aligned_struct, out_path):
+        """
+        Write a merged structure out as a PDB with a COMPND header naming each model.
+
+        Takes the records that actually made it into `aligned_struct`, not the records the caller
+        started with: a record dropped for want of a transform used to keep its COMPND entry, so the
+        header named models the file did not contain. The chain labels must come from a fresh
+        _char_gen() consumed in the same order _apply_transformation consumed its own.
+        """
         pdb_str = aligned_struct.make_pdb_string()
 
         model_nums = (str(x) for x in count(1))
-        model_names = [record["pocket_id"] for record in aln_records]
+        model_names = [record["pocket_id"] for record in kept_records]
         chain_names = self._char_gen()
         header = ""
         for model_num, model_name, chain_name in zip(model_nums, model_names, chain_names):
@@ -179,3 +199,54 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
         with open(out_path, "w") as f:
             f.write(header)
             f.write(pdb_str)
+
+    def foldseek_transform(self, aln_records, alignment_df, out_path):
+        """
+        Build an aligned multi-structure PDB from Foldseek-style alignment results.
+
+        The first record in ``aln_records`` is treated as the reference structure.
+        Every subsequent record must correspond to a row in ``alignment_df`` whose
+        index is the reference ``preprocess_name`` and whose columns include the
+        target ``preprocess_name``. The stored Foldseek transform strings are
+        parsed into a 3x3 rotation matrix ``u`` and a 3-vector translation ``t``,
+        which are already in the LEFT-multiplying convention :meth:`transform` wants.
+
+        Each structure is read from ``record["struct_path"]`` using mmCIF parsing,
+        transformed into the reference frame, and written to ``out_path`` as a
+        single PDB containing one model per input record.
+
+        The local BLOSUM62 aligner writes "-" for ``u`` and ``t``, so every target is dropped here
+        and the output holds the query alone -- use the pocket transforms with :meth:`transform`
+        instead (see the ``align_struct_method`` setting).
+
+        Expected record fields:
+            - ``pocket_id``: stable identifier used in output metadata
+            - ``preprocess_name``: alignment key used to look up ``u`` and ``t``
+            - ``struct_path``: path to the mmCIF or mmCIF.GZ structure file
+            - ``chain_info``: domain chain or ``domain_motif`` pair
+
+        Args:
+            aln_records (list[dict]): Ordered alignment records, with the reference first.
+            alignment_df (pandas.DataFrame): Alignment table containing Foldseek transforms,
+                indexed by (query, target) ``preprocess_name``.
+            out_path (str): Destination path for the aligned PDB file.
+
+        Returns:
+            None
+        """
+        query_preprocess_name = aln_records[0]["preprocess_name"]
+
+        transforms = [None]  # the reference is placed untransformed
+        for record in aln_records[1:]:
+            try:
+                row = alignment_df.loc[query_preprocess_name, record["preprocess_name"]]
+                struct_u = np.array([float(x) for x in row["u"].split(",")]).reshape((3, 3))
+                struct_t = np.array([float(x) for x in row["t"].split(",")])
+                transforms.append((struct_u, struct_t))
+            except Exception as e:
+                transforms.append(None)
+                self.logger.error(
+                    f"Problem processing {record['pocket_id']}: {e}", extra={"stage": "foldseek_transform"}
+                )
+
+        self.transform(aln_records, transforms, out_path)
