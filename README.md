@@ -5,7 +5,7 @@ PocketMapper fetches protein structures from the PDB, fetches contact residues f
 It is intended for comparative analysis of binding pockets between query and target protein chains.
 
 ## Installation
-PocketMapper has been tested with Python 3.12 and is available on [PyPI](https://pypi.org/project/pocketmapper/). [Foldseek](https://github.com/steineggerlab/foldseek) is an optional external binary, but installing it is recommended: PocketMapper uses it by default when it is on `PATH`, and falls back to the built-in BLOSUM62 sequence aligner (with a warning) when it is not. Foldseek is required to search a bundled Foldseek database, and structural superposition is only available on the Foldseek path.
+PocketMapper has been tested with Python 3.12 and is available on [PyPI](https://pypi.org/project/pocketmapper/). [Foldseek](https://github.com/steineggerlab/foldseek) is an optional external binary, but installing it is recommended: PocketMapper uses it by default when it is on `PATH`, and falls back to the built-in BLOSUM62 sequence aligner (with a warning) when it is not. Foldseek is required to search a bundled Foldseek database. Structural superposition works either way: with Foldseek it can use the whole-chain fit, and the local aligner superposes on the pocket instead (see `--align_struct_method`).
 ```
 # Setup conda environment for pocketmapper
 conda create --name=pocketmapper python=3.12
@@ -92,6 +92,7 @@ pocketmapper search --query queries.txt --target targets.txt --settings config.j
 --foldseek: Whether to run Foldseek alignments instead of the local BLOSUM62 aligner. Left unset, Foldseek is used when its binary is on `PATH` and the local aligner is used with a warning when it is not. `True` requires Foldseek and errors if the binary is missing; `False` always uses the local aligner. A Foldseek DB target always needs the binary.\
 --query_pocket_method / --target_pocket_method: Force the pocket method ('pisa', 'passthrough', 'vdw', 'whole_chain', or 'foldseek_db' for a target) instead of inferring it from the entry.\
 --align_count: Number of top-scoring targets to superpose onto each query (default 10, 0 disables).\
+--align_struct_method: Which transform superposes a target onto its query. `foldseek` uses Foldseek's whole-chain fit and needs the binary; `pocket` uses the fit of the two pockets on their overlapping residues, taken from `pocket_comparison.tsv`, so the pockets rather than the chains end up on top of each other; `auto` (the default) means `foldseek` when Foldseek is in use and `pocket` with the local aligner, which produces no chain transform. `pocket` is unavailable against a Foldseek DB target.\
 --help: Display the help message
 
 ### Features

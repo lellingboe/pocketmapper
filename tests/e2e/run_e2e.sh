@@ -33,7 +33,9 @@ FIXTURES_DIR="$SCRIPT_DIR/fixtures"
 #          resources (see `needs-*` handling below).
 # expect   `rows` = run must succeed AND pocket_comparison.tsv must hold at
 #          least one data row; `ok` = run must succeed and write the file, but
-#          zero hits is a legitimate outcome for that pair.
+#          zero hits is a legitimate outcome for that pair; `fail` = the run
+#          must exit non-zero (a rejected option combination), and nothing is
+#          asserted about its output.
 # args     passed to `pocketmapper search` verbatim (word-split on spaces).
 #          @PDB_FSDB@ expands to $POCKETMAPPER_PDB_FSDB. Foldseek is the
 #          CLI's default, so a case is assumed to need the binary and is
@@ -62,6 +64,7 @@ test_core_4|core|ok|PISA interface vs single-residue AlphaFold pocket (human CDK
 test_core_5|core|ok|PISA interface vs single-residue AlphaFold pocket (mouse ortholog)|4Q5J:B_F P97377:A:160 --foldseek
 test_core_6|core|rows|AlphaFold passthrough vs AlphaFold passthrough|P06493:A:160,161,162,163,164,165 P24941:A:160,161,162,163,164,165 --foldseek
 test_core_7|core|rows|Two pockets on one query chain (pisa + passthrough)|multi_pocket_chain.txt 4Q5J:B_F --foldseek
+test_core_8|core|rows|Superposing on the pocket rather than the chain, with foldseek|4Q5J:A_E 4Q5J:B_F --foldseek --align_struct_method pocket
 
 test_open_1|core|rows|PISA interface vs an open whole-chain target|4Q5J:A_E 4Q5J:B --foldseek
 test_open_2|core|rows|PISA interface vs a bare structure, chain defaulting to A|4Q5J:B_F 4Q5J --foldseek
@@ -78,6 +81,9 @@ test_fsdb_2|needs-pdb-download huge|rows|PISA interface vs the bundled full-PDB 
 test_local_1|core local|rows|Local BLOSUM62 sequence alignment, no Foldseek (same pair as test_core_1)|4Q5J:A_E 4Q5J:B_F --foldseek False
 test_local_2|local|rows|Local aligner over mixed input types (PDB, local mmCIF, AlphaFold)|testfile.txt testfile.txt --foldseek False
 test_local_3|core local|rows|Open whole-chain target on the local aligner|4Q5J:A_E 4Q5J:B --foldseek False
+test_local_4|core local|rows|Explicit pocket superposition on the local aligner|4Q5J:A_E 4Q5J:B_F --foldseek False --align_struct_method pocket
+test_local_5|core local|fail|align_struct_method foldseek rejected on the local aligner|4Q5J:A_E 4Q5J:B_F --foldseek False --align_struct_method foldseek
+test_local_6|core local|fail|Unknown align_struct_method rejected|4Q5J:A_E 4Q5J:B_F --foldseek False --align_struct_method bogus
 EOF
 
 # ---------------------------------------------------------------------------
@@ -268,7 +274,16 @@ while IFS='|' read -r name tags expect desc args; do
 
     # --- assertions -------------------------------------------------------
     comparison="$case_out/pocket_comparison.tsv"
-    if [ "$status" -ne 0 ]; then
+    if [ "$expect" = "fail" ]; then
+        # A rejected option combination: the only assertion is that it was rejected.
+        if [ "$status" -eq 0 ]; then
+            printf '  FAIL  exit=0 after %ds (expected a rejection) -- see %s\n' "$elapsed" "$log"
+            FAIL=$((FAIL + 1)); FAILED_NAMES="$FAILED_NAMES $name"
+        else
+            printf '  PASS  rejected as expected in %ds\n' "$elapsed"
+            PASS=$((PASS + 1))
+        fi
+    elif [ "$status" -ne 0 ]; then
         printf '  FAIL  exit=%d after %ds -- see %s\n' "$status" "$elapsed" "$log"
         FAIL=$((FAIL + 1)); FAILED_NAMES="$FAILED_NAMES $name"
     elif [ ! -f "$comparison" ]; then
