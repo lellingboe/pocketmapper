@@ -23,20 +23,23 @@ pre-commit install                 # black + flake8 on commit
 bump2version rc|patch|minor|major  # bumps pyproject.toml + pocketmapper/__init__.py, commits and tags
 ```
 
-**No unit tests**, and the `test` job in `.github/workflows/test_and_deploy.yml` only installs deps — lint is CI's only real gate. Testing is the
-end-to-end suite in `tests/e2e/`:
+**No unit tests.** CI (`.github/workflows/test_and_deploy.yml`) gates on lint plus two e2e cases — `test_core_1`
+and `test_local_1`, one per aligner — on Linux and macOS; the `test` job only installs deps, and is all that
+covers Windows (foldseek has no Windows build). The rest of the suite is manual:
 
 ```bash
-tests/e2e/run_e2e.sh --list          # the 19 cases and their tags
-tests/e2e/run_e2e.sh -t core         # ~35s, no human_domains searches
-tests/e2e/run_e2e.sh -o /tmp/pm_e2e  # everything, results under a chosen directory
-tests/e2e/run_e2e.sh test_7          # one case by name
+tests/e2e/run_e2e.sh --list           # the 19 cases and their tags
+tests/e2e/run_e2e.sh -t core          # ~35s, no human_domains searches
+tests/e2e/run_e2e.sh -o /tmp/pm_e2e   # everything, results under a chosen directory
+tests/e2e/run_e2e.sh test_core_7      # one case by name
 ```
 
-Cases are grouped and numbered in that order: 1–9 structure-vs-structure pairs (all `core`), 10–14
-human_domains DB targets, 15–16 larger Foldseek DB targets, 17–19 the local aligner. Blank lines separate
-groups in the `CASES` heredoc and are skipped by the runner (a `#` comment there would *not* be). Adding a
-case means renumbering what follows, so describe cases by behaviour, not number.
+Each group is named by its prefix and numbered within itself: `test_core_*` structure-vs-structure pairs,
+`test_open_*` open whole-chain targets, `test_domains_*` human_domains DB targets, `test_fsdb_*` larger
+Foldseek DB targets, `test_local_*` the local aligner. The prefix tracks the group, not the tag — the
+`open` cases and two `local` ones are tagged `core` too. Blank lines separate groups in the `CASES` heredoc
+and are skipped by the runner (a `#` comment there would *not* be). Appending to a group moves nothing;
+inserting mid-group renumbers that group's tail, so the CI pins name cases at the head of a group.
 
 Each case shells out to the real CLI against live wwPDB / AlphaFold / PDBe PISA — no mocks, network
 required. It asserts exit status plus presence (and, where hits are expected, non-emptiness) of

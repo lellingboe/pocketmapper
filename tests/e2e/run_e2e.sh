@@ -41,36 +41,43 @@ FIXTURES_DIR="$SCRIPT_DIR/fixtures"
 #          `--foldseek False`, which exercises the local BLOSUM62 aligner
 #          and still runs without the binary.
 #
-# Cases are grouped by what they exercise -- structure-vs-structure pairs, then
-# human_domains DB targets, then the larger Foldseek DB targets, then the local
-# aligner -- and numbered in that order. Blank lines separate the groups and are
-# skipped by the runner; a '#' comment inside the block would NOT be, so keep
+# Cases are grouped by what they exercise, and each group is named by its
+# prefix and numbered within itself: test_core_* structure-vs-structure pairs,
+# test_open_* open whole-chain targets, test_domains_* human_domains DB
+# targets, test_fsdb_* the larger Foldseek DB targets, test_local_* the local
+# aligner. The prefix tracks the group, not the tag column -- test_open_* and
+# two of the test_local_* cases are tagged 'core' as well.
+#
+# Append to a group and nothing else moves; inserting mid-group still renumbers
+# that group's tail, so CI pins (see .github/workflows/test_and_deploy.yml) name
+# cases at the head of a group. Blank lines separate the groups and are skipped
+# by the runner; a '#' comment inside the block would NOT be, so keep
 # annotations up here.
 # ---------------------------------------------------------------------------
 read -r -d '' CASES <<'EOF'
-test_1|core|rows|PISA interface pair (PDB vs PDB)|4Q5J:A_E 4Q5J:B_F --foldseek
-test_2|core|rows|Batch file vs batch file, PISA interfaces both sides|pdb_pisa_in.txt pdb_pisa_in.txt --foldseek
-test_3|core|rows|Chain-ID case sensitivity (4DX9 a_b vs A_B)|4DX9.txt 4DX9.txt --foldseek
-test_4|core|ok|PISA interface vs single-residue AlphaFold pocket (human CDK2)|4Q5J:B_F P24941:A:160 --foldseek
-test_5|core|ok|PISA interface vs single-residue AlphaFold pocket (mouse ortholog)|4Q5J:B_F P97377:A:160 --foldseek
-test_6|core|rows|AlphaFold passthrough vs AlphaFold passthrough|P06493:A:160,161,162,163,164,165 P24941:A:160,161,162,163,164,165 --foldseek
-test_7|core|rows|Two pockets on one query chain (pisa + passthrough)|multi_pocket_chain.txt 4Q5J:B_F --foldseek
+test_core_1|core|rows|PISA interface pair (PDB vs PDB)|4Q5J:A_E 4Q5J:B_F --foldseek
+test_core_2|core|rows|Batch file vs batch file, PISA interfaces both sides|pdb_pisa_in.txt pdb_pisa_in.txt --foldseek
+test_core_3|core|rows|Chain-ID case sensitivity (4DX9 a_b vs A_B)|4DX9.txt 4DX9.txt --foldseek
+test_core_4|core|ok|PISA interface vs single-residue AlphaFold pocket (human CDK2)|4Q5J:B_F P24941:A:160 --foldseek
+test_core_5|core|ok|PISA interface vs single-residue AlphaFold pocket (mouse ortholog)|4Q5J:B_F P97377:A:160 --foldseek
+test_core_6|core|rows|AlphaFold passthrough vs AlphaFold passthrough|P06493:A:160,161,162,163,164,165 P24941:A:160,161,162,163,164,165 --foldseek
+test_core_7|core|rows|Two pockets on one query chain (pisa + passthrough)|multi_pocket_chain.txt 4Q5J:B_F --foldseek
 
-test_8|core|rows|PISA interface vs an open whole-chain target|4Q5J:A_E 4Q5J:B --foldseek
-test_9|core|rows|PISA interface vs a bare structure, chain defaulting to A|4Q5J:B_F 4Q5J --foldseek
+test_open_1|core|rows|PISA interface vs an open whole-chain target|4Q5J:A_E 4Q5J:B --foldseek
+test_open_2|core|rows|PISA interface vs a bare structure, chain defaulting to A|4Q5J:B_F 4Q5J --foldseek
 
-test_10|human_domains|rows|Single PISA interface vs human domains|4Q5J:B_F human_domains --foldseek
-test_11|human_domains|rows|Mixed batch file (PDB, local mmCIF, AlphaFold) vs human domains|testfile.txt human_domains --foldseek
-test_12|human_domains|rows|AlphaFold passthrough residues vs human domains|P06493:A:160,161,162,163,164,165 human_domains --foldseek
-test_13|human_domains|rows|Large CDK2 pocket residue list vs human domains|--query 1B38:A:8,9,10,11,12,13,14,15,16,17,18,19,20,30,31,32,33,34,35,47,48,49,50,51,52,53,54,55,56,57,58,59,61,62,63,64,65,66,67,68,69,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,143,144,145,146,147,148,149 --target human_domains --foldseek
-test_14|human_domains|rows|Large kinase pocket residue list vs human domains|--query 4WB5:A:47,48,49,50,51,52,53,54,55,56,57,58,59,69,70,71,72,73,74,87,88,89,90,91,92,93,94,95,96,97,98,99,101,102,103,104,105,106,107,108,109,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,182,183,184,185,186,187,188 --target human_domains --foldseek
+test_domains_1|human_domains|rows|Single PISA interface vs human domains|4Q5J:B_F human_domains --foldseek
+test_domains_2|human_domains|rows|Mixed batch file (PDB, local mmCIF, AlphaFold) vs human domains|testfile.txt human_domains --foldseek
+test_domains_3|human_domains|rows|AlphaFold passthrough residues vs human domains|P06493:A:160,161,162,163,164,165 human_domains --foldseek
+test_domains_4|human_domains|rows|Large CDK2 pocket residue list vs human domains|--query 1B38:A:8,9,10,11,12,13,14,15,16,17,18,19,20,30,31,32,33,34,35,47,48,49,50,51,52,53,54,55,56,57,58,59,61,62,63,64,65,66,67,68,69,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,143,144,145,146,147,148,149 --target human_domains --foldseek
+test_domains_5|human_domains|rows|Large kinase pocket residue list vs human domains|--query 4WB5:A:47,48,49,50,51,52,53,54,55,56,57,58,59,69,70,71,72,73,74,87,88,89,90,91,92,93,94,95,96,97,98,99,101,102,103,104,105,106,107,108,109,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,182,183,184,185,186,187,188 --target human_domains --foldseek
 
-test_15|needs-pdb-fsdb slow|rows|PISA interface vs a local Foldseek PDB database|4Q5J:B_F @PDB_FSDB@ --target_pocket_method foldseek_db --foldseek
-test_16|needs-pdb-download huge|rows|PISA interface vs the bundled full-PDB Foldseek database|4Q5J:A_E pdb --foldseek
+test_fsdb_1|needs-pdb-fsdb slow|rows|PISA interface vs a local Foldseek PDB database|4Q5J:B_F @PDB_FSDB@ --target_pocket_method foldseek_db --foldseek
+test_fsdb_2|needs-pdb-download huge|rows|PISA interface vs the bundled full-PDB Foldseek database|4Q5J:A_E pdb --foldseek
 
-test_17|core local|rows|Local BLOSUM62 sequence alignment, no Foldseek (same pair as test_1)|4Q5J:A_E 4Q5J:B_F --foldseek False
-test_18|local|rows|Local aligner over mixed input types (PDB, local mmCIF, AlphaFold)|testfile.txt testfile.txt --foldseek False
-test_19|core local|rows|Open whole-chain target on the local aligner|4Q5J:A_E 4Q5J:B --foldseek False
+test_local_1|core local|rows|Local BLOSUM62 sequence alignment, no Foldseek (same pair as test_core_1)|4Q5J:A_E 4Q5J:B_F --foldseek False
+test_local_2|local|rows|Local aligner over mixed input types (PDB, local mmCIF, AlphaFold)|testfile.txt testfile.txt --foldseek False
+test_local_3|core local|rows|Open whole-chain target on the local aligner|4Q5J:A_E 4Q5J:B --foldseek False
 EOF
 
 # ---------------------------------------------------------------------------
@@ -116,20 +123,20 @@ Options:
 Environment:
   POCKETMAPPER_BIN        pocketmapper executable to test. Default: pocketmapper
   POCKETMAPPER_PDB_FSDB   Path to a prebuilt Foldseek PDB database. Required
-                          for test_13, which is skipped when unset.
+                          for test_fsdb_1, which is skipped when unset.
 
 Notes:
   * Foldseek is the CLI default, so most cases need the 'foldseek' binary on
     PATH and are skipped without it. Cases tagged 'local' pass
     '--foldseek False' to force the built-in BLOSUM62 aligner and still run.
   * Cases hit wwPDB, AlphaFold and PDBe PISA, so they need network access.
-  * test_14 downloads the full PDB Foldseek database (2GB download, 7Gb unzipped) and is
+  * test_fsdb_2 downloads the full PDB Foldseek database (2GB download, 7Gb unzipped) and is
     therefore excluded unless named explicitly.
 
 Examples:
   $(basename "$0") -o /tmp/pm_e2e             # everything, into /tmp/pm_e2e
   $(basename "$0") -t core                    # quick cases only
-  $(basename "$0") test_1 test_15             # two specific cases
+  $(basename "$0") test_core_1 test_fsdb_1   # two specific cases
 USAGE
 }
 
@@ -149,10 +156,10 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$LIST" -eq 1 ]; then
-    printf '%-9s %-26s %s\n' "NAME" "TAGS" "DESCRIPTION"
+    printf '%-16s %-26s %s\n' "NAME" "TAGS" "DESCRIPTION"
     while IFS='|' read -r name tags expect desc args; do
         [ -z "$name" ] && continue
-        printf '%-9s %-26s %s\n' "$name" "$tags" "$desc"
+        printf '%-16s %-26s %s\n' "$name" "$tags" "$desc"
     done <<< "$CASES"
     exit 0
 fi
@@ -227,7 +234,7 @@ while IFS='|' read -r name tags expect desc args; do
     fi
 
     if [ -n "$skip_reason" ]; then
-        printf 'SKIP  %-9s %s (%s)\n' "$name" "$desc" "$skip_reason"
+        printf 'SKIP  %-16s %s (%s)\n' "$name" "$desc" "$skip_reason"
         SKIP=$((SKIP + 1))
         continue
     fi
@@ -248,11 +255,11 @@ while IFS='|' read -r name tags expect desc args; do
         --results_dir "$case_out"
 
     if [ "$DRY_RUN" -eq 1 ]; then
-        printf 'DRY   %-9s (cd %s && %s search %s)\n' "$name" "$FIXTURES_DIR" "$POCKETMAPPER_BIN" "$*"
+        printf 'DRY   %-16s (cd %s && %s search %s)\n' "$name" "$FIXTURES_DIR" "$POCKETMAPPER_BIN" "$*"
         continue
     fi
 
-    printf 'RUN   %-9s %s\n' "$name" "$desc"
+    printf 'RUN   %-16s %s\n' "$name" "$desc"
     log="$OUT_DIR/$name.log"
     started=$(date +%s)
     ( cd "$FIXTURES_DIR" && "$POCKETMAPPER_BIN" search "$@" ) > "$log" 2>&1
