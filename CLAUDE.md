@@ -15,46 +15,29 @@ target chains (BLOSUM62 or Foldseek), maps pocket residues through the alignment
 
 ## Commands
 
-**No unit tests.** CI (`.github/workflows/test_and_deploy.yml`) gates on lint plus two e2e cases — `test_core_1`
-and `test_local_1`, one per aligner — on Linux and macOS; the `test` job only installs deps, and is all that
-covers Windows (foldseek has no Windows build). The rest of the suite is manual:
+**No unit tests.** `tests/e2e/run_e2e.sh` is the whole suite: 23 cases shelling out to the real CLI against
+live wwPDB / AlphaFold / PDBe PISA — no mocks, network required — asserting exit status plus presence (and,
+where hits are expected, non-emptiness) of `pocket_comparison.tsv`. CI
+(`.github/workflows/test_and_deploy.yml`) gates on lint plus two of them — `test_core_1` and `test_local_1`,
+one per aligner — on Linux and macOS; the `test` job only installs deps, and is all that covers Windows
+(foldseek has no Windows build). The rest of the suite is manual.
 
-```bash
-tests/e2e/run_e2e.sh --list           # the 23 cases and their tags
-tests/e2e/run_e2e.sh -t core          # ~35s, no human_domains searches
-tests/e2e/run_e2e.sh -o /tmp/pm_e2e   # everything, results under a chosen directory
-tests/e2e/run_e2e.sh test_core_7      # one case by name
-```
-
-Each group is named by its prefix and numbered within itself: `test_core_*` structure-vs-structure pairs,
-`test_open_*` open whole-chain targets, `test_domains_*` human_domains DB targets, `test_fsdb_*` larger
-Foldseek DB targets, `test_local_*` the local aligner. The prefix tracks the group, not the tag — the
-`open` cases and two `local` ones are tagged `core` too. Blank lines separate groups in the `CASES` heredoc
-and are skipped by the runner (a `#` comment there would *not* be). Appending to a group moves nothing;
-inserting mid-group renumbers that group's tail, so the CI pins name cases at the head of a group.
-
-Each case shells out to the real CLI against live wwPDB / AlphaFold / PDBe PISA — no mocks, network
-required. It asserts exit status plus presence (and, where hits are expected, non-emptiness) of
-`pocket_comparison.tsv`.
+**Running or editing it: use the `pocketmapper-e2e` skill** (`.claude/skills/pocketmapper-e2e/SKILL.md`),
+which carries the invocations, the tag and group conventions, the `CASES` heredoc rules and the CI pins.
 
 **Always run against the existing cache at `tests/e2e/e2e_results/pocketmapper_cache`** — via
-`POCKETMAPPER_E2E_CACHE="$PWD/tests/e2e/e2e_results/pocketmapper_cache"`, or `--cache-dir` for a direct
-`pocketmapper search`. It holds several GB of structures, PISA responses and Foldseek DBs; a cold cache is
-dramatically slower (PISA is fetched per entry behind a rate-limiting sleep — a full-PDB run is thousands of
-calls at ~3/s). The runner's `-o` default is `$PWD/e2e_results`, *not* relative to the script: running from
-the repo root silently creates a second empty cache and re-downloads everything. To test cold-cache
-behaviour, point at a throwaway dir *inside* `tests/e2e/e2e_results/` so downloads stay reusable.
-
-Missing resources SKIP rather than fail: `needs-pdb-fsdb` wants `POCKETMAPPER_PDB_FSDB` pointed at a
-prebuilt Foldseek PDB database; `needs-pdb-download` downloads the full PDB Foldseek DB (2GB download, 7GB
-unzipped) so it runs only when named explicitly.
+`POCKETMAPPER_E2E_CACHE`, or `--cache_dir` for a direct `pocketmapper search`. It holds ~5 GB of structures,
+PISA responses and Foldseek DBs; a cold cache is dramatically slower (PISA is fetched per entry behind a
+rate-limiting sleep — a full-PDB run is thousands of calls at ~3/s). The runner's `-o` default is
+`$PWD/e2e_results`, *not* relative to the script: running from the repo root silently creates a second empty
+cache and re-downloads everything. To test cold-cache behaviour, point at a throwaway dir *inside*
+`tests/e2e/e2e_results/` so downloads stay reusable.
 
 Foldseek is an optional external binary (`conda install -c conda-forge -c bioconda foldseek`), invoked via
 `subprocess.run`, required for any `foldseek_db` target, and the **default aligner** (see "The `foldseek`
-setting"). So a case is assumed to need it and is skipped when absent; a case opts out with an explicit
-`--foldseek False` in its `args`. Cases tagged `local` carry that flag. Keep it that way — when every case
-ran Foldseek the suite couldn't see the local branch, which is how it shipped broken. The skip gate matches
-`--foldseek False` *before* the catch-all, keeping the two forms distinct.
+setting"). Without it 17 of the 23 cases SKIP and the run still exits 0, so read the skip count, not just the
+exit status. The six tagged `local` pass `--foldseek False` and always run; keep at least one, or the suite
+stops covering the local branch, which is how it once shipped broken.
 
 ## Pipeline
 
