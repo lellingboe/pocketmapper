@@ -123,7 +123,7 @@ class PocketMapper:
         # told the binary is missing when nothing has looked for it.
         self._foldseek_available = True
 
-    def _configure_logging(self, settings):
+    def _configure_logging(self, verbosity, log_path):
         """
         Configure logging level and handlers based on user settings.
 
@@ -131,18 +131,18 @@ class PocketMapper:
         adjusting the verbosity depending on the user's input.
 
         Args:
-            settings (Settings): Configuration object with `verbosity` and `log_path` attributes.
-                verbosity: 4=DEBUG, 3=INFO, 2=WARNING, else ERROR.
+            verbosity (int): The verbosity level (4=DEBUG, 3=INFO, 2=WARNING, else ERROR).
+            log_path (str): The path to the log file.
         """
         self._log_extra.update({"stage": "Configuring Logging"})
 
         # Set log level based on verbosity setting (default to INFO if not set)
         log_level = None
-        if settings.verbosity == 4:
+        if verbosity == 4:
             log_level = "DEBUG"
-        elif settings.verbosity == 3:
+        elif verbosity == 3:
             log_level = "INFO"
-        elif settings.verbosity == 2:
+        elif verbosity == 2:
             log_level = "WARNING"
         else:
             log_level = "ERROR"
@@ -163,7 +163,7 @@ class PocketMapper:
                     "class": "logging.FileHandler",
                     "level": log_level,
                     "formatter": "standard",
-                    "filename": settings.log_path,
+                    "filename": log_path,
                 },
             },
             "root": {
@@ -345,7 +345,7 @@ class PocketMapper:
                 logging.critical(f"Error creating directory {path}", extra=self._log_extra)
                 raise PocketMapperError(f"Error creating directory {path}") from e
 
-        self._configure_logging(settings)
+        self._configure_logging(settings.verbosity, settings.log_path)
 
         # 4b. Resolve the tri-state foldseek setting into a concrete bool. Must come after
         # _configure_logging (the root logger is still at CRITICAL before it, so the fallback
