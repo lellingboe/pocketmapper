@@ -32,7 +32,7 @@ The original input string is kept as `pocket_id`, the identifier used throughout
 ### Pocket dict shape
 
 Every pocket method returns the same nested dict, produced and extended by
-`lib_struct.parse_pocket_from_struct`: top-level `res_auth_ids`, `ca_sequence`, `pocket_exists`,
+`pocket_parser.parse_pocket_from_struct`: top-level `res_auth_ids`, `ca_sequence`, `pocket_exists`,
 `has_coords`, `whole_chain`, plus one entry per residue keyed by the **string** author seqid.
 
 Residues without a CA get `seq_pos = -1` and are excluded from the comparison, because Foldseek only sees
@@ -95,9 +95,9 @@ Breaking one of these generally produces silently wrong output rather than an er
 the code site as well; each entry below says how it fails, and how to check it where there is a way.
 
 - **`seq_pos` is the value everything hinges on** — the residue's index among the CA-bearing residues *of
-  its own chain*, and what maps a pocket residue into the alignment (`lib_struct.parse_pocket_from_struct`).
-  A new pocket method computing it any other way yields zero overlap with no error. Check it by comparing a
-  pocket against itself: `overlap_count == pocket_len`.
+  its own chain*, and what maps a pocket residue into the alignment
+  (`pocket_parser.parse_pocket_from_struct`). A new pocket method computing it any other way yields zero
+  overlap with no error. Check it by comparing a pocket against itself: `overlap_count == pocket_len`.
 - **`preprocess_name` is the alignment join key** — `<basename>_<chain><md5>`, computed once in
   `QTProcessor.parse_individual_qt`. Alignments are keyed by it, pockets by `pocket_id`, and
   `_compare_pockets_based_on_alignment` builds `preproc_to_ids` to bridge them. One `preprocess_name` can
@@ -154,7 +154,7 @@ the reasons those call sites are load-bearing. Keep new resolution logic there.
 
 - `pocketmapper.py` — `Settings`, `search()` and every pipeline step; the only module that knows `Settings`.
 - `lib.py` — generic stateless helpers only. `constants.py` — imports nothing, which is why the shared
-  tables and `SINGLE_AA_CODE` live there. `lib_struct.py` — the pocket dict.
+  tables and `SINGLE_AA_CODE` live there. `pocket_parser.py` — the pocket dict.
 - `PocketCalculator.atp_pocket_overlap` is uncalled but retained for planned ATP-pocket work — don't prune.
 - There are no unit tests. `tests/e2e/` is the whole suite; the `pocketmapper-e2e` skill covers running it.
 - `build/` and `dist/` are stale checked-in artifacts of an older version. Ignore them; never edit
