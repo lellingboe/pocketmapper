@@ -27,7 +27,7 @@ from pocketmapper.qt_processor import QTProcessor
 from pocketmapper.structure_aligner import StructureAligner
 from pocketmapper.structure_fetcher import StructureFetcher
 from pocketmapper.structure_preprocessor import StructurePreprocessor
-from pocketmapper.lib_struct import parse_pocket_from_struct
+from pocketmapper.pocket_parser import parse_pocket_from_struct
 from pocketmapper.constants import (
     ALIGN_STRUCT_METHODS,
     FOLDSEEK_FORMAT_OUTPUT,
