@@ -105,8 +105,14 @@ def _aln_positions(aln_seq):
     """
     Map each non-gap position of an aligned sequence to its index within the gapped string.
 
-    The keys would be the contiguous range 0..n-1, so this is a list rather than a dict: callers
-    index it with a value already range-checked against the aligned region.
+    The keys would be the contiguous range 0..n-1, so this is a list rather than a dict: callers index
+    it with a value already range-checked against the aligned region.
+
+    Args:
+        aln_seq (str): One side of an alignment row, with "-" for gaps.
+
+    Returns:
+        list: Index into the gapped string for each ungapped position, in order.
     """
     return [i for i, res in enumerate(aln_seq) if res != "-"]
 
@@ -119,11 +125,21 @@ def _map_pocket_into_alignment(pocket, aln_seq, aln_positions, start, end):
     region it actually aligned as 1-based start..end, so shifting by 1 - start puts a residue on the
     aligner's coordinates and residues outside 0..(end - start) fall outside the aligned region.
 
-    Residues whose single-letter code disagrees with the one the aligner reported at the same
-    position are collected for unknown_ids. A synthesised Foldseek-DB pocket carries no residue
-    codes, so there is nothing to check against there.
+    Residues whose single-letter code disagrees with the one the aligner reported at the same position
+    are collected for unknown_ids. A synthesised Foldseek-DB pocket carries no residue codes, so there
+    is nothing to check against there.
 
     Reads `pocket` only -- the projection is returned rather than written back into it.
+
+    Args:
+        pocket (dict): The pocket to project.
+        aln_seq (str): This side's gapped alignment string.
+        aln_positions (list): As returned by `_aln_positions` for `aln_seq`.
+        start (int): 1-based first aligned residue on this side.
+        end (int): 1-based last aligned residue on this side.
+
+    Returns:
+        _MappedPocket: The projection.
     """
     adj = 1 - start
     aligned_len = end - start + 1
@@ -153,7 +169,18 @@ def _map_pocket_into_alignment(pocket, aln_seq, aln_positions, start, end):
 
 
 def _record_code_mismatches(mapped, self_id, other_id, unknown_ids):
-    """Fold one projection's code disagreements into unknown_ids, keyed by this particular pairing."""
+    """
+    Fold one projection's code disagreements into unknown_ids, keyed by this particular pairing.
+
+    Args:
+        mapped (_MappedPocket): The projection whose mismatches are being recorded.
+        self_id (str): pocket_id of the pocket that was projected.
+        other_id (str): pocket_id of the pocket it is being compared against.
+        unknown_ids (dict): Nested accumulator, mutated in place.
+
+    Returns:
+        None: Mutates `unknown_ids`.
+    """
     for aln_res_code, res_code, res in mapped.code_mismatches:
         unknown_ids[aln_res_code][res_code].add(f"{other_id},{self_id},{res}")
 
@@ -163,9 +190,15 @@ def _synthesise_target_pocket(aln):
     A whole-chain stand-in for a Foldseek-database hit that has no pocket record of its own.
 
     Only for a database whose entries are not PDB chains (human_domains); a PDB database gets real
-    PISA pockets instead, via _expand_fsdb_pdb_targets. The residues are alignment indices rather
-    than author seqids and carry no codes or coordinates, so the pocket_2_* columns and the RMSD
-    block are both suppressed downstream.
+    PISA pockets instead, via `_expand_fsdb_pdb_targets`. The residues are alignment indices rather
+    than author seqids and carry no codes or coordinates, so the pocket_2_* columns and the RMSD block
+    are both suppressed downstream.
+
+    Args:
+        aln (AlignmentRow): The row to build the pseudo-pocket from; reads `tend` and `tseq`.
+
+    Returns:
+        dict: A pocket dict with `whole_chain` set and `has_coords` false.
     """
     pocket = {
         "res_auth_ids": [str(k) for k in range(aln.tend)],
@@ -185,6 +218,14 @@ def _describe_pocket(pocket_id, pocket, cache):
 
     None of the three depend on the alignment row, so on a search with thousands of hits against one
     query this is computed once instead of once per row.
+
+    Args:
+        pocket_id (str): Cache key.
+        pocket (dict): The pocket to describe.
+        cache (dict): Memo shared across the whole call.
+
+    Returns:
+        tuple: (comma-joined res_auth_ids, residue count, single-letter sequence).
     """
     described = cache.get(pocket_id)
     if described is None:
@@ -202,8 +243,18 @@ def _seq_identity(pocket_id, pocket, domain, aln_seq, cache):
     """
     Identity between a pocket's own CA sequence and the sequence the aligner reported for its chain.
 
-    Memoised on (pocket_id, domain): the aligner's qseq/tseq is a property of the aligned chain, so
-    it is the same on every row that names that chain.
+    Memoised on (pocket_id, domain): the aligner's qseq/tseq is a property of the aligned chain, so it
+    is the same on every row that names that chain.
+
+    Args:
+        pocket_id (str): Half the cache key.
+        pocket (dict): The pocket, read for `ca_sequence`.
+        domain (str): The chain's `preprocess_name`; the other half of the cache key.
+        aln_seq (str): The ungapped sequence the aligner reported for that chain.
+        cache (dict): Memo shared across the whole call.
+
+    Returns:
+        float: Fraction of positions that agree.
     """
     key = (pocket_id, domain)
     identity = cache.get(key)
@@ -215,7 +266,17 @@ def _seq_identity(pocket_id, pocket, domain, aln_seq, cache):
 
 
 def _overlap_ids(pocket, mapped, overlap_positions):
-    """The pocket's author seqids that landed on an overlapping alignment position, in pocket order."""
+    """
+    The pocket's author seqids that landed on an overlapping alignment position, in pocket order.
+
+    Args:
+        pocket (dict): The pocket, read for `res_auth_ids`.
+        mapped (_MappedPocket): Its projection onto this row.
+        overlap_positions (set): Alignment positions shared by both pockets.
+
+    Returns:
+        list: Author seqids, ordered to match the other side's list position for position.
+    """
     pos_by_res = mapped.pos_by_res
     return [res for res in pocket["res_auth_ids"] if pos_by_res.get(res, -1) in overlap_positions]
 
@@ -224,8 +285,17 @@ def _superpose(p1, p2, p1_overlap_ids, p2_overlap_ids, overlap_count, sup):
     """
     Superpose the two pockets on their overlapping residues.
 
-    Returns the transforms both ways, the RMSD and the per-residue CA distances, or nothing when
-    either side has no coordinates or there are too few points to fit a rotation.
+    Args:
+        p1 (dict): Query pocket, read for `has_coords` and CA coordinates.
+        p2 (dict): Target pocket.
+        p1_overlap_ids (list): Query author seqids in overlap order.
+        p2_overlap_ids (list): Target author seqids in the same order.
+        overlap_count (int): How many residues overlap.
+        sup (Bio.SVDSuperimposer.SVDSuperimposer): Reused across calls.
+
+    Returns:
+        dict: The transforms both ways, the RMSD and the per-residue CA distances. Empty when either
+            side has no coordinates or there are fewer than three points to fit a rotation.
     """
     if not p1["has_coords"] or not p2["has_coords"] or overlap_count < 3:
         return {}
@@ -266,8 +336,14 @@ def parse_pocket_transform(u_cell, t_cell):
     The cells are Python list reprs rather than the comma-joined strings alignment.tsv uses for the
     same quantities, because _superpose writes lists and to_csv reprs them.
 
-    Returns None when the pair has no transform -- fewer than three overlapping residues, or a pocket
-    with no coordinates, both of which leave _superpose returning nothing and the cells empty.
+    Args:
+        u_cell (str): The `p2_to_p1_u` cell, a list repr of nine floats.
+        t_cell (str): The `p2_to_p1_t` cell, a list repr of three floats.
+
+    Returns:
+        tuple: (u, t) ready for gemmi, or None when the pair has no transform -- fewer than three
+            overlapping residues, or a pocket with no coordinates, both of which leave `_superpose`
+            returning nothing and the cells empty.
     """
     if not isinstance(u_cell, str) or not isinstance(t_cell, str):
         return None
@@ -277,7 +353,17 @@ def parse_pocket_transform(u_cell, t_cell):
 
 
 def _score_overlap(aln, overlap_positions, similarity_matrix):
-    """Sequence identity and the three BLOSUM62 similarity scores over the overlapping residues."""
+    """
+    Sequence identity and the three BLOSUM62 similarity scores over the overlapping residues.
+
+    Args:
+        aln (AlignmentRow): The row, read for `qaln` and `taln`.
+        overlap_positions (list): Alignment positions shared by both pockets.
+        similarity_matrix (dict): BLOSUM62, as returned by `lib.read_blast_similarity_matrix`.
+
+    Returns:
+        dict: The two overlap sequences plus the identity and similarity columns.
+    """
     p1_aln_seq = "".join([aln.qaln[pos] for pos in overlap_positions])
     p2_aln_seq = "".join([aln.taln[pos] for pos in overlap_positions])
 
@@ -301,8 +387,22 @@ def _compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_ma
     Score one pocket against one other on a single alignment row.
 
     Both pockets are assumed to exist -- the caller drops empty ones before projecting them. A pair
-    that simply does not overlap still returns a row: the descriptor columns are worth having, and
-    the missing fields are filled in from POCKET_COMPARISON_COLUMNS at the end.
+    that simply does not overlap still returns a row: the descriptor columns are worth having, and the
+    missing fields are filled in from POCKET_COMPARISON_COLUMNS at the end.
+
+    Args:
+        aln (AlignmentRow): The row bridging the two pockets.
+        pocket_id_1 (str): Query pocket id.
+        p1 (dict): Query pocket.
+        p1_mapped (_MappedPocket): Its projection onto this row.
+        pocket_id_2 (str): Target pocket id.
+        p2 (dict): Target pocket.
+        p2_mapped (_MappedPocket): Its projection onto this row.
+        ctx (_Context): Scoring state shared across the call.
+
+    Returns:
+        dict: One comparison row. The pocket_2_* descriptor columns and `jaccard_index` are omitted
+            when p2 is a whole chain rather than a pocket on one.
     """
     output = {
         "pocket_1": pocket_id_1,
@@ -362,7 +462,17 @@ class _Context(NamedTuple):
 
 
 def _resolve_pockets(domain, pocket_dict, preproc_to_ids):
-    """The pockets sitting on one aligned chain. One chain can carry several pockets."""
+    """
+    The pockets sitting on one aligned chain. One chain can carry several pockets.
+
+    Args:
+        domain (str): The chain's `preprocess_name`.
+        pocket_dict (dict): pocket_id -> pocket, for every pocket in the run.
+        preproc_to_ids (dict): preprocess_name -> the pocket_ids on that chain.
+
+    Returns:
+        dict: pocket_id -> pocket, for this chain only.
+    """
     return {
         pocket_id: pocket_dict[pocket_id] for pocket_id in preproc_to_ids.get(domain) or [] if pocket_id in pocket_dict
     }
@@ -378,18 +488,24 @@ def compare_pockets(
     """
     Compare two pockets based on the alignment that bridges them.
 
-    blosum_path: path to a BLAST-format similarity matrix. The packaged one is
-    os.path.join(os.path.dirname(pocketmapper.__file__), "blosum62.bla").
+    Pockets are keyed by `pocket_id` and alignments by `preprocess_name`, so `preproc_to_ids` is what
+    bridges the two.
 
-    synthesise_target_pockets: build a whole-chain pseudo-pocket per alignment row instead of looking
-    the target up in pocket_dict. Only for a Foldseek database that has no target records of its own
-    (see _expand_fsdb_pdb_targets); it is a property of the job.
+    Args:
+        alignment_df (pandas.DataFrame): The alignment table, columns in `ALIGNMENT_COLUMNS` order.
+        pocket_dict (dict): pocket_id -> pocket dict.
+        preproc_to_ids (dict): preprocess_name -> the pocket_ids sitting on that chain.
+        blosum_path (str): Path to a BLAST-format similarity matrix. The packaged one is
+            os.path.join(os.path.dirname(pocketmapper.__file__), "blosum62.bla").
+        synthesise_target_pockets (bool): Build a whole-chain pseudo-pocket per alignment row instead
+            of looking the target up in `pocket_dict`. Only for a Foldseek database that has no target
+            records of its own (see `_expand_fsdb_pdb_targets`); it is a property of the job. Whether
+            the pocket_2_* descriptor columns and the jaccard_index are written, by contrast, is a
+            property of each pocket -- see `_compare_pocket_pair`.
 
-    Whether the pocket_2_* descriptor columns and the jaccard_index are written, by contrast, is a
-    property of each pocket -- see _compare_pocket_pair.
-
-    Returns the comparison table, the residue codes the aligner and pocketmapper disagreed on, and
-    the pockets whose sequence did not match the aligner's well enough to be trusted.
+    Returns:
+        tuple: (comparison table, the residue codes the aligner and pocketmapper disagreed on, the
+            pockets whose sequence did not match the aligner's well enough to be trusted).
     """
     ctx = _Context(
         similarity_matrix=read_blast_similarity_matrix(blosum_path),

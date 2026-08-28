@@ -1,5 +1,10 @@
 """
-Code related to local sequence alignment
+Local pairwise sequence alignment, the fallback for when Foldseek is unavailable.
+
+Biopython's PairwiseAligner over BLOSUM62 stands in for the structural aligner and produces the
+same alignment table, so the rest of the pipeline cannot tell the two apart. It has no structural
+information to offer, so it writes "-" for the `u` and `t` transform columns -- which is why
+structural superposition by `align_struct_method="foldseek"` yields the query alone on this path.
 """
 
 from Bio import Align
@@ -12,7 +17,23 @@ from pocketmapper.constants import ALIGNMENT_COLUMNS, SINGLE_AA_CODE
 
 
 class SequenceAligner:
+    """
+    Produces the alignment table from sequence alone, without Foldseek.
+    """
+
     def _replaceNonCommonResidues(self, peptide):
+        """
+        Map anything outside the 20 standard amino acids to "X".
+
+        BLOSUM62 is only defined over the standard alphabet, so an unmapped residue code would raise
+        rather than score.
+
+        Args:
+            peptide (str): A single-letter sequence.
+
+        Returns:
+            str: The sequence with non-standard codes replaced by "X".
+        """
         processed_peptide = list(peptide)
         common_aas = list("ACDEFGHIKLMNPQRSTVWY")
 
@@ -23,6 +44,17 @@ class SequenceAligner:
         return "".join(processed_peptide)
 
     def _align_seqs(self, peptide1, peptide2, aligner):
+        """
+        Align two sequences and expand the result to gapped strings.
+
+        Args:
+            peptide1 (str): Query sequence.
+            peptide2 (str): Target sequence.
+            aligner (Bio.Align.PairwiseAligner): Configured aligner; only the top alignment is used.
+
+        Returns:
+            list: [query_aligned, target_aligned], each a list of characters with "-" for gaps.
+        """
         peptide1 = self._replaceNonCommonResidues(peptide1)
         peptide2 = self._replaceNonCommonResidues(peptide2)
         alignments = aligner.align(peptide1, peptide2)
@@ -34,8 +66,21 @@ class SequenceAligner:
 
     def align_records(self, query_records, target_records):
         """
-        TODO docstring
-        specs for df?
+        Align every query against every target and build the alignment table.
+
+        Sequences are extracted once per `preprocess_name` and reused across pairs, so a chain appearing
+        on both sides is parsed only once.
+
+        The returned columns are pinned to `constants.ALIGNMENT_COLUMNS`. That order is a positional
+        contract shared with `_foldseek_alignment` and with `pocket_comparison`, which unpacks each row
+        into an `AlignmentRow` by position -- see the note above the constant.
+
+        Args:
+            query_records (list): QTRecord dicts for the query side.
+            target_records (list): QTRecord dicts for the target side.
+
+        Returns:
+            pandas.DataFrame: One row per query/target pair, columns in `ALIGNMENT_COLUMNS` order.
         """
 
         # building a mapping of preprocess_name to sequence for all queries and targets (to avoid redundant structure parsing and sequence extraction during alignment) - this assumes that preprocess_name is unique across queries and targets, which should be the case if they are in the format "P12345_A" or "1ABC_A"

@@ -1,3 +1,10 @@
+"""
+Retrieval of mmCIF structures from the wwPDB and AlphaFold.
+
+Downloads are concurrent and land as gzipped mmCIF in the output directory, which doubles as the
+on-disk cache between runs.
+"""
+
 import os
 import logging
 from concurrent.futures import ThreadPoolExecutor
@@ -7,12 +14,16 @@ import gzip
 
 
 class StructureFetcher:
+    """
+    Downloads PDB and AlphaFold structures into a cached output directory.
+
+    Call in order -- `set_output_directory()`, then `update_cache()`, then `fetch_structures()`.
+    The ordering is required and nothing enforces it.
+    """
+
     def __init__(self):
         """
-        Initialize the StructureFetcher with a target output directory.
-
-        Args:
-            out_dir (str): Directory where the downloaded structured files (e.g., mmCIF) will be saved and cached.
+        Initialise with no output directory; `set_output_directory` supplies it later.
         """
         self.out_dir = None
         self.cache = None
@@ -34,6 +45,10 @@ class StructureFetcher:
     def update_cache(self):
         """
         Update the internal cache of files present in the output directory.
+
+        Note this cache never hits: it holds `os.listdir` basenames while the callers below test a full
+        output path for membership, so every structure is re-fetched on every run. Fix the comparison
+        rather than working around it if this becomes the bottleneck.
         """
         self.cache = os.listdir(self.out_dir)
 
@@ -57,15 +72,16 @@ class StructureFetcher:
 
     def fetch_structure(self, record):
         """
-        Fetch a single structure based on its type and identifier.
+        Fetch a single structure, dispatching on its type.
+
+        Local-file and Foldseek-database records are assumed already on disk and report success without
+        downloading anything.
 
         Args:
-            query (dict): A dictionary describing the structure to fetch containing
-                "struct_type" and "struct_info".
+            record (dict): Describes the structure to fetch; reads `struct_type` and `struct_info`.
 
         Returns:
-            tuple: A pair containing the structure identifier (str) and a boolean
-                   indicating success (True) or failure (False).
+            tuple: (struct_info, succeeded).
         """
         stage = {"stage": "Fetching Structure"}
         match record["struct_type"]:

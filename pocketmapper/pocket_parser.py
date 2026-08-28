@@ -1,3 +1,12 @@
+"""
+Construction of the pocket dict, the one shape every pocket method returns.
+
+`parse_pocket_from_struct` both produces and extends that dict, so a pocket built by any of the
+pisa, passthrough, vdw or whole_chain methods is interchangeable downstream. The dict holds the
+top-level keys `res_auth_ids`, `ca_sequence`, `pocket_exists`, `has_coords` and `whole_chain`,
+plus one entry per residue keyed by the author seqid as a **string**.
+"""
+
 import gemmi
 import logging
 import os
@@ -7,14 +16,22 @@ from pocketmapper.constants import SINGLE_AA_CODE
 
 def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
     """
-    Reads a structure file and return a dictionary with ca_sequence and ca_coords.
+    Build or extend a pocket dict from a structure's chain.
 
-    Struct: gemmi.Structure object or path to file which will be read by gemmi.read_structure
-    chain_id: the chain id to extract from the structure
-    pocket_residues: list of residue ids that are in the pocket, or None for an open search, where
-        every CA-bearing residue of the chain is treated as the pocket. The returned dict records
-        which of the two it was under "whole_chain".
+    Walks the chain once, recording `seq_pos` -- the residue's index among the CA-bearing residues of
+    that chain -- for every pocket residue. That index is what maps a pocket into the alignment, so a
+    caller computing it any other way gets zero overlap with no error.
 
+    Args:
+        struct (gemmi.Structure | str): A parsed structure, or a path gemmi will read.
+        chain_id (str): The chain to extract.
+        pocket_residues (list | None): Author seqids in the pocket, or None for an open search, where
+            every CA-bearing residue of the chain becomes the pocket. Which of the two it was is
+            recorded on the returned dict as `whole_chain`.
+        pocket (dict | None): An existing pocket dict to extend; a new one is built when None.
+
+    Returns:
+        dict: The pocket dict, or None if the file is missing or the chain is not in the structure.
     """
     stage = {"stage": "Parsing Pocket from Structure"}
 

@@ -1,3 +1,12 @@
+"""
+Shared constants and declared table schemas.
+
+This module imports nothing, which is why the tables several modules must agree on live here
+rather than beside any one of their users: `ALIGNMENT_COLUMNS` and `FOLDSEEK_FORMAT_OUTPUT` are a
+positional contract between the two aligners and the comparison, and `SINGLE_AA_CODE` is read by
+both the pocket parser and the local aligner. Each constant carries its own rationale above it.
+"""
+
 # TODO keep phospho information
 SINGLE_AA_CODE = {
     "CYS": "C",

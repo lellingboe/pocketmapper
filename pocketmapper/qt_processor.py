@@ -1,5 +1,13 @@
 """
-Code for processing query/target pairs and orchestrating the workflow
+Parsing of query and target input strings into structured records.
+
+Input grammar is `struct_info[:chain_info[:residue_info]]`, and either side may instead be a file
+holding one such string per line -- README's "Input format" table documents the forms.
+`determine_struct_type` and `determine_pocket_method` implement them, against the regexes defined
+in `QTProcessor.__init__`.
+
+The original input string is kept verbatim as `pocket_id`, which is the identifier used throughout
+the results. Orchestration lives in `pocketmapper.py`; this module only parses.
 """
 
 # TODO Folder input - iterate through files in folder with correct format
@@ -20,9 +28,11 @@ from pocketmapper.exceptions import PocketMapperError
 @dataclass
 class QTRecord:
     """
-    A single parsed query/target entry: the raw input string (`pocket_id`)
-    plus everything derived from it (structure location, preprocessing
-    paths, pocket method).
+    A single parsed query/target entry.
+
+    Holds the raw input string as `pocket_id` plus everything derived from it -- structure location,
+    preprocessing paths and pocket method. `success` and `failure_reason` let a record survive a failed
+    fetch so the reason can be reported alongside the ones that worked.
     """
 
     pocket_id: str
@@ -41,11 +51,16 @@ class QTRecord:
 
 class QTProcessor:
     """
-    Class for dealing with the procesing of query and target data, including determining types, processing input files, and preparing data for downstream analysis.
+    Parses query and target input into `QTRecord` DataFrames.
+
+    Handles both sides identically; `process_qt_cmdline_input` is the entry point and is called once
+    per side.
     """
 
     def __init__(self, structure_dir, foldseek_preprocessed_structure_dir, fsdb_dir):
         """
+        Store the directories that record paths are resolved against, and compile the input regexes.
+
         Args:
             structure_dir (str): Directory fetched reference structures are written to; where
                 `pdb`/`alphafold` records get their `struct_path`.
@@ -129,9 +144,20 @@ class QTProcessor:
 
     def parse_individual_qt(self, qt, pocket_method):
         """
-        Parses input of the form "struct_info:chain_info:residues" and returns a QTRecord with
-        structured information about the structure and pocket. If pocket_method is not provided,
-        it will attempt to determine a default pocket method. Returns None if the input is invalid.
+        Parse one input string into a `QTRecord`.
+
+        Also computes `preprocess_name` -- `<basename>_<chain><md5>` -- which is the key alignments are
+        stored under, while pockets are keyed by `pocket_id`. One `preprocess_name` can serve several
+        pocket_ids, since the same chain can carry more than one pocket.
+
+        Args:
+            qt (str): One input entry, "struct_info:chain_info:residue_info", or the name of a Foldseek
+                database.
+            pocket_method (str | None): Pocket method to force, or None to infer it from the string.
+
+        Returns:
+            QTRecord: The parsed record, or None if the structure type or pocket method could not be
+                determined -- both are logged as warnings so one bad line does not abort the batch.
         """
         # Foldseek databases have a special format and are treated differently
         if qt in self._bundled_foldseek_dbs or pocket_method == "foldseek_db":
@@ -197,14 +223,20 @@ class QTProcessor:
 
     def determine_struct_type(self, struct_str):
         """
-        If struct_str is a file:
-            return "local_file"
-        If struct_str matches a PDB ID regex pattern:
-            return "pdb"
-        If struct_str matches a Uniprot ID regex pattern:
-            return "alphafold"
-        else:
-            log critical error and exit
+        Classify a structure identifier as "pdb", "alphafold" or "local_file".
+
+        The regexes are tried before the filesystem check, so an identifier that also happens to name a
+        file in the working directory is still read as an accession.
+
+        Args:
+            struct_str (str): The `struct_info` portion of an input entry.
+
+        Returns:
+            str: One of "pdb", "alphafold", "local_file", or None if nothing matched (logged as a
+                warning).
+
+        Raises:
+            PocketMapperError: If `struct_str` names a directory, which is not supported.
         """
         if re.match(self.pdb_regex, struct_str):
             return "pdb"
@@ -245,11 +277,20 @@ class QTProcessor:
 
     def determine_pocket_method(self, qt_str, struct_type):
         """
-        Determine pocket method based on regex pattern matching.
-        Returns one of {"whole_chain", "pisa", "passthrough", "vdw"}, or None if no pattern matches.
+        Determine the pocket method from the entry's pocket info and structure type.
 
         An entry that names no pocket -- a bare chain, or no chain at all -- is an open search:
         "whole_chain", meaning every CA-bearing residue of the chain is treated as the pocket.
+
+        Which methods are reachable depends on the structure type: PISA is PDB-only, so a local file or
+        AlphaFold model with a chain pair resolves to "vdw" instead.
+
+        Args:
+            qt_str (str): The full input entry; everything after the first ":" is the pocket info.
+            struct_type (str): As returned by `determine_struct_type`.
+
+        Returns:
+            str: One of "whole_chain", "pisa", "passthrough", "vdw", or None if no pattern matched.
         """
         # An entry may be a bare structure ("4Q5J"), in which case there is no pocket info at all.
         pocket_info_str = qt_str.split(":", 1)[1] if ":" in qt_str else ""

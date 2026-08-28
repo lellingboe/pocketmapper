@@ -1,20 +1,10 @@
 """
-Utilities for building aligned multi-structure models.
+Building of aligned multi-structure PDB files.
 
-The alignment workflow in PocketMapper needs a lightweight way to take one query
-structure plus one or more matched target structures and write them back out as a
-single, human-readable PDB file. This module provides that glue around `gemmi`:
-
-- read mmCIF structures from disk
-- apply per-target rotation and translation matrices
-- rename chains so each aligned structure remains distinguishable in the output
-- emit a combined PDB with simple COMPND metadata
-
-The public entry point is :class:`StructureAligner`, which is currently used by
-the PocketMapper structural-alignment step after pocket comparison. `transform` applies
-transforms it is handed; `foldseek_transform` sources them from a Foldseek alignment table
-first. Which of the two the pipeline uses is the `align_struct_method` setting
-("pocket" and "foldseek" respectively).
+Takes one query structure plus one or more matched targets and writes them back out as a single
+human-readable PDB, as glue around gemmi: read mmCIF, apply per-target rotations and translations,
+rename chains so each structure stays distinguishable, and emit a combined PDB with COMPND
+metadata naming each model.
 """
 
 import logging
@@ -25,7 +15,18 @@ import numpy as np
 
 
 class StructureAligner:
+    """
+    Superposes structures onto a reference and writes them as one PDB.
+
+    Two entry points, matching the two transform sources the `align_struct_method` setting selects:
+    `transform` applies transforms it is handed ("pocket"), and `foldseek_transform` sources them from
+    a Foldseek alignment table first ("foldseek").
+    """
+
     def __init__(self):
+        """
+        Initialise the logger. The aligner holds no other state.
+        """
         self.logger = logging.getLogger(__name__)
         self._log_extra = {"stage": "StructureAligner"}
         logging.debug("Initialized", extra=self._log_extra)
@@ -34,12 +35,11 @@ class StructureAligner:
         """
         Yield short, PDB-friendly chain identifiers for aligned output.
 
-        The output structure may contain more chains than the original inputs.
-        To avoid collisions with the preserved domain chain name ``0``, this
-        generator emits:
+        The output structure may hold more chains than any one input, so names are generated rather than
+        reused. "0" is skipped throughout: it is reserved for the domain chain, which
+        `_apply_transformation` renames so it can be found consistently across models.
 
-        - single-character identifiers starting at ``1`` and then ``A``/``B``...
-        - two-character identifiers when the single-character space is exhausted
+        Single characters are emitted first, then two-character pairs once that space is exhausted.
 
         Yields:
             str: A unique chain label suitable for writing into the final PDB.
@@ -54,21 +54,18 @@ class StructureAligner:
         """
         Apply rigid-body transforms to a set of structures and merge them.
 
-        The first structure is treated as the reference frame. Each structure is
-        transformed in place using the supplied rotation matrix and translation
-        vector, then copied into a new combined ``gemmi.Structure``. The domain
-        chain from each input is renamed to ``0`` in the output so it can be
-        recognized consistently, while any motif chain is given a generated name.
+        The first structure is the reference frame. The domain chain of each input is renamed to "0" in
+        the output so it can be recognised consistently; any motif chain gets a generated name.
 
         Args:
-            structs (list[gemmi.Structure]): Structures to align and merge.
-            domain_chains (list[str]): Domain chain IDs to preserve from each input structure.
-            motif_chains (list[str | None]): Optional motif chain IDs to preserve from each input structure.
-            us (list[numpy.ndarray]): 3x3 rotation matrices, one per structure.
-            ts (list[numpy.ndarray]): Translation vectors of length 3, one per structure.
+            structs (list): gemmi.Structures to align and merge.
+            domain_chains (list): Domain chain id to preserve from each input structure.
+            motif_chains (list): Motif chain id per input, or None where there is none.
+            us (list): 3x3 rotation matrices, one per structure, in gemmi's LEFT-multiplying convention.
+            ts (list): Translation vectors of length 3, one per structure.
 
         Returns:
-            gemmi.Structure: A merged aligned structure containing one model per input.
+            gemmi.Structure: A merged structure holding one model per input.
         """
         # Align everything to the first struct
         ref_st = gemmi.Structure()
@@ -95,27 +92,27 @@ class StructureAligner:
         """
         Build an aligned multi-structure PDB from ready-made rigid-body transforms.
 
-        The general entry point: it knows nothing about where a transform came from, only how to
-        apply it. :meth:`foldseek_transform` sources them from Foldseek's whole-chain alignment;
-        `_align_structs` sources them from the pocket superposition in pocket_comparison.tsv.
+        The general entry point: it knows nothing about where a transform came from, only how to apply it.
+        `foldseek_transform` sources them from Foldseek's whole-chain alignment; `_align_structs` sources
+        them from the pocket superposition in pocket_comparison.tsv.
 
-        The first record is the reference frame and is always placed untransformed, so
-        ``transforms[0]`` is ignored. Every other entry is applied to its record's whole structure.
+        The first record is the reference frame and is always placed untransformed, so `transforms[0]` is
+        ignored. Every other entry is applied to its record's whole structure.
 
-        `transforms` is positional rather than keyed by ``pocket_id`` on purpose: a query can be
-        compared against itself, so the reference and a target may carry the same ``pocket_id``.
+        `transforms` is positional rather than keyed by `pocket_id` on purpose: a query can be compared
+        against itself, so the reference and a target may carry the same `pocket_id`.
 
         Args:
-            aln_records (list[dict]): Ordered records, reference first. Fields read: ``pocket_id``,
-                ``struct_path``, ``chain_info``.
+            aln_records (list): Ordered records, reference first. Fields read: `pocket_id`,
+                `struct_path`, `chain_info`.
             transforms (list): Parallel to `aln_records`. Entry 0 is ignored; entry i is either a
-                ``(u, t)`` pair -- a 3x3 rotation in gemmi's LEFT-multiplying convention plus a
-                3-vector translation -- or None to drop that record from the output. A caller
-                passing None is expected to have logged why.
+                `(u, t)` pair -- a 3x3 rotation in gemmi's LEFT-multiplying convention plus a 3-vector
+                translation -- or None to drop that record from the output. A caller passing None is
+                expected to have logged why.
             out_path (str): Destination path for the aligned PDB file.
 
         Returns:
-            None
+            None: Writes the merged PDB to `out_path`.
         """
         structs = []
         domain_chains = []
@@ -177,10 +174,20 @@ class StructureAligner:
         """
         Write a merged structure out as a PDB with a COMPND header naming each model.
 
-        Takes the records that actually made it into `aligned_struct`, not the records the caller
-        started with: a record dropped for want of a transform used to keep its COMPND entry, so the
-        header named models the file did not contain. The chain labels must come from a fresh
-        _char_gen() consumed in the same order _apply_transformation consumed its own.
+        Takes the records that actually made it into `aligned_struct`, not the records the caller started
+        with: a record dropped for want of a transform used to keep its COMPND entry, so the header named
+        models the file did not contain.
+
+        The chain labels must come from a fresh `_char_gen()` consumed in the same order
+        `_apply_transformation` consumed its own, or the header and the coordinates disagree.
+
+        Args:
+            kept_records (list): Records present in `aligned_struct`, in model order.
+            aligned_struct (gemmi.Structure): The merged structure to write.
+            out_path (str): Destination path for the PDB file.
+
+        Returns:
+            None: Writes the PDB to `out_path`.
         """
         pdb_str = aligned_struct.make_pdb_string()
 
@@ -204,35 +211,23 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
         """
         Build an aligned multi-structure PDB from Foldseek-style alignment results.
 
-        The first record in ``aln_records`` is treated as the reference structure.
-        Every subsequent record must correspond to a row in ``alignment_df`` whose
-        index is the reference ``preprocess_name`` and whose columns include the
-        target ``preprocess_name``. The stored Foldseek transform strings are
-        parsed into a 3x3 rotation matrix ``u`` and a 3-vector translation ``t``,
-        which are already in the LEFT-multiplying convention :meth:`transform` wants.
+        The first record in `aln_records` is the reference; every other must have a row in `alignment_df`.
+        The stored Foldseek transform strings are already in the LEFT-multiplying convention `transform`
+        wants, so they are parsed and passed straight through.
 
-        Each structure is read from ``record["struct_path"]`` using mmCIF parsing,
-        transformed into the reference frame, and written to ``out_path`` as a
-        single PDB containing one model per input record.
-
-        The local BLOSUM62 aligner writes "-" for ``u`` and ``t``, so every target is dropped here
-        and the output holds the query alone -- use the pocket transforms with :meth:`transform`
-        instead (see the ``align_struct_method`` setting).
-
-        Expected record fields:
-            - ``pocket_id``: stable identifier used in output metadata
-            - ``preprocess_name``: alignment key used to look up ``u`` and ``t``
-            - ``struct_path``: path to the mmCIF or mmCIF.GZ structure file
-            - ``chain_info``: domain chain or ``domain_motif`` pair
+        The local BLOSUM62 aligner writes "-" for `u` and `t`, so every target is dropped here and the
+        output holds the query alone -- use the pocket transforms with `transform` instead (see the
+        `align_struct_method` setting).
 
         Args:
-            aln_records (list[dict]): Ordered alignment records, with the reference first.
-            alignment_df (pandas.DataFrame): Alignment table containing Foldseek transforms,
-                indexed by (query, target) ``preprocess_name``.
+            aln_records (list): Ordered alignment records, reference first. Fields read: `pocket_id`,
+                `preprocess_name`, `struct_path`, `chain_info`.
+            alignment_df (pandas.DataFrame): Alignment table carrying the Foldseek transforms, indexed by
+                (query, target) `preprocess_name`.
             out_path (str): Destination path for the aligned PDB file.
 
         Returns:
-            None
+            None: Writes the merged PDB to `out_path`.
         """
         query_preprocess_name = aln_records[0]["preprocess_name"]
 

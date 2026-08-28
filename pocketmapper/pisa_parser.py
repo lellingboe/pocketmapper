@@ -1,3 +1,11 @@
+"""
+Reading of cached PISA interface data into pocket residue sets.
+
+Consumes the JSON files `PisaDownloader` writes and turns one interface into the pocket dict the
+rest of the pipeline expects. This is the `pisa` pocket method, available for PDB entries only --
+AlphaFold models and local files have no PISA data.
+"""
+
 import os
 import json
 import logging
@@ -6,16 +14,30 @@ from pocketmapper.constants import SINGLE_AA_CODE
 
 
 class PisaParser:
+    """
+    Turns cached PISA interfaces into pocket dicts.
+    """
+
     def __init__(self):
+        """
+        Initialise the parser. State lives in the cache directory, not on the instance.
+        """
         logging.getLogger(__name__)
 
     def _load_interfaces(self, pdb_id, in_dir):
         """
         Load the cached interface file for a PDB entry, or None if there isn't one.
 
-        PisaDownloader writes these files under a lower-cased PDB code while callers hold whatever
-        case the user typed, so the name is tried verbatim first and then lower-cased. Without that
-        an upper-cased input finds nothing on a case-sensitive filesystem.
+        PisaDownloader writes these files under a lower-cased PDB code while callers hold whatever case
+        the user typed, so the name is tried verbatim first and then lower-cased. Without that an
+        upper-cased input finds nothing on a case-sensitive filesystem.
+
+        Args:
+            pdb_id (str): PDB entry to load, in any case.
+            in_dir (str): Directory of parsed interface files.
+
+        Returns:
+            dict: The entry's interfaces keyed by sorted chain pair, or None if not cached.
         """
         for candidate in (pdb_id, pdb_id.lower()):
             in_path = os.path.join(in_dir, f"{candidate}.json")
@@ -59,8 +81,25 @@ class PisaParser:
         return partners
 
     def get_pockets_from_records(self, records, in_dir):
+        """
+        Build a pocket dict per record from its PISA interface.
+
+        The pocket is the set of residues on the record's own chain that take part in any bond of the
+        interface, across all five bond types. Records whose entry, interface or domain chain cannot be
+        resolved are logged and skipped, so the result may be smaller than `records`.
+
+        Only the interface with exactly two molecules is usable, since the pocket is defined against a
+        single partner.
+
+        Args:
+            records (list): QTRecord dicts; reads `struct_info`, `chain_info` and `pocket_id`.
+            in_dir (str): Directory of parsed interface files written by PisaDownloader.
+
+        Returns:
+            dict: pocket_id -> pocket dict, JSON-serialisable, carrying `res_auth_ids` and one entry per
+                residue. Lacks the CA data `pocket_parser.parse_pocket_from_struct` adds later.
+        """
         stage = {"stage": "Calculating Pockets"}
-        """Takes in a path to a pdb file"""
         bond_types = ["hydrogen_bonds", "salt_bridges", "disulfide_bonds", "covalent_bonds", "other_bonds"]
         pockets = {}
         for record in records:

@@ -1,5 +1,9 @@
 """
-Docstring for pocketmapper.pocket_calculator
+Van der Waals contact pockets, computed directly from coordinates.
+
+This is the `vdw` pocket method: rather than reading a precomputed interface, it walks two chains
+atom by atom and keeps the residues whose van der Waals radii approach within 0.4 A. That makes it
+the only method available for structures with no PISA data -- AlphaFold models and local files.
 """
 
 import os
@@ -12,10 +16,28 @@ from pocketmapper.constants import SINGLE_AA_CODE
 
 
 class PocketCalculator:
+    """
+    Computes pockets from van der Waals contacts between chains.
+    """
+
     def pocket_overlap(self, structure, domain_chain, motif_chain):
         """
-        structure1: Gemmi structure or path to mmcif file
-        chain1, chain2 : Strings -> Chain IDs
+        Residues of the domain chain that make van der Waals contact with the motif chain.
+
+        `seq_pos` is counted over CA-bearing residues of the domain chain only, which is the index the
+        alignment is keyed on -- see `pocket_parser.parse_pocket_from_struct`.
+
+        Atom pairs more than 20 A apart end the scan for that residue pair, which is a large speedup and
+        safe because no van der Waals radii reach that far.
+
+        Args:
+            structure (gemmi.Structure | str): A parsed structure, or a path gemmi will read.
+            domain_chain (str): Chain the pocket belongs to.
+            motif_chain (str): Chain it is in contact with.
+
+        Returns:
+            dict: A pocket dict with `res_auth_ids`, `ca_sequence`, `pocket_exists`, `has_coords` and one
+                entry per contacting residue. None if the structure file does not exist.
         """
         stage = {"stage": "VdW pocket calculation"}
 
@@ -80,11 +102,22 @@ class PocketCalculator:
         """
         Pocket residues of a chain that contact its own bound ATP ligand.
 
-        Unlike pocket_overlap, which takes contacts between two polymer chains, this walks the
-        polymer against the ATP HETATM residue in the same chain.
+        Unlike `pocket_overlap`, which takes contacts between two polymer chains, this walks the polymer
+        against the ATP HETATM residue in the same chain.
 
-        NOTE: retained deliberately -- not currently called by search() or any pocket method, and
-        kept for planned ATP-pocket work. Do not remove as dead code.
+        NOTE: retained deliberately -- not currently called by `search()` or any pocket method, and kept
+        for planned ATP-pocket work. Do not remove as dead code.
+
+        Args:
+            struct_path (str): Path to an mmCIF structure.
+            atp_chain_id (str): Chain holding both the polymer and the ATP residue.
+            name (str): Key the pocket is returned under.
+
+        Returns:
+            dict: {name: pocket dict}.
+
+        Raises:
+            ValueError: If the chain contains no ATP residue.
         """
         structure = gemmi.read_structure(struct_path, format=gemmi.CoorFormat.Mmcif)
         structure.setup_entities()
