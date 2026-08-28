@@ -1,5 +1,12 @@
 """
-Code related to downloading and parsing PISA interfaces
+Download and flatten PDBe PISA interface data into a per-entry cache.
+
+Three stages, each cached on disk so a rerun costs nothing: entry summaries give the assembly ids,
+one request per assembly gives its interfaces, and those are flattened into a single
+`<pdb_code>.json` per entry keyed by sorted chain pair -- the shape `PisaParser` reads.
+
+Every request is spaced by `base_delay` to stay within the PDBe API's tolerance, which is what
+makes the first run over a large hit list slow.
 """
 
 import os
@@ -15,7 +22,23 @@ from pocketmapper.exceptions import PocketMapperError
 
 
 class PisaDownloader:
+    """
+    Fetches PISA interfaces from the PDBe API into a local cache.
+
+    `get_interfaces` is the entry point; the remaining methods are its stages and are separately
+    usable. Failed downloads are recorded in a `_Failed.txt` beside the files they belong to rather
+    than raising, so one dead entry does not abort a large batch.
+    """
+
     def __init__(self, max_retries=5, base_delay=0.25, max_delay=30.0):
+        """
+        Configure the retry and rate-limiting behaviour shared by every request.
+
+        Args:
+            max_retries (int): Attempts per URL before giving up. Defaults to 5.
+            base_delay (float): Seconds between requests, and the first backoff delay. Defaults to 0.25.
+            max_delay (float): Ceiling on the doubling backoff delay. Defaults to 30.0.
+        """
         self.logger = logging.getLogger(__name__)
         self._stage = {}
         self.max_retries = max_retries
@@ -24,10 +47,16 @@ class PisaDownloader:
 
     def _fetch_with_backoff(self, url, out_fname):
         """
-        Download url to out_fname, retrying on failure with exponential backoff.
+        Download `url` to `out_fname`, retrying on failure with exponential backoff.
 
-        Delay starts at base_delay and doubles after each failed attempt, capped
-        at max_delay. Returns True on success, False once max_retries is exhausted.
+        Delay starts at `base_delay` and doubles after each failed attempt, capped at `max_delay`.
+
+        Args:
+            url (str): Address to fetch.
+            out_fname (str): Path to write the response to.
+
+        Returns:
+            bool: True on success, False once `max_retries` is exhausted.
         """
         delay = self.base_delay
         for attempt in range(1, self.max_retries + 1):
@@ -48,6 +77,21 @@ class PisaDownloader:
         return False
 
     def get_interfaces(self, pdb_list, summary_dir, asm_dir, interface_dir):
+        """
+        Populate the interface cache for a list of PDB entries.
+
+        Entries already cached in `interface_dir` are skipped, so only the missing ones cost requests.
+        The remainder are taken through all three stages -- summaries, assemblies, then flattening.
+
+        Args:
+            pdb_list (list): PDB codes, in any case.
+            summary_dir (str): Cache directory for entry summaries.
+            asm_dir (str): Cache directory for per-assembly interface responses.
+            interface_dir (str): Output directory for the flattened per-entry files.
+
+        Returns:
+            None: Writes one `<pdb_code>.json` per entry into `interface_dir`.
+        """
         for dir in [summary_dir, asm_dir, interface_dir]:
             os.makedirs(dir, exist_ok=True)
 
@@ -69,6 +113,17 @@ class PisaDownloader:
             self.logger.info("All interfaces found locally", extra=self._stage)
 
     def get_summaries(self, pdb_codes, summary_dir):
+        """
+        Download the PDBe entry summary for each code, which names its assemblies.
+
+        Args:
+            pdb_codes (list): Lower-cased PDB codes to fetch.
+            summary_dir (str): Directory to cache summaries in; already-present files are not refetched.
+
+        Returns:
+            list: The codes whose summary is now on disk. Failures are logged and written to
+                `_Failed.txt` in `summary_dir` rather than raising.
+        """
         self._stage = {"stage": "Downloading PISA summaries"}
         print("Downloading summaries")
         problems = []
@@ -88,6 +143,19 @@ class PisaDownloader:
         return valid
 
     def parse_summaries(self, pdb_codes, summary_dir):
+        """
+        Read cached summaries and collect each entry's assembly ids.
+
+        Args:
+            pdb_codes (list): Codes whose summaries are cached.
+            summary_dir (str): Directory holding them.
+
+        Returns:
+            collections.defaultdict: pdb_code -> list of assembly ids.
+
+        Raises:
+            PocketMapperError: If a cached summary cannot be parsed.
+        """
         self._stage = {"stage": "Parsing PISA summaries"}
         print("Parsing summaries")
         asm_dict = defaultdict(list)
@@ -108,6 +176,18 @@ class PisaDownloader:
         return asm_dict
 
     def get_assemblies(self, asm_dict, asm_dir):
+        """
+        Download the PISA interfaces for every assembly of every entry.
+
+        One request per assembly, spaced by `base_delay`; already-cached assemblies are skipped.
+
+        Args:
+            asm_dict (dict): pdb_code -> list of assembly ids, as returned by `parse_summaries`.
+            asm_dir (str): Directory to cache the responses in.
+
+        Returns:
+            None: Failures are collected into `_Failed.txt` in `asm_dir` rather than raising.
+        """
         self._stage = {"stage": "Downloading PISA assemblies"}
         print("Downloading assemblies")
         problems = []
@@ -122,6 +202,24 @@ class PisaDownloader:
         pd.Series(problems).to_csv(os.path.join(asm_dir, "_Failed.txt"), header=False, index=False)
 
     def parse_assemblies(self, asm_dict, asm_dir, interface_dir):
+        """
+        Flatten each entry's assemblies into one interface file keyed by chain pair.
+
+        Interfaces from every assembly of an entry are merged into a single dict keyed by the two chain
+        ids sorted and concatenated (e.g. "BF"), which is how `PisaParser` looks them up. Where two
+        assemblies describe the same chain pair the later one wins.
+
+        Only two-molecule interfaces with single-character chain ids are kept -- a pocket is defined
+        against exactly one partner chain, and multi-character ids do not survive the concatenated key.
+
+        Args:
+            asm_dict (dict): pdb_code -> list of assembly ids.
+            asm_dir (str): Directory holding the cached assembly responses.
+            interface_dir (str): Output directory for the per-entry files.
+
+        Returns:
+            None: Writes one `<pdb_code>.json` per entry into `interface_dir`.
+        """
         self._stage = {"stage": "Parsing PISA assemblies"}
         print("Parsing assemblies")
         for pdb_code, assemblies in tqdm(asm_dict.items()):

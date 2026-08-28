@@ -1,8 +1,22 @@
 """
-PocketMapper: A tool for mapping and analyzing protein pockets.
+PocketMapper: map and compare binding pockets across protein structures.
+
+`main()` hands `PocketMapper` to fire, so **every public method on the class is a CLI
+subcommand** -- hence the leading underscore on every internal, which is what keeps them out of
+fire's help. `search()` is the whole workflow, top to bottom:
+
+1. `_configure_workflow` -> Settings, directories, job_settings.json, logging.
+2. `_configure_query_target` -> QTProcessor -> one DataFrame of QTRecords per side.
+3. `_fetch_missing_structures` (or `_fetch_missing_fsdb`) -> mmCIF into structure_dir.
+4. `_alignment` -> foldseek or the local aligner -> alignment.tsv.
+5. `_get_pockets` -> `_retrieve_{pisa,passthrough,vdw,whole_chain}_pockets`, merged into one dict.
+6. `_compare_pockets_based_on_alignment` -> pocket_comparison.compare_pockets -> pocket_comparison.tsv.
+7. `_align_structs` -> superposes the top align_count targets per query into aligned_structures/.
+
+This is the only module that knows about `Settings`; components are handed the individual values
+they need, so none of them has to build one to be usable on its own.
 
 Author: Lachlan Ellingboe
-
 """
 
 from dataclasses import asdict, dataclass, field, replace
@@ -81,9 +95,15 @@ class Settings:
 
     def resolve_paths(self):
         """
-        Return a copy of these settings with any unset derived paths filled
-        in from cache_dir/results_dir. Paths already set (e.g. via the
-        settings file) are left untouched.
+        Return a copy of these settings with any unset derived paths filled in.
+
+        Paths already set -- e.g. via the settings file -- are left untouched. Always call this on a
+        Settings you built yourself; `search()` does it for you. Skipping it leaves the derived paths None
+        and yields an opaque `TypeError: expected str, bytes or os.PathLike object, not NoneType` from
+        inside `os.path.join`.
+
+        Returns:
+            Settings: A new instance with the derived paths resolved against cache_dir/results_dir.
         """
         derived = {
             "structure_dir": os.path.join(self.cache_dir, "ref_structures"),
@@ -104,12 +124,24 @@ class Settings:
 
 
 class PocketMapper:
+    """
+    The pipeline, and the object fire turns into the CLI.
+
+    Every public method is a subcommand, so internals carry a leading underscore to stay out of
+    fire's help. `search()` runs the whole workflow; see the module docstring for its steps.
+
+    Usable as a library -- nothing here needs a terminal -- but note `search()` has global side
+    effects: it reconfigures the *root* logger via `logging.config.dictConfig`, and deletes its
+    temporary directories on the way out.
+    """
+
     def __init__(self):
         """
-        Initialize the PocketMapper instance.
+        Initialise logging defaults and the Foldseek-database flags.
 
-        Sets up the default logging configuration, formatting strings, and points to
-        bundled structural databases if applicable.
+        Sets the root log format `"%(levelname)s: %(stage)s - %(msg)s"`, which is why every log call in
+        the package must pass `extra={"stage": ...}` -- a record without it fails to format. Nothing
+        enforces that.
         """
         self._log_extra = {"stage": "init"}
         self._log_fmt = "%(levelname)s: %(stage)s - %(msg)s"
@@ -209,6 +241,14 @@ class PocketMapper:
                 'foldseek' for Foldseek's whole-chain fit, 'pocket' for the fit of the two pockets
                 on their overlapping residues, or 'auto' (the default) for 'foldseek' when Foldseek is
                 in use and 'pocket' with the local aligner, which produces no chain transform at all.
+            query_pocket_method (str, optional): Force a pocket method for every query entry --
+                'pisa', 'passthrough', 'vdw', 'whole_chain' or 'foldseek_db'. Left unset, it is
+                inferred per entry from the input string.
+            target_pocket_method (str, optional): As `query_pocket_method`, for the target side.
+
+        Returns:
+            None: Results are written to `results_dir` -- read pocket_comparison.tsv and
+                alignment.tsv from there.
         """
         self._log_extra = {
             "stage": "Starting Search"
@@ -272,17 +312,14 @@ class PocketMapper:
 
     def _configure_workflow(self):
         """
-        Set up and evaluate configuration settings for the workflow.
+        Build the fully resolved `Settings` for this run.
 
-        This process:
-        1. Sets base defaults for caching and results.
-        2. Overrides these defaults via an optional JSON settings file.
-        3. Prioritizes CLI arguments (passed via the `search` method) over file settings.
-        4. Computes all derivative working directories needed during pipeline execution.
-        5. Saves final configuration payload locally, setting up necessary directories.
+        Layers three sources in priority order -- dataclass defaults, then an optional JSON settings file,
+        then the CLI arguments passed to `search()` -- then resolves the derived paths, creates the
+        directories and writes job_settings.json.
 
         Returns:
-            None
+            Settings: The resolved configuration. Also written to `job_settings_path`.
         """
         self._log_extra.update({"stage": "Configuring Settings"})
 
@@ -476,13 +513,18 @@ class PocketMapper:
 
     def _configure_query_target(self):
         """
-        Determine and process input data (formats and types) for the query and target constraints.
+        Parse the query and target inputs into record DataFrames.
 
-        Uses the `QTProcessor` class to load, parse, and validate query vs. target identities
-        and requested pocket methodologies (e.g. "pisa", "passthrough"). Updates local dataframes.
+        Uses `QTProcessor` to parse, validate and resolve each side's structure type and pocket method.
+        Also rejects `align_struct_method="pocket"` against a Foldseek-DB target here, before anything is
+        fetched -- see the check itself for why one early rejection covers both kinds of database.
 
         Returns:
-            None: Instantiates `self._query_df` and `self._target_df`.
+            tuple: (query_df, target_df). Note these are returned, not stored on the instance; the caller
+                assigns them.
+
+        Raises:
+            PocketMapperError: If either side is unusable, or on the align_struct_method rejection above.
         """
         self._log_extra.update({"stage": "Determine Query/Target Types"})
 
@@ -548,14 +590,21 @@ class PocketMapper:
 
     def _fetch_missing_structures(self, name, qt_df, out_dir):
         """
-        Identify and download required structure files.
+        Download the reference structures a side's records need.
 
-        Iterates over `self._query_df` and `self._target_df` determining if structure
-        components are locally accessible, utilizing `StructureFetcher`.
-        Failed retrieval flags will trigger program termination if zero data persists.
+        Uses `StructureFetcher`; records whose fetch fails are flagged rather than dropped, so the reason
+        survives into the results. A side with nothing left is an error.
+
+        Args:
+            name (str): Which side this is, e.g. "query" or "target". Used in logging.
+            qt_df (pandas.DataFrame): That side's records.
+            out_dir (str): Directory to fetch into.
 
         Returns:
-            None
+            pandas.DataFrame: The records with `success` and `failure_reason` updated.
+
+        Raises:
+            PocketMapperError: If no structure for this side could be fetched.
         """
         # Downloading structures
         self._log_extra.update({"stage": "Fetching Missing Structures"})
@@ -595,6 +644,19 @@ class PocketMapper:
         return qt_df
 
     def _fetch_missing_fsdb(self, qt_df, tmp_dir):
+        """
+        Download a bundled Foldseek database if it is not already on disk.
+
+        Args:
+            qt_df (pandas.DataFrame): The target records; the database is named by row 0.
+            tmp_dir (str): Scratch directory for `foldseek databases`.
+
+        Returns:
+            None: The database is written to the record's `struct_path`.
+
+        Raises:
+            PocketMapperError: If the download fails.
+        """
         self._log_extra.update({"stage": "Fetching Missing Foldseek Database"})
         fsdb_name = qt_df.loc[0, "struct_info"].upper()
         fsdb_path = qt_df.loc[0, "struct_path"]
@@ -772,13 +834,15 @@ class PocketMapper:
 
     def _get_pockets(self):
         """
-        Aggregate pocket coordinate arrays based on configured mapping logic (PISA, Passthrough, VDW, Whole Chain).
+        Build every pocket in the run, dispatching each record to its pocket method.
 
-        Executes targeted extraction requests across the configured pocket methodologies. Combines all derived
-        pocket residues/points into a standard composite mapping object.
+        Fans out to `_retrieve_pisa_pockets`, `_retrieve_passthrough_pockets`, `_retrieve_vdw_pockets` and
+        `_retrieve_whole_chain_pockets`, then merges their results into one dict. All four return the same
+        pocket dict shape (see `pocket_parser`), so nothing downstream needs to know which method produced
+        a given pocket.
 
         Returns:
-            dict: An aggregated collection of pocket records.
+            dict: pocket_id -> pocket dict, across both sides.
         """
         stage = {"stage": "Getting Pockets"}
         logging.info("Starting pocket retrieval...", extra=stage)
@@ -1369,6 +1433,13 @@ class PocketMapper:
 
 
 def main():
+    """
+    Console-script entry point: hand `PocketMapper` to fire.
+
+    Exits 1 on `PocketMapperError`, which has already been logged with full stage context at the raise
+    site. Modules raise rather than calling `exit()` precisely so the package stays embeddable -- keep
+    it that way when adding error paths.
+    """
     try:
         fire.Fire(PocketMapper())
     except PocketMapperError:

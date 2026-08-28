@@ -1,3 +1,11 @@
+"""
+Reduction of fetched structures to the single chain the alignment needs.
+
+Foldseek indexes one structure per chain, so each record's reference structure is split down to
+its alignment chain before the search directory is built. Parsing and writing are gemmi
+throughout; the single-chain copies are written as gzipped mmCIF.
+"""
+
 import gzip
 import logging
 import os
@@ -7,9 +15,20 @@ from tqdm import tqdm
 
 
 class StructurePreprocessor:
+    """
+    Splits reference structures into single-chain copies for Foldseek to index.
+
+    Call in order -- `set_output_directory()`, then `update_cache()`, then `preprocess_records()`.
+    The ordering is required: the cache is read from the output directory, and preprocessing needs
+    both. Nothing enforces it.
+    """
+
     def __init__(
         self,
     ):
+        """
+        Initialise with no output directory; `set_output_directory` supplies it later.
+        """
         self.logger = logging.getLogger(__name__)
         self._log_extra = {"stage": "Structure Preprocessor"}
         self.logger.debug("Initialized", extra=self._log_extra)
@@ -31,6 +50,10 @@ class StructurePreprocessor:
     def update_cache(self):
         """
         Update the internal cache of files present in the output directory.
+
+        Note this cache never hits: it holds `os.listdir` basenames while the callers below test a full
+        output path for membership, so every structure is re-fetched on every run. Fix the comparison
+        rather than working around it if this becomes the bottleneck.
         """
         self.cache = os.listdir(self.out_dir)
 
@@ -38,12 +61,16 @@ class StructurePreprocessor:
         """
         Split each record's reference structure down to its single alignment chain.
 
-        The single-chain copy is cached under the output directory set by
-        set_output_directory() and then copied into search_dir for Foldseek to index.
+        The single-chain copy is cached under the output directory set by `set_output_directory()` and
+        then copied into `search_dir` for Foldseek to index. Records already in a Foldseek database are
+        passed through untouched.
 
-        :param records: QTRecord dicts carrying struct_path and the preprocess_* paths
-        :param search_dir: directory Foldseek will read the single-chain structures from
-        :return: dict of pocket_id -> whether preprocessing succeeded
+        Args:
+            records (list): QTRecord dicts carrying `struct_path` and the `preprocess_*` paths.
+            search_dir (str): Directory Foldseek will read the single-chain structures from.
+
+        Returns:
+            dict: pocket_id -> whether preprocessing succeeded.
         """
         status_dict = {}
         stage = {"stage": "Dividing structures"}

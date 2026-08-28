@@ -15,8 +15,13 @@ _UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]")
 
 def jsonify_dict(item):
     """
-    Recursively looks for sets in a dictionary and turns then into lists
-    This allows dicts with sets to become JSON serializeable
+    Recursively turn sets into lists so a dict becomes JSON-serialisable.
+
+    Args:
+        item: Any value; dicts are walked and their keys coerced to strings.
+
+    Returns:
+        The same structure with every set replaced by a list.
     """
     if isinstance(item, set):
         return list(item)
@@ -30,16 +35,22 @@ def safe_filename(name, max_len=80):
     """
     Build a filesystem-safe filename stem from a pocket_id.
 
-    A pocket_id is a raw input string, so it may be a path ("/data/foo.cif.gz:B_F")
-    and may embed a long comma-separated residue list (passthrough/VDW queries).
-    Only the basename is kept -- a stem with a directory component in it resolves
-    outside the directory the caller joins it onto -- and every remaining character
-    outside [A-Za-z0-9._-] becomes "_".
+    A pocket_id is a raw input string, so it may be a path ("/data/foo.cif.gz:B_F") and may embed a
+    long comma-separated residue list (passthrough/VDW queries). Only the basename is kept -- a stem
+    with a directory component in it resolves outside the directory the caller joins it onto -- and
+    every remaining character outside [A-Za-z0-9._-] becomes "_".
 
-    Both of those steps are lossy, and truncation to max_len is lossy again, so an
-    md5 of the full original name is always appended: without it two distinct
-    pocket_ids can reduce to one filename and silently overwrite each other. The
-    result is at most max_len characters (or 32, if max_len leaves no room).
+    Both of those steps are lossy, and truncation to max_len is lossy again, so an md5 of the full
+    original name is always appended: without it two distinct pocket_ids can reduce to one filename
+    and silently overwrite each other. A consequence is that the resulting files are not greppable
+    for the input string -- match on the `MOLECULE` records inside them instead.
+
+    Args:
+        name (str): The pocket_id, or any raw input string.
+        max_len (int): Ceiling on the result's length. Defaults to 80.
+
+    Returns:
+        str: A safe stem, at most max_len characters (or 32, if max_len leaves no room).
     """
     name_hash = hashlib.md5(name.encode()).hexdigest()
     stem = _UNSAFE_FILENAME_CHARS.sub("_", os.path.basename(name.rstrip("/")))
@@ -49,9 +60,18 @@ def safe_filename(name, max_len=80):
 
 def binary_similarity(seqA, seqB, similarity_matrix):
     """
-    Similarity of A->B and B->A
-    score = 1 if full similarity score > 0 else score = 0
-    normalized to the length of the seqence
+    Fraction of positions where two aligned sequences score above zero.
+
+    Each position scores 1 if its substitution score is positive and 0 otherwise, so this measures
+    how much of the sequence is conservatively substituted rather than how strongly.
+
+    Args:
+        seqA (str): First sequence; must be the same length as seqB.
+        seqB (str): Second sequence.
+        similarity_matrix (dict): Nested residue -> residue -> score.
+
+    Returns:
+        float: Score in 0..1, normalised by sequence length.
     """
     seqA = seqA.replace("U", "X").upper()
     seqB = seqB.replace("U", "X").upper()
@@ -63,9 +83,18 @@ def binary_similarity(seqA, seqB, similarity_matrix):
 
 def full_similarity(seqA, seqB, similarity_matrix):
     """
-    Similarity of A->B
-    blosum scores normalized by
-    normalized to the length of the seqence
+    Substitution score of two aligned sequences, normalised per position.
+
+    Each position's score is divided by the score of seqA's residue against itself, so a perfect
+    match scores 1 regardless of how strongly that residue is conserved.
+
+    Args:
+        seqA (str): First sequence; must be the same length as seqB.
+        seqB (str): Second sequence.
+        similarity_matrix (dict): Nested residue -> residue -> score.
+
+    Returns:
+        float: Mean normalised score over the sequence.
     """
     seqA = seqA.replace("U", "X").upper()
     seqB = seqB.replace("U", "X").upper()
@@ -77,6 +106,23 @@ def full_similarity(seqA, seqB, similarity_matrix):
 
 
 def read_blast_similarity_matrix(similarity_matrix_path, delimiter=" "):
+    """
+    Read a BLAST-format substitution matrix into a nested dict.
+
+    Comment lines are skipped and the first remaining line is taken as the residue header, which also
+    fixes the row order. Scores are stored symmetrically, so either lookup order works.
+
+    A gap row and column are added that the file does not carry: "-" against any residue scores -4
+    and against itself -1, so a caller can score an alignment containing gaps without special-casing
+    them.
+
+    Args:
+        similarity_matrix_path (str): Path to the matrix file.
+        delimiter (str): Column separator. The default " " splits on any whitespace run.
+
+    Returns:
+        dict: Nested residue -> residue -> float score, including the "-" gap entries.
+    """
     similarity_matrix = {}
     file_content = open(similarity_matrix_path).read().strip().split("\n")
     header = None
@@ -134,11 +180,16 @@ def parse_foldseek_pdb_entry_name(name):
 
     The assembly number and any chain-copy suffix are discarded, so "5ian-assembly1_B-2" and
     "5ian-assembly2_B" both resolve to ("5IAN", "B"). The PDB ID is upper-cased to match the form
-    QTProcessor derives from user input, so a structure already fetched for a query is reused
-    rather than downloaded a second time.
+    QTProcessor derives from user input, so a structure already fetched for a query is reused rather
+    than downloaded a second time.
 
-    Returns None for anything that is not a PDB-style entry name -- which is also how a caller can
-    tell a PDB Foldseek database apart from one built on something else (e.g. human_domains).
+    Args:
+        name (str): A Foldseek database entry name.
+
+    Returns:
+        tuple: (pdb_id, chain), or None for anything that is not a PDB-style entry name -- which is
+            also how a caller tells a PDB Foldseek database apart from one built on something else
+            (e.g. human_domains).
     """
     match = _FOLDSEEK_PDB_ENTRY.match(name)
     if match is None:
