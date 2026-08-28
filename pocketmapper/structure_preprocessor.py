@@ -51,11 +51,13 @@ class StructurePreprocessor:
         """
         Update the internal cache of files present in the output directory.
 
-        Note this cache never hits: it holds `os.listdir` basenames while the callers below test a full
-        output path for membership, so every structure is re-fetched on every run. Fix the comparison
-        rather than working around it if this becomes the bottleneck.
+        Holds bare filenames, so `preprocess_records` must test `os.path.basename(...)` for membership --
+        testing the joined output path can never match and silently re-splits every chain on every run.
+
+        A `<name>.cif.gz.part` left by an interrupted write lands here too, but can never match a
+        `.cif.gz` lookup, so it is inert.
         """
-        self.cache = os.listdir(self.out_dir)
+        self.cache = set(os.listdir(self.out_dir))
 
     def preprocess_records(self, records, search_dir):
         """
@@ -93,7 +95,7 @@ class StructurePreprocessor:
                 "preprocess_path_gz"
             ]  # e.g., /path/to/foldseek_preprocessed_structure_dir/P12345_A_<md5>.cif.gz
 
-            if not (out_path_gz in self.cache):
+            if os.path.basename(out_path_gz) not in self.cache:
                 ref_path = record["struct_path"]  # e.g., /path/to/structure_dir/P12345.cif.gz
                 st = gemmi.read_structure(ref_path, format=gemmi.CoorFormat.Mmcif)
 
@@ -110,6 +112,11 @@ class StructurePreprocessor:
                         extra=stage,
                     )
                     status_dict[record["pocket_id"]] = False
+                    # Bail out here. Falling through would delete every chain (none match), write an
+                    # empty structure for Foldseek to index, and then let the `= True` at the end of
+                    # this loop clobber the False above -- and the cache would serve that empty file
+                    # on every later run.
+                    continue
 
                 # Detaching all non interaction chains
                 for chain_id in model_chains:
@@ -119,9 +126,14 @@ class StructurePreprocessor:
                 # Output the domain and motif pdb file
                 groups = gemmi.MmcifOutputGroups(False, atoms=True, group_pdb=True)
                 st.make_mmcif_document(groups).write_file(out_path)
+                # The gzip goes to a .part first and is moved into place only once complete: the cache
+                # trusts any .cif.gz it finds, so a truncated one under the real name would be served
+                # for good.
+                part_path_gz = f"{out_path_gz}.part"
                 with open(out_path, "rb") as f_in:
-                    with gzip.open(out_path_gz, "wb") as f_out:
+                    with gzip.open(part_path_gz, "wb") as f_out:
                         shutil.copyfileobj(f_in, f_out)
+                os.replace(part_path_gz, out_path_gz)
                 os.remove(out_path)
 
             search_path = os.path.join(search_dir, f"{record['preprocess_name']}.cif.gz")

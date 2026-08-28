@@ -116,9 +116,9 @@ Each module's own docstring states its remit. Not stated anywhere in the code:
   `build/lib/pocketmapper/`.
 - **Structure parsing is gemmi throughout** (`.cif.gz` on disk). Biopython is used only for pairwise
   alignment (`sequence_aligner.py`) and SVD superposition (`pocket_comparison.py`).
-- `StructureFetcher` and `StructurePreprocessor` share a required call order and a cache that never hits;
-  both classes' docstrings say so. Fix the cache comparison rather than documenting around it if it becomes
-  the bottleneck.
+- `StructureFetcher` and `StructurePreprocessor` share a required call order that nothing enforces; both
+  classes' docstrings say so. Both cache on bare filenames and write through a `.part` file, for reasons
+  their `update_cache` docstrings give.
 
 ## As a library
 
