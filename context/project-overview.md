@@ -1,16 +1,6 @@
 # Project overview
 
-A map, not a manual. If a comment at the code site already explains something, it does not belong here;
-what is left is what spans modules, was measured rather than written down, or was left out on purpose.
 Every claim names the file or symbol that proves it.
-
-## What this is
-
-PocketMapper compares binding surfaces (pockets) of protein chains. CLI (`pocketmapper`) and importable
-library (see "As a library" in `coding-standards.md`). It fetches structures (PDB/AlphaFold), derives
-pocket residues (PISA interfaces, explicit residue lists, VdW contacts, or a whole chain for an open
-search), aligns query to target chains (BLOSUM62 or Foldseek), maps pocket residues through the alignment,
-writes a comparison table.
 
 ## Pipeline
 
@@ -28,9 +18,9 @@ hence the leading underscores on all internals, to keep them out of fire's help.
 
 ### Input grammar
 
-`struct_info[:chain_info[:residue_info]]`, colon-separated; either side may instead be a file with one such
-string per line. The README's "Input format" table documents the forms and
-`QTProcessor.determine_struct_type` / `determine_pocket_method` implement them (regexes at `qt_processor.py:68-79`). Two things neither states:
+`struct_info[:chain_info[:residue_info]]`; either side may instead be a file with one such string per line.
+README's "Input format" table documents the forms; `QTProcessor.determine_struct_type` /
+`determine_pocket_method` implement them (regexes at `qt_processor.py:68-79`). Two things neither states:
 
 - The `whole_chain` regex is tested **first**, because a bare chain also matches the passthrough and vdw
   patterns.
@@ -51,11 +41,10 @@ CA-bearing residues. `whole_chain` records whether the method passed a residue l
 
 ### Open searches
 
-An entry naming a structure but no pocket (`4Q5J:B`, or `4Q5J` for the default chain) is an *open search*:
-`_retrieve_whole_chain_pockets` treats every CA-bearing residue of the chain as the pocket. The result is an
-ordinary pocket, so nothing downstream special-cases it. Only the output differs — with no target pocket to
-describe (and its length would dilute every ratio), `_compare_pocket_pair` leaves the `pocket_2_*` descriptor
-columns and `jaccard_index` empty.
+README's "Open searches" covers the output shape. What it doesn't say: `_retrieve_whole_chain_pockets`
+builds an *ordinary* pocket out of every CA-bearing residue of the chain, so nothing downstream
+special-cases it — `_compare_pocket_pair` suppresses the `pocket_2_*` descriptor columns and
+`jaccard_index` off each pocket's own `whole_chain` flag.
 
 That suppression is **per pocket**: one run can mix an open and a pocketed target and emit both row shapes.
 The per-run flag is `synthesise_target_pockets`, which means only "the target side has no records at all,
@@ -102,11 +91,13 @@ so the wait is legible. Add a cap here if that becomes untenable.
 
 ## Invariants
 
-Breaking one of these generally produces silently wrong output rather than an error. See "Extending the
-pipeline" in `coding-standards.md` for what to do about them when adding code.
+Breaking one of these generally produces silently wrong output rather than an error. Most are documented at
+the code site as well; each entry below says how it fails, and how to check it where there is a way.
 
 - **`seq_pos` is the value everything hinges on** — the residue's index among the CA-bearing residues *of
   its own chain*, and what maps a pocket residue into the alignment (`lib_struct.parse_pocket_from_struct`).
+  A new pocket method computing it any other way yields zero overlap with no error. Check it by comparing a
+  pocket against itself: `overlap_count == pocket_len`.
 - **`preprocess_name` is the alignment join key** — `<basename>_<chain><md5>`, computed once in
   `QTProcessor.parse_individual_qt`. Alignments are keyed by it, pockets by `pocket_id`, and
   `_compare_pockets_based_on_alignment` builds `preproc_to_ids` to bridge them. One `preprocess_name` can
@@ -114,25 +105,90 @@ pipeline" in `coding-standards.md` for what to do about them when adding code.
 - **Two tables have declared schemas**: `constants.ALIGNMENT_COLUMNS` (a positional contract shared by
   `_foldseek_alignment`, `SequenceAligner.align_records` and `AlignmentRow`) and
   `pocket_comparison.POCKET_COMPARISON_COLUMNS` (every column a comparison can produce, always present).
+  A new column goes into the constant, never into one producer alone — see the note above
+  `ALIGNMENT_COLUMNS`. An undeclared comparison column is kept and warned about, not dropped.
+- **`compare_pockets` must not write to a pocket dict** — return a `_MappedPocket` instead
+  (`pocket_comparison.py` module docstring). A pocket method relying on mutation would silently see nothing.
 - **Aligned structures are named by `lib.safe_filename(query_id)`, not by `pocket_id`** — the name is
   sanitised down to a basename plus an md5, so `aligned_structures/*.pdb` filenames aren't greppable for an
   input string. Match on the `MOLECULE` records inside instead.
 - **Two transform sources, chosen by `align_struct_method`**: `foldseek` reads whole-chain `u`/`t` from
-  `alignment.tsv`; `pocket` reads `p2_to_p1_u`/`p2_to_p1_t` from `pocket_comparison.tsv`. `p1` is always the
-  query, so `p2_to_p1_*` needs no inversion, and the two cells use different conventions and serialisations
-  — `pocket_comparison.parse_pocket_transform` is the only legitimate reader of the latter.
+  `alignment.tsv`; `pocket` reads `p2_to_p1_u`/`p2_to_p1_t`, written by `_superpose`, from
+  `pocket_comparison.tsv`. `p1` is always the query, so `p2_to_p1_*` needs no inversion, and the two cells
+  use different conventions and serialisations — never hand a raw `p2_to_p1_*` cell to gemmi.
+  `pocket_comparison.parse_pocket_transform` is the only legitimate reader of the latter, and its docstring
+  carries the measured evidence.
 
-## Repo layout notes
+**Changing step 6 without changing behaviour**: capture `compare_pockets`' arguments from a real run and
+diff old output against new. Nothing else covers that path.
+
+## Logging and errors
+
+### Logging
+
+Every log call must pass `extra={"stage": "..."}` — usually a local `stage` dict or `self._log_extra` — or
+the record fails to format against the root formatter `"%(levelname)s: %(stage)s - %(msg)s"` (set in
+`PocketMapper.__init__`). Every call currently does; nothing enforces it.
+
+### Errors
+
+`logging.critical(...)` then `raise PocketMapperError(...)` (from `pocketmapper.exceptions`); `main()`
+catches it and exits 1. Raising rather than exiting is what makes the package embeddable — preserve it when
+adding error paths.
+
+**No `exit()`/`sys.exit()` inside modules** — deliberately removed, which no code comment can show. The one
+survivor is the CLI affordance `_check_help_search`, so `PocketMapper().search(help=True)` will kill a host
+process — library callers must not pass it.
+
+## Settings
+
+A new option goes in **five hand-maintained places**: the `Settings` dataclass, the `cli_overrides` dict in
+`_configure_workflow`, the `search()` signature, `HELP_MESSAGE` (`constants.py`) and the README's Options
+list. Neither of the last two is generated from the dataclass. Miss one and the option is silently ignored.
+
+Resolution order and the tri-state `foldseek` / `align_struct_method` settings are documented where they are
+resolved — the `Settings` docstring and the `# 4b.` / `# 4c.` comments in `_configure_workflow`, which give
+the reasons those call sites are load-bearing. Keep new resolution logic there.
+
+## Repo layout
 
 - `pocketmapper.py` — `Settings`, `search()` and every pipeline step; the only module that knows `Settings`.
-- `pocket_comparison.py` — step 6 in full, plus `parse_pocket_transform`, which step 7 uses to read
-  `_superpose`'s output back.
 - `lib.py` — generic stateless helpers only. `constants.py` — imports nothing, which is why the shared
   tables and `SINGLE_AA_CODE` live there. `lib_struct.py` — the pocket dict.
-- Components (`qt_processor`, `structure_fetcher`, `structure_preprocessor`, `pisa_downloader`,
-  `pisa_parser`, `sequence_aligner`, `structure_aligner`, `pocket_calculator`) are separately usable and
-  take explicit values, never a `Settings`.
 - `PocketCalculator.atp_pocket_overlap` is uncalled but retained for planned ATP-pocket work — don't prune.
 - There are no unit tests. `tests/e2e/` is the whole suite; the `pocketmapper-e2e` skill covers running it.
 - `build/` and `dist/` are stale checked-in artifacts of an older version. Ignore them; never edit
   `build/lib/pocketmapper/`.
+
+### Components
+
+- `StructureFetcher` and `StructurePreprocessor` follow `set_output_directory()` → `update_cache()` →
+  `fetch_*`/`preprocess_records()`. The ordering is required and stated nowhere in the code.
+- **That cache never hits.** `update_cache()` stores `os.listdir` basenames, but `fetch_alphafold`,
+  `fetch_mmcif` and `preprocess_records` test a full output path for membership in it, so every structure is
+  refetched and re-split on every run. Fix the comparison rather than documenting around it if this becomes
+  the bottleneck.
+- **Structure parsing is gemmi throughout** (`.cif.gz` on disk). Biopython is used only for pairwise
+  alignment (`sequence_aligner.py`) and SVD superposition (`pocket_comparison.py`).
+
+## As a library
+
+fire wraps `PocketMapper` only at the `main()` boundary, so nothing here needs a terminal. Two levels of
+entry: `PocketMapper().search(...)` does the same work as the CLI, or drive a component directly —
+`qt_processor`, `structure_fetcher`, `structure_preprocessor`, `pisa_downloader`, `pisa_parser`,
+`sequence_aligner`, `structure_aligner`, `pocket_calculator` are each separately usable.
+
+- **A component reaching into a `Settings` can't be used without building one, and hides which fields it
+  depends on** — so no component takes one. The `Settings` is unpacked at each call site in
+  `pocketmapper.py` into the values that component needs.
+- **`pocketmapper/__init__.py` only exports `main` and `__version__`.** Submodules are reachable as
+  `pocketmapper.lib` etc. only as a side effect of `pocketmapper.pocketmapper` importing them — always use
+  explicit `from pocketmapper.<module> import <name>`.
+- **Always call `Settings(...).resolve_paths()`** if you build one yourself, or an unset derived path gives
+  an opaque `TypeError: expected str, bytes or os.PathLike object, not NoneType` from deep inside
+  `os.path.join`. `search()` does this for you.
+- **`search()` has global side effects**: `logging.config.dictConfig` reconfigures the *root* logger and
+  stomps on a host app's logging setup, and `_delete_tmp` `shutil.rmtree`s
+  `query_dir`/`target_dir`/`foldseek_tmp_dir` at the end (marked `# TODO this is unsafe`).
+- Results come back through files — `search()` returns `None`, so read `pocket_comparison.tsv` /
+  `alignment.tsv` from `results_dir` (paths available on `Settings`).
