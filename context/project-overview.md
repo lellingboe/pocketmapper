@@ -110,13 +110,38 @@ Resolution order and the tri-state `foldseek` / `align_struct_method` settings a
 resolved — the `Settings` docstring and the `# 4b.` / `# 4c.` comments in `_configure_workflow`, which give
 the reasons those call sites are load-bearing. Keep new resolution logic there.
 
+## Python versions
+
+Supported: **3.10 – 3.14**, verified by running the full e2e suite on each end. Four hand-maintained
+places have to agree: `requires-python` in `pyproject.toml`, the `Programming Language :: Python` classifiers
+beside it, `[tool.black] target-version`, and the README's Installation line. The `compat` CI job pins the
+range in one more place, as a matrix.
+
+- **The floor is 3.10 and going lower buys nothing.** Three `match` statements (`qt_processor.py` x2,
+  `structure_fetcher.py`) and the PEP 604 `str | None` field annotations on `Pocket`, `PocketResidue`,
+  `QTRecord` and `Settings` all require it. No module carries `from __future__ import annotations`, so those
+  annotations are evaluated at import rather than deferred. Rewriting all of that for 3.9 would still fail:
+  biopython requires >=3.10.
+- **`compat` is what guards the floor, not `lint`.** flake8 parses with whatever interpreter runs it, so lint
+  at 3.12 cannot see a 3.12-only construct. `compileall` at 3.10 is what catches syntax; the import step is
+  what catches the annotation and `importlib.resources` failures that compileall cannot.
+- **3.10 is the only version pip resolves to pandas 2.x** — 3.11 and up get pandas 3.x. That is why the e2e
+  matrix covers 3.10 and 3.14 rather than the middle. Both produce identical comparison row counts across
+  every non-`huge` case.
+- The bundled Foldseek DB is resolved through `files("pocketmapper")`, not through the data directory, for
+  the reason given at that call site in `qt_processor`.
+
 ## Repo layout
 
 Each module's own docstring states its remit. Not stated anywhere in the code:
 
 - There are no unit tests. `tests/e2e/` is the whole suite; the `pocketmapper-e2e` skill covers running it.
-- `build/` and `dist/` are stale checked-in artifacts of an older version. Ignore them; never edit
-  `build/lib/pocketmapper/`.
+- `build/` and `dist/` are stale artifacts of an older version. Both are gitignored and untracked, so a
+  fresh clone and CI never see them — but setuptools reuses `build/lib/` in place rather than clearing it,
+  so on a machine that has one, `pip install .` silently ships whatever dead modules it still holds
+  (`align.py`, `local_aligner.py`, `pisa.py`) on top of the current sources. `pisa.py` still carries the
+  3.12-only f-string that `pisa_downloader.py` no longer does, so an import-everything check passes in CI
+  and fails locally. Delete `build/` before building or testing a wheel; never edit `build/lib/pocketmapper/`.
 - **Structure parsing is gemmi throughout** (`.cif.gz` on disk). Biopython is used only for pairwise
   alignment (`sequence_aligner.py`) and SVD superposition (`pocket_comparison.py`).
 - `StructureFetcher` and `StructurePreprocessor` share a required call order that nothing enforces; both

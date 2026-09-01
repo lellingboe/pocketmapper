@@ -5,7 +5,7 @@ PocketMapper fetches protein structures from the PDB, fetches contact residues f
 It is intended for comparative analysis of binding pockets between query and target protein chains.
 
 ## Installation
-PocketMapper has been tested with Python 3.12 and is available on [PyPI](https://pypi.org/project/pocketmapper/). [Foldseek](https://github.com/steineggerlab/foldseek) is an optional external binary, but installing it is recommended: PocketMapper uses it by default when it is on `PATH`, and falls back to the built-in BLOSUM62 sequence aligner (with a warning) when it is not. Foldseek is required to search a bundled Foldseek database. Structural superposition works either way: with Foldseek it can use the whole-chain fit, and the local aligner superposes on the pocket instead (see `--align_struct_method`).
+PocketMapper supports Python 3.10 to 3.14 and is available on [PyPI](https://pypi.org/project/pocketmapper/). [Foldseek](https://github.com/steineggerlab/foldseek) is an optional external binary, but installing it is recommended: PocketMapper uses it by default when it is on `PATH`, and falls back to the built-in BLOSUM62 sequence aligner (with a warning) when it is not. Foldseek is required to search a bundled Foldseek database. Structural superposition works either way: with Foldseek it can use the whole-chain fit, and the local aligner superposes on the pocket instead (see `--align_struct_method`).
 ```
 # Setup conda environment for pocketmapper
 conda create --name=pocketmapper python=3.12

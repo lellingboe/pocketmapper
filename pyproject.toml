@@ -2,14 +2,14 @@
 name = "pocketmapper"
 version = "0.0.7-rc0"
 dependencies = [
-    "bio",
-    "fire",
-    "numpy",
-    "pandas",
-    "tqdm",
-    "gemmi",
+    "biopython>=1.80",
+    "fire>=0.5",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "tqdm>=4.64",
+    "gemmi>=0.6.4",
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 authors = [
   {name="Lachlan Ellingboe", email="Lachlan.Ellingboe@icr.ac.uk"},
 ]
@@ -21,7 +21,11 @@ classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Operating System :: OS Independent",
 ]
 
@@ -53,7 +57,7 @@ pocketmapper = [
 ]
 
 [tool.black]
-target-version = ['py312']
+target-version = ['py310']
 skip-string-normalization = false
 line-length = 120
 exclude = '''
