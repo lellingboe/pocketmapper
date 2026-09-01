@@ -23,6 +23,11 @@ import json
 from pocketmapper.constants import DEFAULT_CHAIN
 from pocketmapper.exceptions import PocketMapperError
 
+# The bundled human-domains Foldseek DB, named here and nowhere else -- bump it on a DB refresh.
+# The DB ships an `offset_table.tsv` beside it, keyed by these same entry names; nothing reads it yet,
+# so it has to be refreshed with the DB or it will not match whatever eventually does.
+BUNDLED_HUMAN_DOMAINS_DB = "human_v3_20260901"
+
 
 @dataclass
 class QTRecord:
@@ -97,7 +102,7 @@ class QTProcessor:
         # package, which importlib.resources only learned to handle in 3.12. Going through the parent
         # regular package works on every supported version.
         self._bundled_foldseek_dbs = {
-            "human_domains": str(files("pocketmapper").joinpath("human_domains", "human_v3_20260531")),
+            "human_domains": str(files("pocketmapper").joinpath("human_domains", BUNDLED_HUMAN_DOMAINS_DB)),
             "pdb": os.path.join(fsdb_dir, "pdb"),
         }
 
