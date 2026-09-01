@@ -1,10 +1,9 @@
 """
-Construction of the pocket dict, the one shape every pocket method returns.
+Construction of a Pocket from a structure's chain.
 
-`parse_pocket_from_struct` both produces and extends that dict, so a pocket built by any of the
-pisa, passthrough, vdw or whole_chain methods is interchangeable downstream. The dict holds the
-top-level keys `res_auth_ids`, `ca_sequence`, `pocket_exists`, `has_coords` and `whole_chain`,
-plus one entry per residue keyed by the author seqid as a **string**.
+`parse_pocket_from_struct` both produces and extends one, so a pocket built by any of the pisa,
+passthrough, vdw or whole_chain methods is interchangeable downstream. The shape itself -- which
+fields exist, which are optional and why -- is declared in `pocket.py`.
 """
 
 import gemmi
@@ -12,11 +11,12 @@ import logging
 import os
 
 from pocketmapper.constants import SINGLE_AA_CODE
+from pocketmapper.pocket import Pocket, PocketResidue
 
 
 def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
     """
-    Build or extend a pocket dict from a structure's chain.
+    Build or extend a Pocket from a structure's chain.
 
     Walks the chain once, recording `seq_pos` -- the residue's index among the CA-bearing residues of
     that chain -- for every pocket residue. That index is what maps a pocket into the alignment, so a
@@ -27,11 +27,12 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
         chain_id (str): The chain to extract.
         pocket_residues (list | None): Author seqids in the pocket, or None for an open search, where
             every CA-bearing residue of the chain becomes the pocket. Which of the two it was is
-            recorded on the returned dict as `whole_chain`.
-        pocket (dict | None): An existing pocket dict to extend; a new one is built when None.
+            recorded on the returned Pocket as `whole_chain`.
+        pocket (Pocket | None): An existing Pocket to extend; a new one is built when None. This is
+            how a PISA pocket, which starts with residue codes but no coordinates, acquires them.
 
     Returns:
-        dict: The pocket dict, or None if the file is missing or the chain is not in the structure.
+        Pocket: The pocket, or None if the file is missing or the chain is not in the structure.
     """
     stage = {"stage": "Parsing Pocket from Structure"}
 
@@ -59,12 +60,8 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
     if whole_chain:
         pocket_residues = []
     if pocket is None:
-        pocket = {
-            "res_auth_ids": [] if whole_chain else [str(x) for x in pocket_residues],
-            "pocket_exists": False,
-            "has_coords": False,
-        }
-    pocket["whole_chain"] = whole_chain
+        pocket = Pocket(res_auth_ids=[] if whole_chain else [str(x) for x in pocket_residues])
+    pocket.whole_chain = whole_chain
     ca_sequence = []
     for res in chain:
         res_id = res.seqid.num
@@ -75,33 +72,30 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
                     f"{st.name}:{chain_id}:{res_id} ({res.name}) does not have CA coords and will be excluded from the comparison",
                     extra=stage,
                 )
-                if str(res_id) in pocket:
-                    pocket[str(res_id)][
-                        "seq_pos"
-                    ] = -1  # will be ignore in the later comparison since foldseek ignores it
+                if str(res_id) in pocket.residues:
+                    # -1 falls outside every aligned region, so the residue is ignored in the later
+                    # comparison -- which matches Foldseek, which never saw it either.
+                    pocket.residues[str(res_id)].seq_pos = -1
             continue
         seq_pos += 1
         res_single_code = SINGLE_AA_CODE.get(res.name, "X")
         ca_sequence.append(res_single_code)
         if whole_chain:
-            pocket["res_auth_ids"].append(str(res_id))
+            pocket.res_auth_ids.append(str(res_id))
         elif res_id not in pocket_residues:  # Only recording residue info for pocket residues
             continue
 
-        if pocket.get(str(res_id)) is None:
-            pocket[str(res_id)] = {}
-        pocket[str(res_id)].update(
-            {
-                "res_code": res.name,
-                "res_code_single": res_single_code,
-                "seq_pos": seq_pos,  # We don't have the info to map this to a seq pos, but we can still use it in the comparison based on res_id
-                "ca_coords": list(ca_atom.pos),
-            }
-        )
+        # setdefault rather than assignment: on the pisa path the residue already exists and carries
+        # res_code/uniprot_pos from the interface, which must survive being given coordinates.
+        residue = pocket.residues.setdefault(str(res_id), PocketResidue())
+        residue.res_code = res.name
+        residue.res_code_single = res_single_code
+        residue.seq_pos = seq_pos
+        residue.ca_coords = list(ca_atom.pos)
 
-        pocket["pocket_exists"] = (
+        pocket.pocket_exists = (
             True  # If at least one pocket residue has CA coords, we can include this pocket in the comparison
         )
-        pocket["has_coords"] = True
-    pocket["ca_sequence"] = "".join(ca_sequence)
+        pocket.has_coords = True
+    pocket.ca_sequence = "".join(ca_sequence)
     return pocket

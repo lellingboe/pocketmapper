@@ -13,6 +13,7 @@ from itertools import product
 from numpy.linalg import norm
 
 from pocketmapper.constants import SINGLE_AA_CODE
+from pocketmapper.pocket import Pocket, PocketResidue
 
 
 class PocketCalculator:
@@ -36,8 +37,8 @@ class PocketCalculator:
             motif_chain (str): Chain it is in contact with.
 
         Returns:
-            dict: A pocket dict with `res_auth_ids`, `ca_sequence`, `pocket_exists`, `has_coords` and one
-                entry per contacting residue. None if the structure file does not exist.
+            Pocket: One residue per contacting residue of the domain chain. None if the structure file
+                does not exist.
         """
         stage = {"stage": "VdW pocket calculation"}
 
@@ -54,7 +55,7 @@ class PocketCalculator:
         domain_residues = structure[0][domain_chain].get_polymer()
         motif_residues = structure[0][motif_chain].get_polymer()
 
-        pocket_data = {}
+        pocket = Pocket()
         ca_num = 0
         ca_sequence = []
         for res1 in domain_residues:
@@ -77,26 +78,25 @@ class PocketCalculator:
 
                 # If contacts, add to pocket data
                 if contacts > 0:
-                    res_data = {
-                        "res_code": res1.name,
-                        "res_code_single": res_single_code,
-                        "uniprot_pos": -1,
-                        "seq_pos": ca_num,
-                        "ca_coords": list(res1.get_ca().pos),
-                    }
-                    pocket_data[str(res1.seqid.num)] = res_data
+                    pocket.residues[str(res1.seqid.num)] = PocketResidue(
+                        res_code=res1.name,
+                        res_code_single=res_single_code,
+                        uniprot_pos=-1,
+                        seq_pos=ca_num,
+                        ca_coords=list(res1.get_ca().pos),
+                    )
 
             # Counts CA-bearing domain residues, so it must advance once per res1 (in step with
             # ca_sequence above), not once per res1/res2 pair. Downstream, seq_pos is the residue's
             # index within this chain's CA sequence, which is what maps it into the alignment.
             ca_num += 1
 
-        pocket_data["res_auth_ids"] = [str(x) for x in pocket_data.keys()]
-        pocket_data["id_pos_codes_match"] = True
-        pocket_data["pocket_exists"] = True
-        pocket_data["has_coords"] = True
-        pocket_data["ca_sequence"] = "".join(ca_sequence)
-        return pocket_data
+        # Residues are added in chain order, which is the order the comparison relies on.
+        pocket.res_auth_ids = list(pocket.residues)
+        pocket.pocket_exists = True
+        pocket.has_coords = True
+        pocket.ca_sequence = "".join(ca_sequence)
+        return pocket
 
     def atp_pocket_overlap(self, struct_path, atp_chain_id, name):
         """
@@ -114,7 +114,7 @@ class PocketCalculator:
             name (str): Key the pocket is returned under.
 
         Returns:
-            dict: {name: pocket dict}.
+            dict: {name: Pocket}.
 
         Raises:
             ValueError: If the chain contains no ATP residue.
@@ -132,11 +132,13 @@ class PocketCalculator:
             raise ValueError("No ATP residue found in the specified chain.")
 
         ca_num = 0
-        pocket_data = {}
+        pocket = Pocket()
+        ca_sequence = []
         for residue in chain.get_polymer():
             # Foldseek skips residues with no CA atom
             if "CA" not in residue:
                 continue
+            ca_sequence.append(SINGLE_AA_CODE.get(residue.name, "X"))
 
             # Count contacts between residue and ATP
             contacts = 0
@@ -150,18 +152,20 @@ class PocketCalculator:
 
             # If contacts, add to pocket data
             if contacts > 0:
-                res_data = {
-                    "res_code": residue.name,
-                    "res_code_single": SINGLE_AA_CODE.get(residue.name, "X"),
-                    "uniprot_pos": -1,
-                    "seq_pos": ca_num,
-                    "ca_coords": list(residue.get_ca().pos),
-                }
-                pocket_data[str(residue.seqid.num)] = res_data
+                pocket.residues[str(residue.seqid.num)] = PocketResidue(
+                    res_code=residue.name,
+                    res_code_single=SINGLE_AA_CODE.get(residue.name, "X"),
+                    uniprot_pos=-1,
+                    seq_pos=ca_num,
+                    ca_coords=list(residue.get_ca().pos),
+                )
             ca_num += 1
 
-        pocket_data["res_auth_ids"] = [str(x) for x in pocket_data.keys()]
-        pocket_data["id_pos_codes_match"] = True
-        pocket_data["pocket_exists"] = True
-        pocket_data["has_coords"] = True
-        return {name: pocket_data}
+        pocket.res_auth_ids = list(pocket.residues)
+        pocket.pocket_exists = True
+        pocket.has_coords = True
+        # This method predates the declared shape and used to omit ca_sequence entirely, which would
+        # have raised in _seq_identity the moment it was wired into search(). Declaring the field made
+        # the gap visible; it is filled in here rather than left to break later.
+        pocket.ca_sequence = "".join(ca_sequence)
+        return {name: pocket}

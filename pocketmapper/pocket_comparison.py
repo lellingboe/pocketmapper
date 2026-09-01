@@ -2,7 +2,7 @@
 Pocket comparison: map two pockets onto a shared alignment and score their overlap.
 
 This is step 6 of the pipeline -- it consumes the alignment table written by the Foldseek or
-BLOSUM62 aligner together with the pocket dicts produced by the pocket methods, and returns the
+BLOSUM62 aligner together with the Pockets produced by the pocket methods, and returns the
 rows that become pocket_comparison.tsv.
 
 The alignment table's column order is a positional contract, declared once as
@@ -11,9 +11,10 @@ Foldseek's --format-output, SequenceAligner.align_records pins its DataFrame to 
 each row is unpacked here into an AlignmentRow. Reorder the constant and all three move together;
 edit any producer in isolation and the comparison breaks silently.
 
-Nothing here mutates the pocket dicts it is given. Each side's projection onto the alignment is
-returned as a _MappedPocket instead of being written back into the pocket, which is what lets the
-same pocket be read straight out of pocket_dict on every alignment row rather than deep-copied.
+Nothing here mutates the Pockets it is given -- the invariant is stated on the class itself. Each
+side's projection onto the alignment is returned as a _MappedPocket instead of being written back
+into the pocket, which is what lets the same Pocket be read straight out of pocket_dict on every
+alignment row rather than deep-copied.
 """
 
 import json
@@ -30,6 +31,7 @@ from tqdm import tqdm
 
 from pocketmapper.constants import ALIGNMENT_COLUMNS
 from pocketmapper.lib import binary_similarity, full_similarity, read_blast_similarity_matrix
+from pocketmapper.pocket import Pocket, PocketResidue
 
 # One alignment row, unpacked positionally. Built with AlignmentRow(*values), so it depends on the
 # column order exactly as the old row[12]-style indexing did -- it just says which column it means.
@@ -132,7 +134,7 @@ def _map_pocket_into_alignment(pocket, aln_seq, aln_positions, start, end):
     Reads `pocket` only -- the projection is returned rather than written back into it.
 
     Args:
-        pocket (dict): The pocket to project.
+        pocket (Pocket): The pocket to project.
         aln_seq (str): This side's gapped alignment string.
         aln_positions (list): As returned by `_aln_positions` for `aln_seq`.
         start (int): 1-based first aligned residue on this side.
@@ -147,9 +149,9 @@ def _map_pocket_into_alignment(pocket, aln_seq, aln_positions, start, end):
     positions = []
     pos_by_res = []
     code_mismatches = []
-    for res in pocket["res_auth_ids"]:
-        entry = pocket[res]
-        adj_pos = int(entry["seq_pos"]) + adj
+    for res in pocket.res_auth_ids:
+        entry = pocket.residues[res]
+        adj_pos = int(entry.seq_pos) + adj
         if not -1 < adj_pos < aligned_len:
             continue
         aln_pos = aln_positions[adj_pos]
@@ -157,8 +159,8 @@ def _map_pocket_into_alignment(pocket, aln_seq, aln_positions, start, end):
         pos_by_res.append((res, aln_pos))
 
         aln_res_code = aln_seq[aln_pos]
-        if "res_code_single" in entry and aln_res_code != entry["res_code_single"]:
-            code_mismatches.append((aln_res_code, entry["res_code"], res))
+        if entry.res_code_single is not None and aln_res_code != entry.res_code_single:
+            code_mismatches.append((aln_res_code, entry.res_code, res))
 
     return _MappedPocket(
         positions=positions,
@@ -198,18 +200,18 @@ def _synthesise_target_pocket(aln):
         aln (AlignmentRow): The row to build the pseudo-pocket from; reads `tend` and `tseq`.
 
     Returns:
-        dict: A pocket dict with `whole_chain` set and `has_coords` false.
+        Pocket: `whole_chain` set, `has_coords` false, and residues carrying `seq_pos` alone.
     """
-    pocket = {
-        "res_auth_ids": [str(k) for k in range(aln.tend)],
-        "id_pos_codes_match": True,
-        "pocket_exists": True,
-        "has_coords": False,
-        "whole_chain": True,
-        "ca_sequence": aln.tseq,
-    }
-    pocket.update({str(k): {"seq_pos": k} for k in range(aln.tend)})
-    return pocket
+    return Pocket(
+        res_auth_ids=[str(k) for k in range(aln.tend)],
+        # seq_pos only -- no codes and no coordinates. That absence is load-bearing: it is what
+        # suppresses the code-mismatch check and the RMSD block downstream.
+        residues={str(k): PocketResidue(seq_pos=k) for k in range(aln.tend)},
+        pocket_exists=True,
+        has_coords=False,
+        whole_chain=True,
+        ca_sequence=aln.tseq,
+    )
 
 
 def _describe_pocket(pocket_id, pocket, cache):
@@ -221,7 +223,7 @@ def _describe_pocket(pocket_id, pocket, cache):
 
     Args:
         pocket_id (str): Cache key.
-        pocket (dict): The pocket to describe.
+        pocket (Pocket): The pocket to describe.
         cache (dict): Memo shared across the whole call.
 
     Returns:
@@ -229,11 +231,11 @@ def _describe_pocket(pocket_id, pocket, cache):
     """
     described = cache.get(pocket_id)
     if described is None:
-        res_ids = pocket["res_auth_ids"]
+        res_ids = pocket.res_auth_ids
         described = (
             ",".join(res_ids),
             len(res_ids),
-            "".join([pocket[res]["res_code_single"] for res in res_ids]),
+            "".join([pocket.residues[res].res_code_single for res in res_ids]),
         )
         cache[pocket_id] = described
     return described
@@ -248,7 +250,7 @@ def _seq_identity(pocket_id, pocket, domain, aln_seq, cache):
 
     Args:
         pocket_id (str): Half the cache key.
-        pocket (dict): The pocket, read for `ca_sequence`.
+        pocket (Pocket): The pocket, read for `ca_sequence`.
         domain (str): The chain's `preprocess_name`; the other half of the cache key.
         aln_seq (str): The ungapped sequence the aligner reported for that chain.
         cache (dict): Memo shared across the whole call.
@@ -259,7 +261,7 @@ def _seq_identity(pocket_id, pocket, domain, aln_seq, cache):
     key = (pocket_id, domain)
     identity = cache.get(key)
     if identity is None:
-        ca_sequence = pocket["ca_sequence"]
+        ca_sequence = pocket.ca_sequence
         identity = sum(map(str.__eq__, aln_seq, ca_sequence)) / len(ca_sequence)
         cache[key] = identity
     return identity
@@ -270,7 +272,7 @@ def _overlap_ids(pocket, mapped, overlap_positions):
     The pocket's author seqids that landed on an overlapping alignment position, in pocket order.
 
     Args:
-        pocket (dict): The pocket, read for `res_auth_ids`.
+        pocket (Pocket): The pocket, read for `res_auth_ids`.
         mapped (_MappedPocket): Its projection onto this row.
         overlap_positions (set): Alignment positions shared by both pockets.
 
@@ -278,7 +280,7 @@ def _overlap_ids(pocket, mapped, overlap_positions):
         list: Author seqids, ordered to match the other side's list position for position.
     """
     pos_by_res = mapped.pos_by_res
-    return [res for res in pocket["res_auth_ids"] if pos_by_res.get(res, -1) in overlap_positions]
+    return [res for res in pocket.res_auth_ids if pos_by_res.get(res, -1) in overlap_positions]
 
 
 def _superpose(p1, p2, p1_overlap_ids, p2_overlap_ids, overlap_count, sup):
@@ -286,8 +288,8 @@ def _superpose(p1, p2, p1_overlap_ids, p2_overlap_ids, overlap_count, sup):
     Superpose the two pockets on their overlapping residues.
 
     Args:
-        p1 (dict): Query pocket, read for `has_coords` and CA coordinates.
-        p2 (dict): Target pocket.
+        p1 (Pocket): Query pocket, read for `has_coords` and CA coordinates.
+        p2 (Pocket): Target pocket.
         p1_overlap_ids (list): Query author seqids in overlap order.
         p2_overlap_ids (list): Target author seqids in the same order.
         overlap_count (int): How many residues overlap.
@@ -297,11 +299,11 @@ def _superpose(p1, p2, p1_overlap_ids, p2_overlap_ids, overlap_count, sup):
         dict: The transforms both ways, the RMSD and the per-residue CA distances. Empty when either
             side has no coordinates or there are fewer than three points to fit a rotation.
     """
-    if not p1["has_coords"] or not p2["has_coords"] or overlap_count < 3:
+    if not p1.has_coords or not p2.has_coords or overlap_count < 3:
         return {}
 
-    x = array([p1[res]["ca_coords"] for res in p1_overlap_ids])
-    y = array([p2[res]["ca_coords"] for res in p2_overlap_ids])
+    x = array([p1.residues[res].ca_coords for res in p1_overlap_ids])
+    y = array([p2.residues[res].ca_coords for res in p2_overlap_ids])
 
     sup.set(x, y)
     sup.run()
@@ -393,10 +395,10 @@ def _compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_ma
     Args:
         aln (AlignmentRow): The row bridging the two pockets.
         pocket_id_1 (str): Query pocket id.
-        p1 (dict): Query pocket.
+        p1 (Pocket): Query pocket.
         p1_mapped (_MappedPocket): Its projection onto this row.
         pocket_id_2 (str): Target pocket id.
-        p2 (dict): Target pocket.
+        p2 (Pocket): Target pocket.
         p2_mapped (_MappedPocket): Its projection onto this row.
         ctx (_Context): Scoring state shared across the call.
 
@@ -421,7 +423,7 @@ def _compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_ma
     # An open search -- a whole chain rather than a pocket on it -- has no pocket 2 to describe, and
     # the chain's length would swamp both these columns and the union the Jaccard index normalises
     # by. That is flagged on the pocket itself, so one run can mix open and pocketed targets.
-    p2_is_whole_chain = p2.get("whole_chain")
+    p2_is_whole_chain = p2.whole_chain
     if not p2_is_whole_chain:
         (
             output["pocket_2_res_ids"],
@@ -444,7 +446,7 @@ def _compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_ma
     output["pocket_2_overlap_ids"] = ",".join(p2_overlap_ids)
 
     if not p2_is_whole_chain:
-        union_size = len(p1["res_auth_ids"]) + len(p2["res_auth_ids"]) - len(overlap_positions)
+        union_size = len(p1.res_auth_ids) + len(p2.res_auth_ids) - len(overlap_positions)
         output["jaccard_index"] = len(overlap_positions) / union_size
 
     output.update(_score_overlap(aln, overlap_positions, ctx.similarity_matrix))
@@ -467,11 +469,11 @@ def _resolve_pockets(domain, pocket_dict, preproc_to_ids):
 
     Args:
         domain (str): The chain's `preprocess_name`.
-        pocket_dict (dict): pocket_id -> pocket, for every pocket in the run.
+        pocket_dict (dict): pocket_id -> Pocket, for every pocket in the run.
         preproc_to_ids (dict): preprocess_name -> the pocket_ids on that chain.
 
     Returns:
-        dict: pocket_id -> pocket, for this chain only.
+        dict: pocket_id -> Pocket, for this chain only.
     """
     return {
         pocket_id: pocket_dict[pocket_id] for pocket_id in preproc_to_ids.get(domain) or [] if pocket_id in pocket_dict
@@ -493,7 +495,7 @@ def compare_pockets(
 
     Args:
         alignment_df (pandas.DataFrame): The alignment table, columns in `ALIGNMENT_COLUMNS` order.
-        pocket_dict (dict): pocket_id -> pocket dict.
+        pocket_dict (dict): pocket_id -> Pocket.
         preproc_to_ids (dict): preprocess_name -> the pocket_ids sitting on that chain.
         blosum_path (str): Path to a BLAST-format similarity matrix. The packaged one is
             os.path.join(os.path.dirname(pocketmapper.__file__), "blosum62.bla").
@@ -552,14 +554,14 @@ def compare_pockets(
 
                 p1 = pockets_1[pocket_id_1]
                 p2 = pockets_2[pocket_id_2]
-                if not p1["pocket_exists"] or not p2["pocket_exists"]:
+                if not p1.pocket_exists or not p2.pocket_exists:
                     continue
 
                 p1_identity = _seq_identity(pocket_id_1, p1, aln.query, aln.qseq, ctx.identities)
                 if p1_identity < MIN_SEQ_IDENTITY:
                     incorrect_mapping[pocket_id_1] = {
                         "p1_seq_identity": p1_identity,
-                        "p1_seq": p1["ca_sequence"],
+                        "p1_seq": p1.ca_sequence,
                         "fs_seq": aln.qseq,
                     }
 
@@ -567,7 +569,7 @@ def compare_pockets(
                 if p2_identity < MIN_SEQ_IDENTITY:
                     incorrect_mapping[pocket_id_2] = {
                         "p2_seq_identity": p2_identity,
-                        "p2_seq": p2["ca_sequence"],
+                        "p2_seq": p2.ca_sequence,
                         "fs_seq": aln.tseq,
                     }
 

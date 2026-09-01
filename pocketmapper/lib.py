@@ -1,7 +1,7 @@
 """
 Generic, stateless helpers shared across PocketMapper.
 
-Nothing here knows about the pipeline, Settings, or the pocket dict shape -- each function takes
+Nothing here knows about the pipeline, Settings, or the Pocket shape -- each function takes
 plain values and returns plain values. Workflow logic belongs in the component modules
 (pocket_comparison, sequence_aligner, ...) rather than here.
 """
