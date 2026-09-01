@@ -2,7 +2,7 @@
 
 ## Goal
 
-## Implementation Ideas
+## Specification/Implementation
 
 ## Unknowns
 

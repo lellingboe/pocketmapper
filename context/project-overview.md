@@ -1,7 +1,5 @@
 # Project overview
-
-Cross-module and derived facts only. Anything a single docstring or comment already states appears
-here as a pointer to that site, never as a second copy.
+Project implementation specifics. Cross-module and derived facts only. Anything a single docstring or comment already states appears here as a pointer to that site, never as a second copy.
 
 ## Pipeline
 
