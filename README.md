@@ -106,7 +106,7 @@ pocketmapper search --query queries.txt --target targets.txt --settings config.j
 ### Outputs
 - alignment.tsv: Alignment report (Foldseek or local aligner)
 - pocket_comparison.tsv: Final pocket comparison table
-- pisa_pockets.json / passthrough_pockets.json / vdw_pockets.json / whole_chain_pockets.json and cached PISA API responses under the cache pocket directory
+- pisa_pockets.json / passthrough_pockets.json / vdw_pockets.json / whole_chain_pockets.json and cached PISA API responses under the cache pocket directory. The pocket files are written for inspection only and never read back; each pocket is an object of metadata fields plus a `residues` map keyed by author residue number
 - unknown_ids.json (if unknown Foldseek aliases are encountered e.g., MSE -> M)
 - Divided mmCIF files and temporary directories under results_dir
 
