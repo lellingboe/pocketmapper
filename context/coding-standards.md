@@ -15,7 +15,7 @@ or comment at the code site already says appears as a pointer to that site, neve
   dataclass and `NamedTuple` fields only, in `str | None` form (`Settings`, `QTRecord`).
 - **`os.path`, never `pathlib`; f-strings, never `%` or `.format()`** — inside log calls too.
   Currently no exceptions to either.
-- **Reuse before adding.** `lib.py` already holds the generic helpers, `pocket_parser.py` the
-  pocket-dict construction.
+- **Reuse before adding.** `lib.py` already holds the generic helpers, `pocket.py` the declared
+  pocket shape and `pocket_parser.py` the construction of one from a structure.
 - **Formatting is not a standard here.** black and flake8 run on pre-commit; their settings live in
   `pyproject.toml` and `.flake8`.

@@ -19,10 +19,15 @@ One consequence neither states: a local-file entry like `4Q5J.cif.gz:B_F` resolv
 `B_F` matches the vdw regex and PISA is PDB-only. That is how the mixed-input e2e fixtures reach the vdw
 code.
 
-### Pocket dict shape
+### Pocket shape
 
-Every pocket method returns the same nested dict — see the `pocket_parser.py` module docstring for the
-shape and `parse_pocket_from_struct` for how `seq_pos` and `whole_chain` are derived.
+Every pocket method returns a `pocket.Pocket` — the dataclass declares which fields exist, which are
+optional and why, and `pocket_parser.parse_pocket_from_struct` shows how `seq_pos` and `whole_chain`
+are derived. Residues live under `residues`, keyed by author seqid as a string.
+
+One thing the class states that no producer would: `res_auth_ids` is not `list(residues)`. It is the
+ordered residue list the comparison walks, and on the PISA path it is seeded from the interface while
+`residues` is filled in chain order.
 
 ### Open searches
 
@@ -65,17 +70,17 @@ so the wait is legible. Add a cap here if that becomes untenable.
 Breaking one of these generally produces silently wrong output rather than an error. Each is documented at
 its code site; what follows is the map of where, plus the checks that live nowhere else.
 
-- **`seq_pos` is the value everything hinges on** — defined in `pocket_parser.parse_pocket_from_struct`,
-  used in `pocket_comparison._map_pocket_into_alignment`. A new pocket method computing it any other way
-  yields zero overlap with no error. Check it by comparing a pocket against itself:
-  `overlap_count == pocket_len`.
+- **`seq_pos` is the value everything hinges on** — declared on `pocket.PocketResidue`, set in
+  `pocket_parser.parse_pocket_from_struct`, used in `pocket_comparison._map_pocket_into_alignment`. A new
+  pocket method computing it any other way yields zero overlap with no error. Check it by comparing a
+  pocket against itself: `overlap_count == pocket_len`.
 - **`preprocess_name` is the alignment join key** — computed in `QTProcessor.parse_individual_qt`.
   Alignments are keyed by it, pockets by `pocket_id`, and `_compare_pockets_based_on_alignment` builds
   `preproc_to_ids` to bridge them.
 - **Two tables have declared schemas** — `constants.ALIGNMENT_COLUMNS` and
   `pocket_comparison.POCKET_COMPARISON_COLUMNS`. A new column goes into the constant, never into one
   producer alone; see the note above `ALIGNMENT_COLUMNS`.
-- **`compare_pockets` must not write to a pocket dict** — `pocket_comparison.py` module docstring.
+- **`compare_pockets` must not write to a `Pocket`** — stated on the `Pocket` class itself.
 - **Aligned structures are named by `lib.safe_filename(query_id)`, not by `pocket_id`** — so
   `aligned_structures/*.pdb` filenames aren't greppable for an input string. Match on the `MOLECULE`
   records inside instead.
