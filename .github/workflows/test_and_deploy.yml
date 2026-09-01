@@ -19,17 +19,83 @@ jobs:
         run: |
           black ./ --check -l 120
           flake8
-  # One end-to-end case per aligner, on each OS foldseek supports. Windows is
-  # absent because foldseek has no Windows build -- bioconda carries only
-  # linux-64, linux-aarch64, osx-64 and osx-arm64.
+  # Every supported interpreter, cheaply: install, byte-compile, import, and run
+  # the CLI's help. No network beyond PyPI and no foldseek, so this can cover the
+  # whole range without multiplying the e2e job's load on wwPDB and PDBe PISA.
+  #
+  # This is also the only guard on the floor. flake8 parses with whatever
+  # interpreter runs it, so `lint` at 3.12 would happily pass a 3.12-only
+  # construct (an f-string reusing its outer quote, say) that 3.10 cannot even
+  # compile. compileall at 3.10 is what catches that; the import step catches the
+  # separate class of failure compileall cannot see -- PEP 604 `str | None` field
+  # annotations and importlib.resources lookups are evaluated at import time.
+  compat:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        # Windows gets the import path only. foldseek has no Windows build, so
+        # e2e can never run there, but nothing in the package is POSIX-only and a
+        # broken import is worth catching.
+        include:
+          - os: windows-latest
+            python: "3.12"
+    name: compat (${{ matrix.os }}, py${{ matrix.python }})
+    defaults:
+      run:
+        # bash on Windows too: the import step below is a multi-line `python -c`
+        # string, which the Windows default shell (pwsh) quotes differently.
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+      - name: Byte-compile
+        run: python -m compileall -q pocketmapper
+      # Imported from the installed package, not the checkout, so this exercises
+      # what the wheel actually ships -- including the bundled Foldseek DB path,
+      # which qt_processor resolves with importlib.resources at construction time.
+      - name: Import every module
+        run: |
+          python -c "
+          import importlib, pkgutil, pocketmapper
+          for m in pkgutil.iter_modules(pocketmapper.__path__):
+              importlib.import_module('pocketmapper.' + m.name)
+              print('ok', m.name)
+          "
+      # The bare group help, deliberately: `search --help` goes through
+      # _check_help_search, which calls exit().
+      - name: CLI entry point
+        run: pocketmapper --help
+  # One end-to-end case per aligner, on each OS foldseek supports, plus the ends
+  # of the supported Python range. Windows is absent because foldseek has no
+  # Windows build -- bioconda carries only linux-64, linux-aarch64, osx-64 and
+  # osx-arm64.
+  #
+  # 3.10 and 3.14 are here and the middle versions are not because 3.10 is the
+  # only interpreter pip resolves to pandas 2.x (3.11 and up get pandas 3.x), and
+  # 3.14 is the newest wheel set. Those are the two ends where a dependency
+  # difference could change behaviour; the rest are covered by `compat`.
   e2e:
-    needs: lint
+    needs: [lint, compat]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - {os: ubuntu-latest, python: "3.12"}
+          - {os: macos-latest, python: "3.12"}
+          - {os: ubuntu-latest, python: "3.10"}
+          - {os: ubuntu-latest, python: "3.14"}
+    name: e2e (${{ matrix.os }}, py${{ matrix.python }})
     defaults:
       run:
         # Login shell, so the micromamba env is active and foldseek is on PATH.
@@ -53,7 +119,7 @@ jobs:
               - conda-forge
               - bioconda
           create-args: >-
-            python=3.12
+            python=${{ matrix.python }}
             foldseek
           init-shell: bash
       # Chained, not one per line: without -e (see `shell:` above) only the
@@ -67,6 +133,10 @@ jobs:
       # case. Fail here instead.
       - name: Verify foldseek
         run: foldseek version
+      # Keyed on the OS alone, not the Python version: the cache holds downloaded
+      # wwPDB structures and PISA responses, which are interpreter-independent, so
+      # the three ubuntu jobs sharing one entry is the point. Concurrent jobs
+      # saving the same key just warn and skip.
       - name: Cache PocketMapper downloads
         uses: actions/cache@v4
         with:
@@ -86,9 +156,11 @@ jobs:
             sleep 30
           done
           exit 1
+      # Named by OS and Python: three jobs share an OS, and artifact names must
+      # be unique within a run.
       - name: Upload e2e logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-logs-${{ matrix.os }}
+          name: e2e-logs-${{ matrix.os }}-py${{ matrix.python }}
           path: ${{ runner.temp }}/pm_e2e/*.log

@@ -20,7 +20,6 @@ import os
 import re
 import pandas as pd
 import json
-from pocketmapper import human_domains
 from pocketmapper.constants import DEFAULT_CHAIN
 from pocketmapper.exceptions import PocketMapperError
 
@@ -93,8 +92,12 @@ class QTProcessor:
         self.passthrough_regex = r"^[A-Za-z0-9]\:(\d+\,?)+$"  # pattern like "A:1,2,3"
         self.vdw_regex = r"^[A-Za-z0-9](_[A-Za-z0-9])?(\:(\d+\,?)*)?$"  # pattern like "A_B:1,2,3"
 
+        # Anchored on the `pocketmapper` package, not on `human_domains` itself: that directory holds
+        # only Foldseek DB files and has no __init__.py, so passing it to `files()` resolves a namespace
+        # package, which importlib.resources only learned to handle in 3.12. Going through the parent
+        # regular package works on every supported version.
         self._bundled_foldseek_dbs = {
-            "human_domains": str(files(human_domains).joinpath("human_v3_20260531")),
+            "human_domains": str(files("pocketmapper").joinpath("human_domains", "human_v3_20260531")),
             "pdb": os.path.join(fsdb_dir, "pdb"),
         }
 

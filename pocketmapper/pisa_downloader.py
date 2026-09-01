@@ -248,7 +248,7 @@ class PisaDownloader:
                         # Checking if interface is between two molecules
                         if len(interface["molecules"]) != 2:
                             logging.critical(
-                                f"More than one molecule in {pdb_code}, {interface["interface_id"]}", extra=self._stage
+                                f"More than one molecule in {pdb_code}, {interface['interface_id']}", extra=self._stage
                             )
                             continue
                         # Checking the chain meet the expected specifications
