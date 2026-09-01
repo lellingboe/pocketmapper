@@ -9,7 +9,8 @@ fire's help. `search()` is the whole workflow, top to bottom:
 2. `_configure_query_target` -> QTProcessor -> one DataFrame of QTRecords per side.
 3. `_fetch_missing_structures` (or `_fetch_missing_fsdb`) -> mmCIF into structure_dir.
 4. `_alignment` -> foldseek or the local aligner -> alignment.tsv.
-5. `_get_pockets` -> `_retrieve_{pisa,passthrough,vdw,whole_chain}_pockets`, merged into one dict.
+5. `_get_pockets` -> `_retrieve_{pisa,passthrough,vdw,whole_chain}_pockets`, merged into one
+   pocket_id -> Pocket dict. The Pocket shape itself is declared in `pocket.py`.
 6. `_compare_pockets_based_on_alignment` -> pocket_comparison.compare_pockets -> pocket_comparison.tsv.
 7. `_align_structs` -> superposes the top align_count targets per query into aligned_structures/.
 
@@ -832,17 +833,41 @@ class PocketMapper:
         )
         alignment.to_csv(self._settings.alignment_path, index=False, sep="\t")
 
+    def _dump_pockets(self, pockets, filename, indent=None):
+        """
+        Write a pocket collection to the pocket cache directory as JSON, for inspection only.
+
+        Nothing reads these files back -- pockets are recomputed every run -- so they are debug
+        artefacts rather than a cache. `asdict` gives the nested shape declared in `pocket.py`:
+        residues sit under a `residues` key rather than alongside the metadata.
+
+        A None survives into the file as `null` rather than raising here. Three of the four callers
+        store whatever their producer returned, including None for a missing structure or chain, and
+        the failure for those belongs where it already is -- in `compare_pockets`.
+
+        Args:
+            pockets (dict): pocket_id -> Pocket (or None).
+            filename (str): Basename to write under `pocket_dir`.
+            indent (int | None): Passed to json.dump. Defaults to None.
+
+        Returns:
+            None: Writes a file.
+        """
+        serialisable = {pid: asdict(pocket) if pocket is not None else None for pid, pocket in pockets.items()}
+        with open(os.path.join(self._settings.pocket_dir, filename), "w") as f:
+            json.dump(serialisable, f, indent=indent)
+
     def _get_pockets(self):
         """
         Build every pocket in the run, dispatching each record to its pocket method.
 
         Fans out to `_retrieve_pisa_pockets`, `_retrieve_passthrough_pockets`, `_retrieve_vdw_pockets` and
         `_retrieve_whole_chain_pockets`, then merges their results into one dict. All four return the same
-        pocket dict shape (see `pocket_parser`), so nothing downstream needs to know which method produced
+        Pocket shape (see `pocket.py`), so nothing downstream needs to know which method produced
         a given pocket.
 
         Returns:
-            dict: pocket_id -> pocket dict, across both sides.
+            dict: pocket_id -> Pocket, across both sides.
         """
         stage = {"stage": "Getting Pockets"}
         logging.info("Starting pocket retrieval...", extra=stage)
@@ -1004,13 +1029,12 @@ class PocketMapper:
                 pisa_pockets[row["pocket_id"]] = parse_pocket_from_struct(
                     struct=row["struct_path"],
                     chain_id=row["chain_info"].split("_")[0],
-                    pocket_residues=[int(x) for x in pisa_pockets[row["pocket_id"]]["res_auth_ids"]],
+                    pocket_residues=[int(x) for x in pisa_pockets[row["pocket_id"]].res_auth_ids],
                     pocket=pisa_pockets[row["pocket_id"]],
                 )
         logging.debug(f"Extracted PISA pockets with coords: {pisa_pockets}", extra=self._log_extra)
 
-        with open(os.path.join(self._settings.pocket_dir, "pisa_pockets.json"), "w") as f:
-            json.dump(pisa_pockets, f)
+        self._dump_pockets(pisa_pockets, "pisa_pockets.json")
 
         return pisa_pockets
 
@@ -1046,8 +1070,7 @@ class PocketMapper:
                 pocket_residues=pocket_residues,
             )
             passthrough_pockets[row["pocket_id"]] = pocket
-        with open(os.path.join(self._settings.pocket_dir, "passthrough_pockets.json"), "w") as f:
-            json.dump(passthrough_pockets, f, indent=4)
+        self._dump_pockets(passthrough_pockets, "passthrough_pockets.json", indent=4)
         logging.debug(f"Extracted passthrough pockets: {passthrough_pockets}", extra=self._log_extra)
 
         return passthrough_pockets
@@ -1058,7 +1081,7 @@ class PocketMapper:
 
         An entry that names a structure but no pocket ("4Q5J:B", or "4Q5J" for the default chain) asks
         whether the query pocket resembles anything on that chain at all. Unlike the whole-chain pseudo-pocket
-        `compare_pockets` synthesises for Foldseek-database hits, this is a real pocket dict parsed from the
+        `compare_pockets` synthesises for Foldseek-database hits, this is a real Pocket parsed from the
         structure, so it carries residue codes and CA coordinates and can be superposed.
 
         Returns:
@@ -1094,8 +1117,7 @@ class PocketMapper:
                 )
                 continue
             whole_chain_pockets[row["pocket_id"]] = pocket
-        with open(os.path.join(self._settings.pocket_dir, "whole_chain_pockets.json"), "w") as f:
-            json.dump(whole_chain_pockets, f, indent=4)
+        self._dump_pockets(whole_chain_pockets, "whole_chain_pockets.json", indent=4)
         logging.debug(f"Extracted whole chain pockets: {whole_chain_pockets}", extra=self._log_extra)
 
         return whole_chain_pockets
@@ -1131,8 +1153,7 @@ class PocketMapper:
                 motif_chain=row["chain_info"].split("_")[1],
             )
             vdw_pockets[row["pocket_id"]] = pocket
-        with open(os.path.join(self._settings.pocket_dir, "vdw_pockets.json"), "w") as f:
-            json.dump(vdw_pockets, f, indent=4)
+        self._dump_pockets(vdw_pockets, "vdw_pockets.json", indent=4)
         logging.debug(f"Extracted VDW pockets: {vdw_pockets}", extra=self._log_extra)
 
         return vdw_pockets

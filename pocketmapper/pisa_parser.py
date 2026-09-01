@@ -1,21 +1,21 @@
 """
 Reading of cached PISA interface data into pocket residue sets.
 
-Consumes the JSON files `PisaDownloader` writes and turns one interface into the pocket dict the
-rest of the pipeline expects. This is the `pisa` pocket method, available for PDB entries only --
+Consumes the JSON files `PisaDownloader` writes and turns one interface into the Pocket the rest of
+the pipeline expects. This is the `pisa` pocket method, available for PDB entries only --
 AlphaFold models and local files have no PISA data.
 """
 
 import os
 import json
 import logging
-from pocketmapper.lib import jsonify_dict
 from pocketmapper.constants import SINGLE_AA_CODE
+from pocketmapper.pocket import Pocket, PocketResidue
 
 
 class PisaParser:
     """
-    Turns cached PISA interfaces into pocket dicts.
+    Turns cached PISA interfaces into Pockets.
     """
 
     def __init__(self):
@@ -82,7 +82,7 @@ class PisaParser:
 
     def get_pockets_from_records(self, records, in_dir):
         """
-        Build a pocket dict per record from its PISA interface.
+        Build a Pocket per record from its PISA interface.
 
         The pocket is the set of residues on the record's own chain that take part in any bond of the
         interface, across all five bond types. Records whose entry, interface or domain chain cannot be
@@ -96,8 +96,9 @@ class PisaParser:
             in_dir (str): Directory of parsed interface files written by PisaDownloader.
 
         Returns:
-            dict: pocket_id -> pocket dict, JSON-serialisable, carrying `res_auth_ids` and one entry per
-                residue. Lacks the CA data `pocket_parser.parse_pocket_from_struct` adds later.
+            dict: pocket_id -> Pocket, carrying `res_auth_ids` and one residue per interface residue.
+                Lacks the CA data `pocket_parser.parse_pocket_from_struct` adds later, so `ca_sequence`,
+                `has_coords` and every residue's `seq_pos`/`ca_coords` are still at their defaults.
         """
         stage = {"stage": "Calculating Pockets"}
         bond_types = ["hydrogen_bonds", "salt_bridges", "disulfide_bonds", "covalent_bonds", "other_bonds"]
@@ -134,33 +135,28 @@ class PisaParser:
                 continue
 
             # Making output pocket
-            pocket = {
-                "res_auth_ids": set(),
-                "id_pos_codes_match": True,
-            }
+            pocket = Pocket()
 
-            # Getting the pocket residues
+            # Getting the pocket residues. Residues are keyed as strings to match the author seqids
+            # parse_pocket_from_struct will later use when it adds coordinates to this same Pocket.
+            all_res_auth_ids = set()
             for bond_type in bond_types:
                 bonds_dict = pisa_data[bond_type]
                 res_auth_ids = bonds_dict[f"atom_site_{pocket_mol_id}_seq_nums"]
-                pocket["res_auth_ids"].update(set(res_auth_ids))
+                all_res_auth_ids.update(res_auth_ids)
                 for i, res_auth_id in enumerate(res_auth_ids):
-                    if res_auth_id not in pocket:  # initializing dict
-                        pocket[res_auth_id] = {}
-                    res_dict = {}
-                    res_dict["res_code"] = bonds_dict[f"atom_site_{pocket_mol_id}_residues"][i]
-                    res_dict["res_code_single"] = SINGLE_AA_CODE.get(res_dict["res_code"], "X")
-                    res_dict["uniprot_pos"] = bonds_dict[f"atom_site_{pocket_mol_id}_unp_nums"][i]
+                    res_code = bonds_dict[f"atom_site_{pocket_mol_id}_residues"][i]
+                    pocket.residues[str(res_auth_id)] = PocketResidue(
+                        res_code=res_code,
+                        res_code_single=SINGLE_AA_CODE.get(res_code, "X"),
+                        uniprot_pos=bonds_dict[f"atom_site_{pocket_mol_id}_unp_nums"][i],
+                    )
 
-                    pocket[res_auth_id] = res_dict
+            # Sorted numerically: the bond types are walked in list order, so insertion order into
+            # residues is arbitrary, and res_auth_ids is the ordering the comparison relies on.
+            pocket.res_auth_ids = [str(x) for x in sorted(int(x) for x in all_res_auth_ids)]
+            pocket.pocket_exists = len(pocket.res_auth_ids) > 0
 
-            sorted_res_auth_ids = [str(x) for x in sorted([int(x) for x in pocket["res_auth_ids"]])]
-            pocket["res_auth_ids"] = sorted_res_auth_ids
-            if len(pocket["res_auth_ids"]) > 0:
-                pocket["pocket_exists"] = True
-
-            # Making JSON serializable
-            pocket = jsonify_dict(pocket)
             pockets[record["pocket_id"]] = pocket
 
         return pockets
