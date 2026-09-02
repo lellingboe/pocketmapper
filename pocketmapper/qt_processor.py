@@ -24,9 +24,51 @@ from pocketmapper.constants import DEFAULT_CHAIN
 from pocketmapper.exceptions import PocketMapperError
 
 # The bundled human-domains Foldseek DB, named here and nowhere else -- bump it on a DB refresh.
-# The DB ships an `offset_table.tsv` beside it, keyed by these same entry names; nothing reads it yet,
-# so it has to be refreshed with the DB or it will not match whatever eventually does.
 BUNDLED_HUMAN_DOMAINS_DB = "human_v3_20260901"
+
+# The UniProt coordinates of every entry in the DB above, shipped beside it and keyed by the same
+# entry names. `pocketmapper._compare_pockets_based_on_alignment` resolves it and
+# `pocket_comparison._synthesise_target_pocket` applies it, so the two files are now coupled: refresh
+# the table with the DB, or a hit on an entry the table has lost aborts the run.
+BUNDLED_HUMAN_DOMAINS_OFFSET_TABLE = "offset_table.tsv"
+
+
+def _bundled_human_domains_path(filename):
+    """
+    Resolve a file shipped in the package's `human_domains` directory.
+
+    Anchored on the `pocketmapper` package, not on `human_domains` itself: that directory holds only
+    Foldseek DB files and has no __init__.py, so passing it to `files()` resolves a namespace package,
+    which importlib.resources only learned to handle in 3.12. Going through the parent regular package
+    works on every supported version.
+
+    Args:
+        filename (str): Name of the file within the `human_domains` directory.
+
+    Returns:
+        str: Absolute path to that file.
+    """
+    return str(files("pocketmapper").joinpath("human_domains", filename))
+
+
+def bundled_human_domains_offset_table(struct_path):
+    """
+    The UniProt offset table shipped beside the bundled human-domains DB, or None for any other DB.
+
+    Only the bundled DB ships a table, so a user-supplied Foldseek database keeps the 0-indexed
+    positional target residue ids it has always had rather than being renumbered against a table that
+    does not describe it. Matched on the resolved path rather than on the input string, so naming the
+    bundled DB by its path is treated the same as naming it "human_domains".
+
+    Args:
+        struct_path (str): The Foldseek DB path in use, from the target record's `struct_path`.
+
+    Returns:
+        str | None: Path to the table, or None when `struct_path` is not the bundled DB.
+    """
+    if struct_path != _bundled_human_domains_path(BUNDLED_HUMAN_DOMAINS_DB):
+        return None
+    return _bundled_human_domains_path(BUNDLED_HUMAN_DOMAINS_OFFSET_TABLE)
 
 
 @dataclass
@@ -97,12 +139,8 @@ class QTProcessor:
         self.passthrough_regex = r"^[A-Za-z0-9]\:(\d+\,?)+$"  # pattern like "A:1,2,3"
         self.vdw_regex = r"^[A-Za-z0-9](_[A-Za-z0-9])?(\:(\d+\,?)*)?$"  # pattern like "A_B:1,2,3"
 
-        # Anchored on the `pocketmapper` package, not on `human_domains` itself: that directory holds
-        # only Foldseek DB files and has no __init__.py, so passing it to `files()` resolves a namespace
-        # package, which importlib.resources only learned to handle in 3.12. Going through the parent
-        # regular package works on every supported version.
         self._bundled_foldseek_dbs = {
-            "human_domains": str(files("pocketmapper").joinpath("human_domains", BUNDLED_HUMAN_DOMAINS_DB)),
+            "human_domains": _bundled_human_domains_path(BUNDLED_HUMAN_DOMAINS_DB),
             "pdb": os.path.join(fsdb_dir, "pdb"),
         }
 

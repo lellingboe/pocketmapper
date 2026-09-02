@@ -38,7 +38,7 @@ from pocketmapper.pisa_parser import PisaParser
 from pocketmapper.pocket_comparison import compare_pockets, parse_pocket_transform
 from pocketmapper.sequence_aligner import SequenceAligner
 from pocketmapper.pocket_calculator import PocketCalculator
-from pocketmapper.qt_processor import QTProcessor
+from pocketmapper.qt_processor import QTProcessor, bundled_human_domains_offset_table
 from pocketmapper.structure_aligner import StructureAligner
 from pocketmapper.structure_fetcher import StructureFetcher
 from pocketmapper.structure_preprocessor import StructurePreprocessor
@@ -1191,14 +1191,41 @@ class PocketMapper:
                 preproc_to_ids[row["preprocess_name"]] = [row["pocket_id"]]
         logging.debug(f"Preprocessed name to pocket ID mapping: {preproc_to_ids}", extra=stage)
 
+        # A PDB Foldseek database has real PISA pockets for its hits (see _expand_fsdb_pdb_targets);
+        # every other database has no target records at all, so its pockets must be synthesised.
+        synthesise_target_pockets = self.fsdb_target and not self._fsdb_pdb_target
+
+        # Read from _target_df rather than _target_db_path so this does not depend on a step-4 side
+        # effect. Row 0 is still the single database record here: _expand_fsdb_pdb_targets only rewrites
+        # _target_df on the PDB path, which synthesise_target_pockets excludes.
+        offset_table_path = None
+        if synthesise_target_pockets:
+            offset_table_path = bundled_human_domains_offset_table(self._target_df.loc[0, "struct_path"])
+            if offset_table_path is None:
+                logging.info(
+                    "Foldseek database ships no offset table; target residue ids will be positions "
+                    "within each database entry rather than UniProt coordinates",
+                    extra=stage,
+                )
+            elif not os.path.isfile(offset_table_path):
+                # Packaged with the database (pyproject.toml's human_domains/*), so absence means a
+                # broken install. Falling back would emit positional ids under a column that the
+                # bundled database is documented to report in UniProt coordinates.
+                msg = f"Bundled human-domains offset table is missing from the installation: {offset_table_path}"
+                logging.critical(msg, extra=stage)
+                raise PocketMapperError(msg)
+            else:
+                logging.info(
+                    f"Mapping target residue ids to UniProt coordinates using {offset_table_path}", extra=stage
+                )
+
         pockets_df, unknown_alias, incorrect_mapping = compare_pockets(
             alignment_df,
             pockets,
             preproc_to_ids=preproc_to_ids,
             blosum_path=blosum_path,
-            # A PDB Foldseek database has real PISA pockets for its hits (see _expand_fsdb_pdb_targets);
-            # every other database has no target records at all, so its pockets must be synthesised.
-            synthesise_target_pockets=self.fsdb_target and not self._fsdb_pdb_target,
+            synthesise_target_pockets=synthesise_target_pockets,
+            offset_table_path=offset_table_path,
         )
 
         # Logging cases where a residue was given a single cahr name unfamiliar to pocketmapper
