@@ -78,95 +78,74 @@ ALIGN_STRUCT_METHODS = ("auto", "pocket", "foldseek")
 # always a single chain A, and it is the first chain of most PDB entries.
 DEFAULT_CHAIN = "A"
 
+
+# The --help text. Kept to 80 columns and to one sentence per option: anything longer -- the input
+# grammar, the databases, the output columns, the Foldseek fallback -- lives in the README, which
+# the footer points at. Every option here must match the Settings dataclass and the README's Options
+# table; nothing generates one from the other.
 HELP_MESSAGE = """
-    PocketMapper - A tool for mapping and analyzing protein pockets.
+PocketMapper - compare the binding surfaces of protein-protein interactions.
 
-    Usage:
-        pocketmapper search [OPTIONS]
+Usage:
+    pocketmapper search [OPTIONS]
 
-    Primary options:
-        --query QUERY            Query identifier or path. Accepts:
-                    - 'STRUCT[:CHAINS[:RESIDUES]]' (e.g., 1ABC:A_B, 1ABC:A:10,11,12, P12345:A:10,11)
-                    - 'STRUCT[:CHAIN]' with no pocket (e.g., 1ABC:A, or 1ABC for chain A) for an open
-                      search, where the whole chain is treated as the pocket
-                    - path to a file listing such entries, one per line
-        --target TARGET          Target identifier or path. Accepts:
-                    - 'STRUCT[:CHAINS[:RESIDUES]]' (e.g., 2XYZ:C_D)
-                    - 'STRUCT[:CHAIN]' with no pocket, for an open search against that whole chain
-                    - path to a file listing such entries, one per line
-                    - a bundled Foldseek DB name ('human_domains', 'pdb'), which requires the foldseek binary
-        --settings FILE          Path to a JSON file of {"ARG": "VALUE", ...} (overridden by explicit CLI args)
-        --cache_dir DIR          Directory for caching files
-        --results_dir DIR        Directory for writing results
-        --verbosity LEVEL        Set verbosity level (4=DEBUG, 3=INFO, 2=WARNING, else ERROR)
-        --foldseek BOOL          Whether to use foldseek for structure alignment instead of local sequence
-                                 alignment. Foldseek is an external binary that must be on PATH; if it is not
-                                 installed it can be added with:
-                                     conda install -c conda-forge -c bioconda foldseek
-                                 Left unset, foldseek is used when the binary is available and the local
-                                 BLOSUM62 aligner is used with a warning when it is not.
-                                   True  -- require foldseek; a missing binary is an error.
-                                   False -- always use the local aligner, which produces no whole-chain
-                                            transform, so structural superposition there is always on
-                                            the pocket (see --align_struct_method).
-        --align_count N          Number of top targets to superpose onto each query (0 disables, default 10)
-        --align_struct_method M  Which transform superposes a target onto its query ('auto', 'pocket' or
-                                 'foldseek', default 'auto')
-                                   foldseek -- Foldseek's whole-chain fit. Needs the binary.
-                                   pocket   -- the fit of the two pockets on their overlapping residues,
-                                               taken from pocket_comparison.tsv. Puts the pockets on top
-                                               of each other rather than the chains. Unavailable against
-                                               a Foldseek database target.
-                                   auto     -- 'foldseek' when foldseek is in use, else 'pocket'.
-        --query_pocket_method M  Force the query pocket method ('pisa', 'passthrough', 'vdw' or
-                                 'whole_chain')
-        --target_pocket_method M Force the target pocket method ('pisa', 'passthrough', 'vdw',
-                                 'whole_chain' or 'foldseek_db')
-        --help                   Show this help message and exit
+Options:
+  --query STR         Query entry, or a file with one entry per line.
+                      STRUCT[:CHAIN[:RESIDUES]], e.g. 4Q5J:B_F. (required)
+  --target STR        Target entry, a file with one entry per line, or a
+                      Foldseek DB name: human_domains, pdb. (required)
+  --settings PATH     JSON file of {"option": value}; CLI args override it.
+                      (default: none)
+  --cache_dir DIR     Where structures, pockets and PISA responses are cached.
+                      (default: pocketmapper_cache)
+  --results_dir DIR   Where results are written.
+                      (default: pocketmapper_results_<YYMMDD_HHMMSS>)
+  --verbosity INT     Log level: 4=DEBUG, 3=INFO, 2=WARNING, else ERROR.
+                      (default: 3)
+  --foldseek BOOL     Require the Foldseek aligner (True) or forbid it (False);
+                      unset auto-detects the binary. (default: unset)
+  --align_count INT   How many top-scoring targets to superpose onto each
+                      query; 0 disables. (default: 10)
+  --align_struct_method STR
+                      Which transform superposes a target onto its query:
+                      auto, pocket or foldseek. (default: auto)
+  --query_pocket_method STR
+                      Force the query pocket method rather than inferring it
+                      from the entry: pisa, passthrough, vdw or whole_chain.
+                      (default: unset)
+  --target_pocket_method STR
+                      As --query_pocket_method, for targets; also accepts
+                      foldseek_db. (default: unset)
+  --help              Show this message and exit.
 
-    Advanced Options (set via settings JSON):
-        structure_dir                          Directory to store downloaded/available structures
-        pocket_dir                             Directory to store calculated pockets
-        foldseek_preprocessed_structure_dir    Directory for preprocessed/divided structures
-        foldseek_tmp_dir                       Scratch directory for Foldseek
-        fsdb_dir                               Directory for downloaded Foldseek databases
-        query_dir                              Temporary directory for query divided structures
-        target_dir                             Temporary directory for target divided structures
-        aligned_structure_dir                  Directory to write superposed structures to
-        alignment_path                         Path to write alignment TSV
-        pocket_comparison_path                 Path to write pocket comparison TSV
-        job_settings_path                      Path to write the resolved settings to
-        log_path                               Path to write the run log to
+Advanced options, settable only in the settings JSON. All are paths; the
+defaults below write <cache> for cache_dir and <results> for results_dir:
+  structure_dir                        <cache>/ref_structures
+  pocket_dir                           <cache>/pockets
+  foldseek_tmp_dir                     <cache>/foldseek_tmp
+  foldseek_preprocessed_structure_dir  <cache>/foldseek_preprocessed_structures
+  fsdb_dir                             <cache>/fsdb
+  query_dir                            <results>/query_structures
+  target_dir                           <results>/target_structures
+  aligned_structure_dir                <results>/aligned_structures
+  alignment_path                       <results>/alignment.tsv
+  pocket_comparison_path               <results>/pocket_comparison.tsv
+  job_settings_path                    <results>/job_settings.json
+  log_path                             <results>/info.log
 
-    Description:
-        Orchestrates fetching/preprocessing of structures, runs local or Foldseek alignments,
-        derives pockets (PISA, explicit residue lists, VdW contacts, or a whole chain), extracts coordinates
-        from mmCIF files, compares pockets using alignments and scoring, and writes results to the
-        results directory.
+Examples:
+  # One pair, using Foldseek when the binary is installed and the built-in
+  # BLOSUM62 aligner when it is not.
+  pocketmapper search --query 4Q5J:B_F --target 4Q5J:A_E --results_dir ./out
 
-    Examples:
-        # Single pair with default settings (uses Foldseek when the binary is installed)
-        pocketmapper search --query 1ABC:A_B --target 2XYZ:C_D --results_dir ./out
+  # Search a pocket against the bundled Foldseek DB of human domains.
+  pocketmapper search --query 4Q5J:B_F --target human_domains
 
-        # Batch mode using files with one entry per line
-        pocketmapper search --query queries.txt --target targets.txt --settings config.json
+  # Batch mode: one entry per line in each file.
+  pocketmapper search --query queries.txt --target targets.txt \\
+      --settings config.json
 
-        # Search the built-in human_domains Foldseek DB (requires the foldseek binary)
-        pocketmapper search --query 1ABC:A_B --target human_domains --results_dir ./out_fs
-
-        # Open search: is this pocket anywhere on chain C of 2XYZ?
-        pocketmapper search --query 1ABC:A_B --target 2XYZ:C --results_dir ./out_open
-
-        # Force the local BLOSUM62 aligner even when foldseek is installed
-        pocketmapper search --query 1ABC:A_B --target 2XYZ:C_D --foldseek False --results_dir ./out_local
-
-        # Override cache and set verbosity to debug
-        pocketmapper search --query 1ABC:A_B --target 2XYZ:C_D --cache_dir /tmp/cache --verbosity 4
-
-    Notes:
-        - Query/target inputs are interpreted either as single 'STRUCT:CHAINS[:RESIDUES]' strings or as file paths.
-        - Boolean settings can be provided on the command line (e.g., --foldseek False).
-        - Use a settings JSON to persist complex configurations; CLI options override settings file values.
-
-    For more information, see the project README or the github repository.
+Input grammar, databases, output columns and the Foldseek fallback are
+documented in the README:
+    https://github.com/lellingboe/pocketmapper
 """
