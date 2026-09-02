@@ -75,6 +75,17 @@ file states:
   would mix two coordinate systems inside one column with nothing in the row to tell them apart.
   Refresh the table whenever `BUNDLED_HUMAN_DOMAINS_DB` moves.
 
+**The bundled DB ships without its `.source` file**, and a refreshed one must be stripped the same way.
+Foldseek's `createdb` writes `.source` alongside `.lookup`, but it duplicates the same key-to-name mapping
+and nothing reads it: verified by running `easy-search`, `createsubdb` and `convert2pdb` against a copy with
+it removed. `.lookup` is the one that must survive — `_align_structs` reads it to turn entry names into
+database keys. Dropping `.source` saves 1.7 MB in the repo and in both distributions.
+
+The DB is otherwise at its floor. `_ca` is 70 of its 98 MB, holding 11.2M residues at 6.33 bytes each, which
+is `foldseek createdb --coord-store-mode 2` (uint16 deltas), the default and the smallest of the three modes.
+Being delta-encoded it is already near entropy — zstd -19 takes only 16% off it — and no foldseek module
+writes or reads a compressed structure DB, so there is nothing to gain by compressing what ships.
+
 **No cap on how many hits get enriched**, by choice. `4Q5J:B_F` against the bundled `pdb` DB returns ~4,970
 hits across ~3,620 entries, and PISA is fetched per entry behind a sleep, so the first run takes hours.
 Reruns are cheap from the interface cache, and `_expand_fsdb_pdb_targets` logs both counts before starting
