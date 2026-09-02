@@ -195,3 +195,62 @@ def parse_foldseek_pdb_entry_name(name):
     if match is None:
         return None
     return match.group("pdb").upper(), match.group("chain").split("-")[0]
+
+
+def seq_to_uniprot_map(domain):
+    """
+    Map each 0-indexed position of a domain onto its 1-indexed UniProt position.
+
+    A domain carved out of a UniProt sequence need not be contiguous, which is why the spec is a list
+    of regions rather than a single offset: 8,961 of the 65,792 entries in the bundled human-domains
+    table are discontiguous, and a scalar offset cannot express those at all.
+
+    The result is monotonically increasing and injective as long as the regions are increasing and
+    non-overlapping, which every shipped spec is. Callers rely on both: `_synthesise_target_pocket`
+    keys a dict by these values, so a repeated position would silently drop residues.
+
+    Args:
+        domain (str): start1-stop1_start2-stop2_... in UniProt coords, 1-indexed and inclusive.
+
+    Returns:
+        dict: 0-indexed domain position -> 1-indexed UniProt position.
+    """
+    regions = domain.split("_")
+    seq_pos_to_uniprot_pos = {}
+    pos = 0
+    for region in regions:
+        start, stop = region.split("-")
+        for i in range(int(start), int(stop) + 1):
+            seq_pos_to_uniprot_pos[pos] = i
+            pos += 1
+    return seq_pos_to_uniprot_pos
+
+
+def read_offset_table(path):
+    """
+    Read an offset table: the UniProt coordinates of every entry in a Foldseek database.
+
+    The table ships beside the database it describes and is keyed by the same entry names the
+    database's `.lookup` file carries, which are also what lands in the alignment table's `target`
+    column. Values are the region specs `seq_to_uniprot_map` parses.
+
+    The whole table is read rather than sampled: it is 65,792 rows and ~1.9MB for the bundled
+    human-domains database, which is a few tens of milliseconds and well under the cost of the search
+    it accompanies.
+
+    Args:
+        path (str): Path to the tab-separated table. Its header row is discarded.
+
+    Returns:
+        dict: entry name -> region spec.
+    """
+    offsets = {}
+    with open(path) as f:
+        next(f, None)  # header: unique_id, uniprot_domain
+        for line in f:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            entry, domain = line.split("\t")
+            offsets[entry] = domain
+    return offsets

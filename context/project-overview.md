@@ -58,6 +58,23 @@ Three consequences of the PDB path that are not visible from any single file:
 - **`--align_struct_method pocket` is rejected for any Foldseek-DB target**, in `_configure_query_target`
   before anything is fetched. The rejection site gives the reason for both kinds of DB.
 
+**Target residue ids are UniProt coordinates when the DB ships an offset table.** A non-PDB DB's
+entries are domains carved out of UniProt sequences, so `_synthesise_target_pocket`'s residue *labels*
+are renumbered through `offset_table.tsv` — resolved in `_compare_pockets_based_on_alignment`, applied
+in `_synthesise_target_pocket`, both of which carry the reasoning. Three things follow that no single
+file states:
+
+- **Only the bundled `human_domains` DB is renumbered.** `qt_processor.bundled_human_domains_offset_table`
+  matches on the resolved DB path, so a DB you supply yourself keeps 0-indexed positions within the
+  entry — logged at INFO, because the same column then means different things on different runs.
+- **`pocket_2_overlap_ids` is the only column affected**, since a whole-chain pocket already suppresses
+  the other `pocket_2_*` columns and has no coordinates to superpose. Verified: against a
+  same-environment baseline, a `human_domains` search changes that column and nothing else.
+- **The table and the DB are now coupled.** A hit whose entry is missing from the table, or whose spec
+  is shorter than the alignment reaches, aborts the run rather than falling back — a per-row fallback
+  would mix two coordinate systems inside one column with nothing in the row to tell them apart.
+  Refresh the table whenever `BUNDLED_HUMAN_DOMAINS_DB` moves.
+
 **No cap on how many hits get enriched**, by choice. `4Q5J:B_F` against the bundled `pdb` DB returns ~4,970
 hits across ~3,620 entries, and PISA is fetched per entry behind a sleep, so the first run takes hours.
 Reruns are cheap from the interface cache, and `_expand_fsdb_pdb_targets` logs both counts before starting
@@ -71,7 +88,9 @@ its code site; what follows is the map of where, plus the checks that live nowhe
 - **`seq_pos` is the value everything hinges on** — declared on `pocket.PocketResidue`, set in
   `pocket_parser.parse_pocket_from_struct`, used in `pocket_comparison._map_pocket_into_alignment`. A new
   pocket method computing it any other way yields zero overlap with no error. Check it by comparing a
-  pocket against itself: `overlap_count == pocket_len`.
+  pocket against itself: `overlap_count == pocket_len`. It is also **not** the reported residue id:
+  `_synthesise_target_pocket` keys its residues by UniProt position while leaving `seq_pos` the
+  0-indexed alignment coordinate, and that separation is the only reason renumbering is safe.
 - **`preprocess_name` is the alignment join key** — computed in `QTProcessor.parse_individual_qt`.
   Alignments are keyed by it, pockets by `pocket_id`, and `_compare_pockets_based_on_alignment` builds
   `preproc_to_ids` to bridge them.

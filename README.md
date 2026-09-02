@@ -60,6 +60,13 @@ fully reported: `pocket_2_overlap_ids` gives the author residue numbers the quer
 because a named structure has real coordinates the superposition columns (`rmsd`, `ca_dists`, the
 transforms) are populated too, which a Foldseek-database row cannot offer.
 
+A Foldseek-database row differs in one further way: `pocket_2_overlap_ids` reports UniProt residue
+numbers when the database ships an `offset_table.tsv` beside it, as the bundled `human_domains` DB
+does. Its entries are domains carved out of UniProt sequences, so the position within an entry means
+nothing outside PocketMapper. A database with no such table — any you supply yourself — reports
+0-indexed positions within the entry instead, and says so in the log. The query side
+(`pocket_1_overlap_ids`) is always author residue numbers either way.
+
 Open and pocketed targets can be mixed freely in one batch file.
 
 For batch runs, pass a path to a file containing one such entry per line instead of a single entry.

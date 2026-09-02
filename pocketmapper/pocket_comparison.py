@@ -30,7 +30,14 @@ from numpy import linalg as LA
 from tqdm import tqdm
 
 from pocketmapper.constants import ALIGNMENT_COLUMNS
-from pocketmapper.lib import binary_similarity, full_similarity, read_blast_similarity_matrix
+from pocketmapper.exceptions import PocketMapperError
+from pocketmapper.lib import (
+    binary_similarity,
+    full_similarity,
+    read_blast_similarity_matrix,
+    read_offset_table,
+    seq_to_uniprot_map,
+)
 from pocketmapper.pocket import Pocket, PocketResidue
 
 # One alignment row, unpacked positionally. Built with AlignmentRow(*values), so it depends on the
@@ -187,31 +194,103 @@ def _record_code_mismatches(mapped, self_id, other_id, unknown_ids):
         unknown_ids[aln_res_code][res_code].add(f"{other_id},{self_id},{res}")
 
 
-def _synthesise_target_pocket(aln):
+def _synthesise_target_pocket(aln, ctx):
     """
     A whole-chain stand-in for a Foldseek-database hit that has no pocket record of its own.
 
     Only for a database whose entries are not PDB chains (human_domains); a PDB database gets real
-    PISA pockets instead, via `_expand_fsdb_pdb_targets`. The residues are alignment indices rather
-    than author seqids and carry no codes or coordinates, so the pocket_2_* columns and the RMSD block
-    are both suppressed downstream.
+    PISA pockets instead, via `_expand_fsdb_pdb_targets`. The residues carry no codes or coordinates,
+    so the pocket_2_* columns and the RMSD block are both suppressed downstream, which leaves
+    pocket_2_overlap_ids as the only column these ids reach.
+
+    How those ids are named depends on whether the database ships an offset table. With one, they are
+    1-indexed UniProt positions -- a database entry is a domain carved out of a UniProt sequence, and
+    its own 0-indexed numbering means nothing outside PocketMapper. Without one, they stay 0-indexed
+    positions within the entry. Either way `seq_pos` is the 0-indexed position and nothing else:
+    the ids are labels, `seq_pos` is what `_map_pocket_into_alignment` projects, and keeping the two
+    apart is what makes the renumbering safe.
 
     Args:
-        aln (AlignmentRow): The row to build the pseudo-pocket from; reads `tend` and `tseq`.
+        aln (AlignmentRow): The row to build the pseudo-pocket from; reads `target`, `tend` and `tseq`.
+        ctx (_Context): Scoring state, read for `offsets`.
 
     Returns:
         Pocket: `whole_chain` set, `has_coords` false, and residues carrying `seq_pos` alone.
+
+    Raises:
+        PocketMapperError: The database ships an offset table but it does not describe this hit --
+            the table and the database have drifted apart.
     """
+    res_ids = [str(k) for k in range(aln.tend)]
+    if ctx.offsets:
+        res_ids = _uniprot_res_ids(aln, ctx.offsets)
+
     return Pocket(
-        res_auth_ids=[str(k) for k in range(aln.tend)],
+        res_auth_ids=res_ids,
+        # The id is the key and seq_pos is the position, which is why res_ids can be renumbered at all.
+        # Relies on the ids being unique: `seq_to_uniprot_map` guarantees that for a spec whose regions
+        # increase and do not overlap, which every shipped one does. A repeated id would collapse two
+        # residues into one dict entry and hand the survivor the wrong seq_pos.
+        #
         # seq_pos only -- no codes and no coordinates. That absence is load-bearing: it is what
         # suppresses the code-mismatch check and the RMSD block downstream.
-        residues={str(k): PocketResidue(seq_pos=k) for k in range(aln.tend)},
+        residues={res_id: PocketResidue(seq_pos=k) for k, res_id in enumerate(res_ids)},
         pocket_exists=True,
         has_coords=False,
         whole_chain=True,
         ca_sequence=aln.tseq,
     )
+
+
+def _uniprot_res_ids(aln, offsets):
+    """
+    The UniProt residue numbers of a database entry's first `tend` positions.
+
+    Built per row rather than memoised by entry: each hit entry appears on about one alignment row per
+    query (measured across the five human_domains e2e cases: 704 rows / 704 entries, 791/791, 830/830,
+    796/796, and 2,219/809 for the batch), so a memo would miss on nearly every lookup while retaining
+    a dict per entry. The row already allocates `tend` PocketResidues, so this is less than doubling a
+    cost already paid.
+
+    Args:
+        aln (AlignmentRow): The row, read for `target` and `tend`.
+        offsets (dict): entry name -> region spec, from `read_offset_table`.
+
+    Returns:
+        list: Residue ids as strings, one per position 0..tend-1.
+
+    Raises:
+        PocketMapperError: The entry is absent from the table, its spec is malformed, or it is shorter
+            than the alignment reaches. All three mean the table and the database have drifted apart.
+    """
+    domain = offsets.get(aln.target)
+    if domain is None:
+        msg = (
+            f"Foldseek database entry {aln.target} is missing from the offset table shipped with the "
+            "database; the two have drifted apart. Refresh the offset table alongside the database."
+        )
+        logging.critical(msg, extra={"stage": "Pocket Comparison"})
+        raise PocketMapperError(msg)
+
+    try:
+        uniprot_map = seq_to_uniprot_map(domain)
+    except ValueError as error:
+        msg = f"Malformed offset table entry for {aln.target}: {domain!r} ({error})"
+        logging.critical(msg, extra={"stage": "Pocket Comparison"})
+        raise PocketMapperError(msg)
+
+    # Only the short direction is detectable from an alignment row: tlen is not in ALIGNMENT_COLUMNS,
+    # so a spec that is too long looks identical to a correct one from here. Without this the failure
+    # would be a bare KeyError naming neither the entry nor the table.
+    if len(uniprot_map) < aln.tend:
+        msg = (
+            f"Offset table entry for {aln.target} spans {len(uniprot_map)} residues but the alignment "
+            f"reaches position {aln.tend}; the table and the database have drifted apart."
+        )
+        logging.critical(msg, extra={"stage": "Pocket Comparison"})
+        raise PocketMapperError(msg)
+
+    return [str(uniprot_map[k]) for k in range(aln.tend)]
 
 
 def _describe_pocket(pocket_id, pocket, cache):
@@ -455,12 +534,18 @@ def _compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_ma
 
 
 class _Context(NamedTuple):
-    """The scoring state shared by every comparison in one call."""
+    """
+    The scoring state shared by every comparison in one call.
+
+    `offsets` is the database's offset table (entry name -> region spec), empty when the target is not
+    a Foldseek database or ships no table; it is read only by `_synthesise_target_pocket`.
+    """
 
     similarity_matrix: dict
     superimposer: SVDSuperimposer
     descriptions: dict
     identities: dict
+    offsets: dict
 
 
 def _resolve_pockets(domain, pocket_dict, preproc_to_ids):
@@ -486,6 +571,7 @@ def compare_pockets(
     preproc_to_ids,
     blosum_path,
     synthesise_target_pockets=False,
+    offset_table_path=None,
 ):
     """
     Compare two pockets based on the alignment that bridges them.
@@ -504,6 +590,9 @@ def compare_pockets(
             records of its own (see `_expand_fsdb_pdb_targets`); it is a property of the job. Whether
             the pocket_2_* descriptor columns and the jaccard_index are written, by contrast, is a
             property of each pocket -- see `_compare_pocket_pair`.
+        offset_table_path (str | None): Path to the offset table shipped with that database, which
+            renumbers the synthesised targets' residues into UniProt coordinates. Consulted only
+            alongside `synthesise_target_pockets`; None leaves them as positions within the entry.
 
     Returns:
         tuple: (comparison table, the residue codes the aligner and pocketmapper disagreed on, the
@@ -514,6 +603,7 @@ def compare_pockets(
         superimposer=SVDSuperimposer(),
         descriptions={},
         identities={},
+        offsets=read_offset_table(offset_table_path) if offset_table_path else {},
     )
 
     unknown_ids = defaultdict(lambda: defaultdict(set))  # for saving tri-code ids which are unknown
@@ -530,7 +620,7 @@ def compare_pockets(
                 continue
 
             if synthesise_target_pockets:
-                pockets_2 = {aln.target: _synthesise_target_pocket(aln)}
+                pockets_2 = {aln.target: _synthesise_target_pocket(aln, ctx)}
             else:
                 pockets_2 = _resolve_pockets(aln.target, pocket_dict, preproc_to_ids)
                 if not pockets_2:

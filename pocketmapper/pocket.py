@@ -37,6 +37,10 @@ class PocketResidue:
     seq_pos: int | None = None
     ca_coords: list | None = None
     # Written by the PISA and vdw producers, read by nothing. Kept because PISA supplies real values.
+    # Deliberately left unset by the synthesised Foldseek-database pocket even when that pocket is
+    # numbered in UniProt coordinates: there the UniProt position IS the key in `Pocket.residues`, so
+    # writing it here would duplicate the key with no consumer to keep the two honest, and would give
+    # the field a different meaning than it carries on the PISA and vdw paths.
     uniprot_pos: str | int | None = None
 
 
