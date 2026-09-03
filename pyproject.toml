@@ -1,6 +1,6 @@
 [project]
 name = "pocketmapper"
-version = "0.1.0-rc0"
+version = "0.1.0"
 dependencies = [
     "biopython>=1.80",
     "fire>=0.5",
