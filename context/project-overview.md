@@ -155,9 +155,13 @@ Nothing enforces the agreement, but it is checkable in a few lines: `dataclasses
 spelling rather than a field). The `query` and `target` positionals carry those dests, so they line up
 with the rest.
 
-The twelve path fields are grouped separately in both places a human reads them — argparse's
-`path options` group in `_build_parser`, and the README's "Path options" table — because they roughly
-double the option count and would otherwise bury `--foldseek` and `--align_struct_method`.
+Options are grouped by lifetime in both places a human reads them — argparse's argument groups in
+`_build_parser`, and the README's matching subsections. The path fields alone roughly double the
+option count, so leaving them ungrouped would bury `--foldseek` and `--query_pocket_method` among
+them. The four groups are `aligned structure options`, `cache options` (what survives a run),
+`out options` (what the run produces) and `temp options` (what `_delete_tmp` removes at the end);
+`--cache_dir` and `--results_dir` head the group whose defaults derive from them. Adding a path
+setting means picking one of those groups in both places.
 
 `search --help` *is* generated, from the parser's `help=` strings; `constants.CLI_SEARCH_EPILOG`
 carries only the examples, which is all argparse cannot produce. It hangs off the `search` subparser

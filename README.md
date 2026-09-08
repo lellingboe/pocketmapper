@@ -72,36 +72,54 @@ spelling.
 | Option | Type | Default | Summary |
 | --- | --- | --- | --- |
 | `--settings` | path | none | JSON file of `{"option": value}`; explicit CLI arguments override it. |
-| `--cache_dir` | str | `pocketmapper_cache` | Where structures, pockets and PISA responses are cached. |
-| `--results_dir` | str | `pocketmapper_results_<YYMMDD_HHMMSS>` | Where results are written. |
 | `--verbosity` | int | `3` | Log level: 4=DEBUG, 3=INFO, 2=WARNING, anything else=ERROR. |
 | `--foldseek` | bool | unset (auto) | Require the Foldseek aligner (`True`) or forbid it (`False`); unset auto-detects the binary. |
-| `--align_count` | int | `10` | How many top-scoring targets to superpose onto each query; `0` disables. |
-| `--align_struct_method` | str | `auto` | Which transform superposes a target onto its query: `auto`, `pocket` or `foldseek`. |
 | `--query_pocket_method` | str | unset | Force the query pocket method instead of inferring it: `pisa`, `passthrough`, `vdw`, `whole_chain`. |
 | `--target_pocket_method` | str | unset | As `--query_pocket_method`, for targets; also accepts `foldseek_db`. |
 | `--help` | flag | — | Show the help message and exit. |
 
-#### Path options
+#### Aligned structure options
 
-Every path PocketMapper writes to or caches in can be set individually. Each defaults to a location
-under `--cache_dir` or `--results_dir`, so you only need these to split a run's outputs across
-directories.
+| Option | Type | Default | Summary |
+| --- | --- | --- | --- |
+| `--align_count` | int | `10` | How many top-scoring targets to superpose onto each query; `0` disables. |
+| `--align_struct_method` | str | `auto` | Which transform superposes a target onto its query: `auto`, `pocket` or `foldseek`. |
+
+#### Cache options
+
+What survives a run and makes the next one fast. Each defaults to a location under `--cache_dir`.
 
 | Option | Default | Summary |
 | --- | --- | --- |
+| `--cache_dir` | `pocketmapper_cache` | Where structures, pockets and PISA responses are cached. |
 | `--structure_dir` | `<cache_dir>/ref_structures` | Cache of fetched reference structures. |
 | `--pocket_dir` | `<cache_dir>/pockets` | Cache of parsed pockets. |
 | `--foldseek_tmp_dir` | `<cache_dir>/foldseek_tmp` | Foldseek's scratch directory, deleted after a Foldseek run. |
 | `--foldseek_preprocessed_structure_dir` | `<cache_dir>/foldseek_preprocessed_structures` | Cache of the single-chain structures Foldseek is given. |
 | `--fsdb_dir` | `<cache_dir>/fsdb` | Cache of bundled Foldseek databases. |
-| `--query_dir` | `<results_dir>/query_structures` | Per-run query structures, deleted at the end of the run. |
-| `--target_dir` | `<results_dir>/target_structures` | Per-run target structures, deleted at the end of the run. |
+
+#### Out options
+
+What the run produces. Each defaults to a location under `--results_dir`, so you only need these to
+split a run's outputs across directories.
+
+| Option | Default | Summary |
+| --- | --- | --- |
+| `--results_dir` | `pocketmapper_results_<YYMMDD_HHMMSS>` | Where results are written. |
 | `--aligned_structure_dir` | `<results_dir>/aligned_structures` | Where superposed structures for the top hits are written. |
 | `--alignment_path` | `<results_dir>/alignment.tsv` | Where the alignment table is written. |
 | `--pocket_comparison_path` | `<results_dir>/pocket_comparison.tsv` | Where the pocket comparison table is written. |
 | `--job_settings_path` | `<results_dir>/job_settings.json` | Where this run's resolved settings are dumped. |
 | `--log_path` | `<results_dir>/info.log` | Where the run log is written. |
+
+#### Temp options
+
+Scratch space for a single run, deleted when it ends.
+
+| Option | Default | Summary |
+| --- | --- | --- |
+| `--query_dir` | `<results_dir>/query_structures` | Per-run query structures, deleted at the end of the run. |
+| `--target_dir` | `<results_dir>/target_structures` | Per-run target structures, deleted at the end of the run. |
 
 ### Input format
 Query and target entries are colon-separated:
