@@ -81,10 +81,11 @@ def _build_parser():
     Build the top-level parser and its one `search` subcommand.
 
     Option help here is the whole per-option reference -- it is what `search --help` prints, so it
-    must stay in step with the `Settings` dataclass and the README's Options table. Only what argparse
-    cannot generate (the settings-file-only paths, and the examples) lives in `CLI_SEARCH_EPILOG`,
-    which hangs off the `search` subparser alone: the bare `pocketmapper --help` is the subcommand
-    list and nothing more.
+    must stay in step with the `Settings` dataclass and the README's Options tables. Every `Settings`
+    field is reachable from here; the settings JSON is a convenience, never the only route to one.
+    Only what argparse cannot generate (the examples) lives in `CLI_SEARCH_EPILOG`, which hangs off
+    the `search` subparser alone: the bare `pocketmapper --help` is the subcommand list and nothing
+    more.
 
     Returns:
         argparse.ArgumentParser: The configured parser.
@@ -192,6 +193,86 @@ def _build_parser():
         metavar="STR",
         help="As --query_pocket_method, for targets; also accepts foldseek_db. (default: unset)",
     )
+    # A group of their own: these twelve roughly double the option count, and burying --query among
+    # them would make `search --help` unreadable. argparse prints the group after the main options.
+    paths = search.add_argument_group(
+        "path options",
+        "Each defaults to a location under --cache_dir or --results_dir.",
+    )
+    paths.add_argument(
+        "--structure_dir",
+        default=None,
+        metavar="DIR",
+        help="Cache of fetched reference structures. (default: <cache_dir>/ref_structures)",
+    )
+    paths.add_argument(
+        "--pocket_dir",
+        default=None,
+        metavar="DIR",
+        help="Cache of parsed pockets. (default: <cache_dir>/pockets)",
+    )
+    paths.add_argument(
+        "--foldseek_tmp_dir",
+        default=None,
+        metavar="DIR",
+        help="Foldseek's scratch directory, deleted after a Foldseek run. (default: <cache_dir>/foldseek_tmp)",
+    )
+    paths.add_argument(
+        "--foldseek_preprocessed_structure_dir",
+        default=None,
+        metavar="DIR",
+        help="Cache of the single-chain structures Foldseek is given. "
+        "(default: <cache_dir>/foldseek_preprocessed_structures)",
+    )
+    paths.add_argument(
+        "--fsdb_dir",
+        default=None,
+        metavar="DIR",
+        help="Cache of bundled Foldseek databases. (default: <cache_dir>/fsdb)",
+    )
+    paths.add_argument(
+        "--query_dir",
+        default=None,
+        metavar="DIR",
+        help="Per-run query structures, deleted at the end of the run. (default: <results_dir>/query_structures)",
+    )
+    paths.add_argument(
+        "--target_dir",
+        default=None,
+        metavar="DIR",
+        help="Per-run target structures, deleted at the end of the run. (default: <results_dir>/target_structures)",
+    )
+    paths.add_argument(
+        "--aligned_structure_dir",
+        default=None,
+        metavar="DIR",
+        help="Where superposed structures for the top hits are written. (default: <results_dir>/aligned_structures)",
+    )
+    paths.add_argument(
+        "--alignment_path",
+        default=None,
+        metavar="PATH",
+        help="Where the alignment table is written. (default: <results_dir>/alignment.tsv)",
+    )
+    paths.add_argument(
+        "--pocket_comparison_path",
+        default=None,
+        metavar="PATH",
+        help="Where the pocket comparison table is written. (default: <results_dir>/pocket_comparison.tsv)",
+    )
+    paths.add_argument(
+        "--job_settings_path",
+        default=None,
+        metavar="PATH",
+        help="Where this run's resolved settings are dumped. (default: <results_dir>/job_settings.json)",
+    )
+    paths.add_argument(
+        "--log_path",
+        default=None,
+        metavar="PATH",
+        help="Where the run log is written. (default: <results_dir>/info.log)",
+    )
+
     # So main() can report a usage error against the subparser the argument actually belongs to;
     # the top-level parser's usage line names only COMMAND, which is no help to someone who
     # mistyped a search option.
@@ -238,6 +319,18 @@ def main(argv=None):
             align_struct_method=args.align_struct_method,
             query_pocket_method=args.query_pocket_method,
             target_pocket_method=args.target_pocket_method,
+            structure_dir=args.structure_dir,
+            pocket_dir=args.pocket_dir,
+            foldseek_tmp_dir=args.foldseek_tmp_dir,
+            foldseek_preprocessed_structure_dir=args.foldseek_preprocessed_structure_dir,
+            query_dir=args.query_dir,
+            target_dir=args.target_dir,
+            aligned_structure_dir=args.aligned_structure_dir,
+            alignment_path=args.alignment_path,
+            pocket_comparison_path=args.pocket_comparison_path,
+            job_settings_path=args.job_settings_path,
+            log_path=args.log_path,
+            fsdb_dir=args.fsdb_dir,
         )
     except PocketMapperError:
         # Already logged with full stage context at the raise site.

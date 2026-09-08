@@ -138,15 +138,28 @@ the boundary and is meant to have one.
 
 ## Settings
 
-A new option goes in **four hand-maintained places**: the `Settings` dataclass, the `search()` signature
+**Every `Settings` field is reachable from the command line**, and the settings JSON sets nothing the
+CLI cannot. The file is a convenience for keeping a long invocation reproducible, never the only route
+to a setting; the layering that makes it one is in `_configure_workflow`.
+
+A new option goes in **five hand-maintained places**: the `Settings` dataclass, the `search()` signature
 together with the `cli_overrides` dict directly beneath it (one site — the dict mirrors the signature and
-sits next to it precisely so the two cannot drift), the parser in `cli.py`, and the README's Options list.
-None is generated from the dataclass. Miss one and the option is silently ignored.
+sits next to it precisely so the two cannot drift), the parser in `cli.py`, `main()`'s kwarg block in the
+same file, and the README's Options tables. None is generated from the dataclass. Miss one and the option
+is silently ignored — `main()` is the one that reads like boilerplate and is easiest to forget.
+
+Nothing enforces the agreement, but it is checkable in a few lines: `dataclasses.fields(Settings)`,
+`inspect.signature(PocketMapper.search)`, the `cli_overrides` keys, the subparser's `_actions` dests and
+`main()`'s `x=args.x` lines must all name the same fields (modulo `settings`, `query_pos`, `target_pos`,
+which are parser-side spellings rather than fields).
+
+The twelve path fields are grouped separately in both places a human reads them — argparse's
+`path options` group in `_build_parser`, and the README's "Path options" table — because they roughly
+double the option count and would otherwise bury `--query`.
 
 `search --help` *is* generated, from the parser's `help=` strings; `constants.CLI_SEARCH_EPILOG`
-carries only what argparse cannot — the settings-file-only paths, which are not CLI options at all,
-and the examples. It hangs off the `search` subparser alone; the bare `pocketmapper --help` is the
-subcommand list and nothing more.
+carries only the examples, which is all argparse cannot produce. It hangs off the `search` subparser
+alone; the bare `pocketmapper --help` is the subcommand list and nothing more.
 
 Resolution order and the tri-state `foldseek` / `align_struct_method` settings are documented where they are
 resolved — the `Settings` docstring and the `# 4b.` / `# 4c.` comments in `_configure_workflow`, which give
@@ -178,6 +191,16 @@ range in one more place, as a matrix.
 Each module's own docstring states its remit. Not stated anywhere in the code:
 
 - There are no unit tests. `tests/e2e/` is the whole suite; the `pocketmapper-e2e` skill covers running it.
+- **`fixtures/settings_paths.json` is deliberately wrong, and JSON cannot say so.** It sets a `results_dir`
+  that must never be used: `test_settings_2` relies on the runner appending its own `--results_dir` after
+  the case args, so if CLI-over-file layering ever broke, `pocket_comparison.tsv` would land at the file's
+  path and the existing assertion would fail. Its `align_count: 3` is the other half — a value nothing on
+  the command line sets, so seeing it in `job_settings.json` proves the file was read at all. Change either
+  value and the case stops testing anything.
+- **What `test_settings_1` cannot catch.** The runner only ever asserts on `$case_out/pocket_comparison.tsv`,
+  so a path option that argparse accepts and something downstream silently drops still passes. The case
+  catches a rejected or crashing flag and nothing subtler; the five-way agreement check under "Settings" is
+  what covers the rest, by hand.
 - `build/` and `dist/` are stale artifacts of an older version. Both are gitignored and untracked, so a
   fresh clone and CI never see them — but setuptools reuses `build/lib/` in place rather than clearing it,
   so on a machine that has one, `pip install .` silently ships whatever dead modules it still holds
@@ -207,6 +230,9 @@ entry: `PocketMapper().search(...)` does the same work as the CLI, or drive a co
   method's docstring. `search()` does this for you.
 - **`search()` has global side effects**: `logging.config.dictConfig` reconfigures the *root* logger and
   stomps on a host app's logging setup, and `_delete_tmp` `shutil.rmtree`s
-  `query_dir`/`target_dir`/`foldseek_tmp_dir` at the end (marked `# TODO this is unsafe`).
+  `query_dir`/`target_dir`/`foldseek_tmp_dir` at the end. That last one is guarded rather than
+  unconditional: all three are settable, so `lib.is_within` skips (with a warning) any that does not
+  resolve under `cache_dir` or `results_dir`. The guard bounds the damage from a mistyped path; it is
+  not a reason to point those settings at a directory you care about.
 - Results come back through files — `search()` returns `None`, so read `pocket_comparison.tsv` /
   `alignment.tsv` from `results_dir` (paths available on `Settings`).

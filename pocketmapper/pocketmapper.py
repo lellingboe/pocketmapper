@@ -31,7 +31,7 @@ import pandas as pd
 import os
 from datetime import datetime
 import shutil
-from pocketmapper.lib import jsonify_dict, parse_foldseek_pdb_entry_name, safe_filename
+from pocketmapper.lib import is_within, jsonify_dict, parse_foldseek_pdb_entry_name, safe_filename
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.pisa_downloader import PisaDownloader
 from pocketmapper.pisa_parser import PisaParser
@@ -78,8 +78,8 @@ class Settings:
     align_struct_method: str = "auto"
     verbosity: int = 3
 
-    # Derived paths -- left unset (None) until resolve_paths() fills them in,
-    # unless explicitly provided via the settings file.
+    # Derived paths -- left unset (None) until resolve_paths() fills them in, unless explicitly
+    # provided via the settings file or the matching command-line option.
     structure_dir: str | None = None
     pocket_dir: str | None = None
     foldseek_tmp_dir: str | None = None
@@ -97,10 +97,10 @@ class Settings:
         """
         Return a copy of these settings with any unset derived paths filled in.
 
-        Paths already set -- e.g. via the settings file -- are left untouched. Always call this on a
-        Settings you built yourself; `search()` does it for you. Skipping it leaves the derived paths None
-        and yields an opaque `TypeError: expected str, bytes or os.PathLike object, not NoneType` from
-        inside `os.path.join`.
+        Paths already set -- via the settings file or a command-line option -- are left untouched.
+        Always call this on a Settings you built yourself; `search()` does it for you. Skipping it
+        leaves the derived paths None and yields an opaque `TypeError: expected str, bytes or
+        os.PathLike object, not NoneType` from inside `os.path.join`.
 
         Returns:
             Settings: A new instance with the derived paths resolved against cache_dir/results_dir.
@@ -219,6 +219,18 @@ class PocketMapper:
         align_struct_method=None,
         query_pocket_method=None,
         target_pocket_method=None,
+        structure_dir=None,
+        pocket_dir=None,
+        foldseek_tmp_dir=None,
+        foldseek_preprocessed_structure_dir=None,
+        query_dir=None,
+        target_dir=None,
+        aligned_structure_dir=None,
+        alignment_path=None,
+        pocket_comparison_path=None,
+        job_settings_path=None,
+        log_path=None,
+        fsdb_dir=None,
     ):
         """
         Orchestrate and run the full PocketMapper search workflow.
@@ -243,6 +255,29 @@ class PocketMapper:
                 'pisa', 'passthrough', 'vdw', 'whole_chain' or 'foldseek_db'. Left unset, it is
                 inferred per entry from the input string.
             target_pocket_method (str, optional): As `query_pocket_method`, for the target side.
+            structure_dir (str, optional): Cache of fetched reference structures.
+                Defaults to <cache_dir>/ref_structures.
+            pocket_dir (str, optional): Cache of parsed pockets. Defaults to <cache_dir>/pockets.
+            foldseek_tmp_dir (str, optional): Foldseek's scratch directory, deleted after a Foldseek
+                run. Defaults to <cache_dir>/foldseek_tmp.
+            foldseek_preprocessed_structure_dir (str, optional): Cache of the single-chain structures
+                Foldseek is given. Defaults to <cache_dir>/foldseek_preprocessed_structures.
+            query_dir (str, optional): Per-run query structures, deleted at the end of the run.
+                Defaults to <results_dir>/query_structures.
+            target_dir (str, optional): Per-run target structures, deleted at the end of the run.
+                Defaults to <results_dir>/target_structures.
+            aligned_structure_dir (str, optional): Where the superposed structures for the top hits
+                are written. Defaults to <results_dir>/aligned_structures.
+            alignment_path (str, optional): Where the alignment table is written.
+                Defaults to <results_dir>/alignment.tsv.
+            pocket_comparison_path (str, optional): Where the pocket comparison table is written.
+                Defaults to <results_dir>/pocket_comparison.tsv.
+            job_settings_path (str, optional): Where this run's resolved settings are dumped.
+                Defaults to <results_dir>/job_settings.json.
+            log_path (str, optional): Where the run log is written.
+                Defaults to <results_dir>/info.log.
+            fsdb_dir (str, optional): Cache of bundled Foldseek databases.
+                Defaults to <cache_dir>/fsdb.
 
         Returns:
             None: Results are written to `results_dir` -- read pocket_comparison.tsv and
@@ -267,6 +302,18 @@ class PocketMapper:
             "align_struct_method": align_struct_method,
             "query_pocket_method": query_pocket_method,
             "target_pocket_method": target_pocket_method,
+            "structure_dir": structure_dir,
+            "pocket_dir": pocket_dir,
+            "foldseek_tmp_dir": foldseek_tmp_dir,
+            "foldseek_preprocessed_structure_dir": foldseek_preprocessed_structure_dir,
+            "query_dir": query_dir,
+            "target_dir": target_dir,
+            "aligned_structure_dir": aligned_structure_dir,
+            "alignment_path": alignment_path,
+            "pocket_comparison_path": pocket_comparison_path,
+            "job_settings_path": job_settings_path,
+            "log_path": log_path,
+            "fsdb_dir": fsdb_dir,
         }
 
         self._settings = self._configure_workflow(settings, cli_overrides)
@@ -338,7 +385,7 @@ class PocketMapper:
         supplied = {key: value for key, value in cli_overrides.items() if value is not None}
         settings = replace(settings, **supplied)
 
-        # 4. Computed paths (only fills in paths not already set via the settings file)
+        # 4. Computed paths (only fills in paths not already set by the settings file or an argument)
         settings = settings.resolve_paths()
 
         # Ensure all necessary directories exist before proceeding, creating them if needed
@@ -1435,14 +1482,18 @@ class PocketMapper:
 
     def _delete_tmp(self):
         """
-        Cleanup temporary cache directories holding extracted domains following completion cycles.
+        Delete this run's scratch directories.
 
-        Erases dynamically built sub-directories holding processed query logic, removing intermediate
-        uncompressed sequences unless flagged for extended review formats via `human_domains`.
+        Removes query_dir and target_dir, plus foldseek_tmp_dir when Foldseek did the aligning.
+        Anything resolving outside cache_dir and results_dir is left alone and warned about: these
+        three are settable by both the settings file and the command line, so a mistyped
+        `--query_dir` would otherwise hand an unrelated directory to `shutil.rmtree`.
 
         Returns:
             None
         """
+        self._log_extra.update({"stage": "Cleaning Up"})
+
         tmp_dirs = [
             "query_dir",
             "target_dir",
@@ -1450,6 +1501,14 @@ class PocketMapper:
         if self._settings.foldseek:
             tmp_dirs.append("foldseek_tmp_dir")
 
-        # TODO this is unsafe
-        for dir in tmp_dirs:
-            shutil.rmtree(getattr(self._settings, dir))
+        roots = [self._settings.cache_dir, self._settings.results_dir]
+        for dir_key in tmp_dirs:
+            path = getattr(self._settings, dir_key)
+            if not is_within(path, roots):
+                logging.warning(
+                    f"Not deleting {dir_key} {path}: it is outside cache_dir and results_dir. "
+                    "Remove it yourself if that was intended.",
+                    extra=self._log_extra,
+                )
+                continue
+            shutil.rmtree(path)

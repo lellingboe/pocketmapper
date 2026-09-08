@@ -58,6 +58,38 @@ def safe_filename(name, max_len=80):
     return f"{stem}_{name_hash}" if stem else name_hash
 
 
+def is_within(path, roots):
+    """
+    Report whether a path resolves to somewhere inside one of `roots`.
+
+    Guards deletions of user-settable directories. Every path in Settings can be pointed anywhere by
+    a settings file or a command-line option, so a caller about to remove one needs to know it is
+    removing something this run created rather than a directory the user named by mistake.
+
+    Both sides are resolved with `os.path.realpath` before comparing, so `..` segments and symlinks
+    cannot walk out of a root and then appear to be inside it. A root equal to the path counts as
+    containing it.
+
+    Args:
+        path (str): The path to test.
+        roots (list): Candidate containing directories; only one has to match.
+
+    Returns:
+        bool: True if `path` is inside (or equal to) any of `roots`.
+    """
+    real_path = os.path.realpath(path)
+    for root in roots:
+        real_root = os.path.realpath(root)
+        # commonpath raises on a mix of absolute and relative paths; realpath has made both
+        # absolute, so the only remaining raiser is a different drive, which cannot be a match.
+        try:
+            if os.path.commonpath([real_path, real_root]) == real_root:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 def binary_similarity(seqA, seqB, similarity_matrix):
     """
     Fraction of positions where two aligned sequences score above zero.

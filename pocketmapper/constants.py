@@ -79,29 +79,13 @@ ALIGN_STRUCT_METHODS = ("auto", "pocket", "foldseek")
 DEFAULT_CHAIN = "A"
 
 
-# The parts of `search --help` that argparse cannot generate. The per-option list is built from the
-# parser in cli.py, so it is no longer duplicated here; what remains is the settings-file-only paths
-# (which are not CLI options at all) and the examples. It hangs off the `search` subparser only --
-# the bare `pocketmapper --help` lists subcommands and nothing else. Kept to 80 columns. Anything
-# longer -- the input grammar, the databases, the output columns, the Foldseek fallback -- lives in
-# the README, which the footer points at. The path table below must still match the Settings
-# dataclass and the README.
+# The one part of `search --help` that argparse cannot generate: the examples. Every option,
+# including the twelve paths, is now built from the parser in cli.py, so nothing about them is
+# duplicated here. It hangs off the `search` subparser only -- the bare `pocketmapper --help` lists
+# subcommands and nothing else. Kept to 80 columns. Anything longer -- the input grammar, the
+# databases, the output columns, the Foldseek fallback -- lives in the README, which the footer
+# points at.
 CLI_SEARCH_EPILOG = """
-Advanced options, settable only in the settings JSON. All are paths; the
-defaults below write <cache> for cache_dir and <results> for results_dir:
-  structure_dir                        <cache>/ref_structures
-  pocket_dir                           <cache>/pockets
-  foldseek_tmp_dir                     <cache>/foldseek_tmp
-  foldseek_preprocessed_structure_dir  <cache>/foldseek_preprocessed_structures
-  fsdb_dir                             <cache>/fsdb
-  query_dir                            <results>/query_structures
-  target_dir                           <results>/target_structures
-  aligned_structure_dir                <results>/aligned_structures
-  alignment_path                       <results>/alignment.tsv
-  pocket_comparison_path               <results>/pocket_comparison.tsv
-  job_settings_path                    <results>/job_settings.json
-  log_path                             <results>/info.log
-
 Examples:
   # One pair, using Foldseek when the binary is installed and the built-in
   # BLOSUM62 aligner when it is not.

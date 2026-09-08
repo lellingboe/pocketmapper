@@ -37,18 +37,22 @@ FIXTURES_DIR="$SCRIPT_DIR/fixtures"
 #          must exit non-zero (a rejected option combination), and nothing is
 #          asserted about its output.
 # args     passed to `pocketmapper search` verbatim (word-split on spaces).
-#          @PDB_FSDB@ expands to $POCKETMAPPER_PDB_FSDB. Foldseek is the
-#          CLI's default, so a case is assumed to need the binary and is
-#          skipped when it is missing; a case opts out with an explicit
-#          `--foldseek False`, which exercises the local BLOSUM62 aligner
-#          and still runs without the binary.
+#          @PDB_FSDB@ expands to $POCKETMAPPER_PDB_FSDB, @CACHE@ to the shared
+#          cache dir and @OUT@ to this case's own results dir -- the last two
+#          let a case aim a path option somewhere real without hardcoding a
+#          machine-specific path. Foldseek is the CLI's default, so a case is
+#          assumed to need the binary and is skipped when it is missing; a
+#          case opts out with an explicit `--foldseek False`, which exercises
+#          the local BLOSUM62 aligner and still runs without the binary.
 #
 # Cases are grouped by what they exercise, and each group is named by its
 # prefix and numbered within itself: test_core_* structure-vs-structure pairs,
 # test_open_* open whole-chain targets, test_domains_* human_domains DB
 # targets, test_fsdb_* the larger Foldseek DB targets, test_local_* the local
-# aligner. The prefix tracks the group, not the tag column -- test_open_* and
-# two of the test_local_* cases are tagged 'core' as well.
+# aligner, test_settings_* how a run is configured rather than what it
+# computes. The prefix tracks the group, not the tag column -- test_open_*,
+# both test_settings_* and two of the test_local_* cases are tagged 'core' as
+# well.
 #
 # Append to a group and nothing else moves; inserting mid-group still renumbers
 # that group's tail, so CI pins (see .github/workflows/test_and_deploy.yml) name
@@ -84,6 +88,9 @@ test_local_3|core local|rows|Open whole-chain target on the local aligner|4Q5J:A
 test_local_4|core local|rows|Explicit pocket superposition on the local aligner|4Q5J:A_E 4Q5J:B_F --foldseek False --align_struct_method pocket
 test_local_5|core local|fail|align_struct_method foldseek rejected on the local aligner|4Q5J:A_E 4Q5J:B_F --foldseek False --align_struct_method foldseek
 test_local_6|core local|fail|Unknown align_struct_method rejected|4Q5J:A_E 4Q5J:B_F --foldseek False --align_struct_method bogus
+
+test_settings_1|core settings|rows|Path options set on the command line|4Q5J:A_E 4Q5J:B_F --foldseek False --structure_dir @CACHE@/ref_structures --pocket_dir @CACHE@/pockets --alignment_path @OUT@/custom_alignment.tsv --aligned_structure_dir @OUT@/custom_aligned --job_settings_path @OUT@/custom_settings.json --log_path @OUT@/custom.log
+test_settings_2|core settings|rows|CLI arguments override a settings file|--settings settings_paths.json 4Q5J:A_E 4Q5J:B_F --foldseek False
 EOF
 
 # ---------------------------------------------------------------------------
@@ -248,6 +255,8 @@ while IFS='|' read -r name tags expect desc args; do
     # --- build the command ------------------------------------------------
     case_out="$OUT_DIR/$name"
     resolved_args="${args//@PDB_FSDB@/$PDB_FSDB}"
+    resolved_args="${resolved_args//@CACHE@/$CACHE_DIR}"
+    resolved_args="${resolved_args//@OUT@/$case_out}"
 
     if [ "$KEEP" -eq 0 ] && [ -d "$case_out" ]; then
         # Scoped to this case's own directory; never touches OUT_DIR itself.

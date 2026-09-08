@@ -77,7 +77,26 @@ Downloads are cached in `--cache_dir`, so a second run over the same structures 
 `--query` and `--target` may also be given positionally, in that order, as the first two arguments:
 `pocketmapper search 4Q5J:B_F 4Q5J:A_E` is the same run as the example above.
 
-The path settings not listed here are covered under [Advanced options](#advanced-options).
+#### Path options
+
+Every path PocketMapper writes to or caches in can be set individually. Each defaults to a location
+under `--cache_dir` or `--results_dir`, so you only need these to split a run's outputs across
+directories.
+
+| Option | Default | Summary |
+| --- | --- | --- |
+| `--structure_dir` | `<cache_dir>/ref_structures` | Cache of fetched reference structures. |
+| `--pocket_dir` | `<cache_dir>/pockets` | Cache of parsed pockets. |
+| `--foldseek_tmp_dir` | `<cache_dir>/foldseek_tmp` | Foldseek's scratch directory, deleted after a Foldseek run. |
+| `--foldseek_preprocessed_structure_dir` | `<cache_dir>/foldseek_preprocessed_structures` | Cache of the single-chain structures Foldseek is given. |
+| `--fsdb_dir` | `<cache_dir>/fsdb` | Cache of bundled Foldseek databases. |
+| `--query_dir` | `<results_dir>/query_structures` | Per-run query structures, deleted at the end of the run. |
+| `--target_dir` | `<results_dir>/target_structures` | Per-run target structures, deleted at the end of the run. |
+| `--aligned_structure_dir` | `<results_dir>/aligned_structures` | Where superposed structures for the top hits are written. |
+| `--alignment_path` | `<results_dir>/alignment.tsv` | Where the alignment table is written. |
+| `--pocket_comparison_path` | `<results_dir>/pocket_comparison.tsv` | Where the pocket comparison table is written. |
+| `--job_settings_path` | `<results_dir>/job_settings.json` | Where this run's resolved settings are dumped. |
+| `--log_path` | `<results_dir>/info.log` | Where the run log is written. |
 
 ### Input format
 Query and target entries are colon-separated:
@@ -253,26 +272,15 @@ pocketmapper search --query queries.txt --target targets.txt --settings config.j
 ### Advanced options
 
 **The settings JSON.** `--settings config.json` takes a flat `{"option": value}` object using the same
-names as the CLI options. Settings are layered lowest to highest: built-in defaults, then the JSON file,
-then any explicit CLI argument. It is the only way to set the path options below, all of which default to
-a location under `--cache_dir` or `--results_dir`:
+names as the CLI options, minus the leading `--`. Settings are layered lowest to highest: built-in
+defaults, then the JSON file, then any explicit CLI argument. Every option can be given either way —
+the JSON is for keeping a long invocation reproducible, never the only route to a setting. An
+unrecognised key is an error rather than being ignored.
 
-| Setting | Default |
-| --- | --- |
-| `structure_dir` | `<cache_dir>/ref_structures` |
-| `pocket_dir` | `<cache_dir>/pockets` |
-| `foldseek_tmp_dir` | `<cache_dir>/foldseek_tmp` |
-| `foldseek_preprocessed_structure_dir` | `<cache_dir>/foldseek_preprocessed_structures` |
-| `fsdb_dir` | `<cache_dir>/fsdb` |
-| `query_dir` | `<results_dir>/query_structures` |
-| `target_dir` | `<results_dir>/target_structures` |
-| `aligned_structure_dir` | `<results_dir>/aligned_structures` |
-| `alignment_path` | `<results_dir>/alignment.tsv` |
-| `pocket_comparison_path` | `<results_dir>/pocket_comparison.tsv` |
-| `job_settings_path` | `<results_dir>/job_settings.json` |
-| `log_path` | `<results_dir>/info.log` |
-
-`query_dir` and `target_dir` are deleted at the end of a run, as is `foldseek_tmp_dir` when Foldseek was used.
+`query_dir` and `target_dir` are deleted at the end of a run, as is `foldseek_tmp_dir` when Foldseek was
+used. Because all three are settable, a directory that does not resolve to somewhere under `--cache_dir`
+or `--results_dir` is left in place with a warning instead of being deleted — a mistyped `--query_dir`
+costs you a stray directory, not its contents.
 
 **`--foldseek` is three-valued.** Left unset it means *auto*: Foldseek is used when its binary is on
 `PATH`, and the local BLOSUM62 aligner is used with a warning when it is not. `True` makes Foldseek a hard
