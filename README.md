@@ -10,8 +10,8 @@ It is intended for comparative analysis of binding pockets between query and tar
 
 ### Dependencies
 PocketMapper supports **Python 3.10 to 3.14** and is published on
-[PyPI](https://pypi.org/project/pocketmapper/). Its Python dependencies (biopython, fire, numpy, pandas,
-tqdm, gemmi) are installed by pip.
+[PyPI](https://pypi.org/project/pocketmapper/). Its Python dependencies (biopython, numpy, pandas, tqdm,
+gemmi) are installed by pip.
 
 [Foldseek](https://github.com/steineggerlab/foldseek) is an optional external binary, but installing it is
 recommended:
@@ -73,6 +73,9 @@ Downloads are cached in `--cache_dir`, so a second run over the same structures 
 | `--query_pocket_method` | str | unset | Force the query pocket method instead of inferring it: `pisa`, `passthrough`, `vdw`, `whole_chain`. |
 | `--target_pocket_method` | str | unset | As `--query_pocket_method`, for targets; also accepts `foldseek_db`. |
 | `--help` | flag | — | Show the help message and exit. |
+
+`--query` and `--target` may also be given positionally, in that order, as the first two arguments:
+`pocketmapper search 4Q5J:B_F 4Q5J:A_E` is the same run as the example above.
 
 The path settings not listed here are covered under [Advanced options](#advanced-options).
 

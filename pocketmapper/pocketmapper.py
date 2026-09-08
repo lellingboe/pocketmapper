@@ -1,9 +1,11 @@
 """
 PocketMapper: map and compare binding pockets across protein structures.
 
-`main()` hands `PocketMapper` to fire, so **every public method on the class is a CLI
-subcommand** -- hence the leading underscore on every internal, which is what keeps them out of
-fire's help. `search()` is the whole workflow, top to bottom:
+`search()` is the only public method; everything else on the class is an internal step and carries
+a leading underscore to say so. The command line lives in `cli.py`, which is the only module that
+knows about argv or exit codes.
+
+`search()` is the whole workflow, top to bottom:
 
 1. `_configure_workflow` -> Settings, directories, job_settings.json, logging.
 2. `_configure_query_target` -> QTProcessor -> one DataFrame of QTRecords per side.
@@ -21,14 +23,12 @@ Author: Lachlan Ellingboe
 """
 
 from dataclasses import asdict, dataclass, field, replace
-import fire
 import logging
 import logging.config
 import json
 import subprocess
 import pandas as pd
 import os
-import sys
 from datetime import datetime
 import shutil
 from pocketmapper.lib import jsonify_dict, parse_foldseek_pdb_entry_name, safe_filename
@@ -47,7 +47,6 @@ from pocketmapper.constants import (
     ALIGN_STRUCT_METHODS,
     FOLDSEEK_FORMAT_OUTPUT,
     FOLDSEEK_INSTALL_HINT,
-    HELP_MESSAGE,
 )
 
 
@@ -126,10 +125,10 @@ class Settings:
 
 class PocketMapper:
     """
-    The pipeline, and the object fire turns into the CLI.
+    The pipeline.
 
-    Every public method is a subcommand, so internals carry a leading underscore to stay out of
-    fire's help. `search()` runs the whole workflow; see the module docstring for its steps.
+    `search()` is the only public method and runs the whole workflow; see the module docstring for
+    its steps. Every other method is an internal step and carries a leading underscore.
 
     Usable as a library -- nothing here needs a terminal -- but note `search()` has global side
     effects: it reconfigures the *root* logger via `logging.config.dictConfig`, and deletes its
@@ -215,7 +214,6 @@ class PocketMapper:
         cache_dir=None,
         results_dir=None,
         verbosity=None,
-        help=None,
         foldseek=None,
         align_count=None,
         align_struct_method=None,
@@ -232,7 +230,6 @@ class PocketMapper:
             cache_dir (str, optional): Directory to cache intermediate structures.
             results_dir (str, optional): Directory to output results to.
             verbosity (int, optional): Control logging level.
-            help (bool, optional): Output the help message and exit.
             foldseek (bool, optional): Use foldseek for structure alignment instead of local sequence
                 alignment. Left unset, foldseek is used when the binary is on PATH and the local
                 aligner is used with a warning when it is not. True makes foldseek a hard
@@ -255,22 +252,24 @@ class PocketMapper:
             "stage": "Starting Search"
         }  # dict needed for logging extra info, can be updated throughout the process to indicate the current stage in logs
 
-        # Storing input parameters
-        self._query = query
-        self._target = target
-        self._settings_file = settings
-        self._cache_dir = cache_dir
-        self._results_dir = results_dir
-        self._verbosity = verbosity
-        self._help = help
-        self._foldseek = foldseek
-        self._align_count = align_count
-        self._align_struct_method = align_struct_method
-        self._query_pocket_method = query_pocket_method
-        self._target_pocket_method = target_pocket_method
+        # The Settings fields this call is overriding. `settings` is deliberately absent: it names the
+        # JSON file the overrides sit on top of, and Settings has no such field. Keeping the dict here,
+        # next to the signature it mirrors, is what keeps a new option from being added to one and not
+        # the other.
+        cli_overrides = {
+            "query": query,
+            "target": target,
+            "cache_dir": cache_dir,
+            "results_dir": results_dir,
+            "foldseek": foldseek,
+            "verbosity": verbosity,
+            "align_count": align_count,
+            "align_struct_method": align_struct_method,
+            "query_pocket_method": query_pocket_method,
+            "target_pocket_method": target_pocket_method,
+        }
 
-        self._check_help_search()  # Checks if help flag is set and if so prints the help message and exits
-        self._settings = self._configure_workflow()  # configures the settings which have already been read
+        self._settings = self._configure_workflow(settings, cli_overrides)
         self._query_df, self._target_df = (
             self._configure_query_target()
         )  # parses the query and target inputs to determine their types and sets up the relevant data structures for each entry
@@ -295,29 +294,19 @@ class PocketMapper:
 
         logging.info("PocketMapper search completed successfully.", extra={"stage": "End"})
 
-    def _check_help_search(self):
-        """
-        Display help information for the PocketMapper tool and exit the program.
-
-        If the 'self._help' parameter is provided and evaluates to True, this method prints a
-        help message describing the usage, options, and features of the PocketMapper package,
-        then terminates execution.
-
-        Returns:
-            None: Process exits if `self._help` is True.
-        """
-
-        if self._help:
-            print(HELP_MESSAGE)
-            exit()
-
-    def _configure_workflow(self):
+    def _configure_workflow(self, settings_file, cli_overrides):
         """
         Build the fully resolved `Settings` for this run.
 
         Layers three sources in priority order -- dataclass defaults, then an optional JSON settings file,
-        then the CLI arguments passed to `search()` -- then resolves the derived paths, creates the
+        then the arguments passed to `search()` -- then resolves the derived paths, creates the
         directories and writes job_settings.json.
+
+        Args:
+            settings_file (str or None): Path to a JSON settings file, or None for none.
+            cli_overrides (dict): Settings field name -> value from `search()`. A None value means
+                "not supplied" and is dropped, which is what leaves the settings file in charge of
+                that field; anything else wins over the file.
 
         Returns:
             Settings: The resolved configuration. Also written to `job_settings_path`.
@@ -328,40 +317,26 @@ class PocketMapper:
         settings = Settings()
 
         # 2. Populate settings from the settings file if provided
-        if self._settings_file is not None:
-            if not os.path.isfile(self._settings_file):
-                logging.critical(f"Settings file not found: {self._settings_file}", extra=self._log_extra)
-                raise PocketMapperError(f"Settings file not found: {self._settings_file}")
+        if settings_file is not None:
+            if not os.path.isfile(settings_file):
+                logging.critical(f"Settings file not found: {settings_file}", extra=self._log_extra)
+                raise PocketMapperError(f"Settings file not found: {settings_file}")
             try:
-                with open(self._settings_file) as f:
+                with open(settings_file) as f:
                     settings_data_from_file = json.load(f)
                 settings = replace(settings, **settings_data_from_file)
             except TypeError as e:
-                logging.critical(f"Unknown setting(s) in {self._settings_file}: {e}", extra=self._log_extra)
-                raise PocketMapperError(f"Unknown setting(s) in {self._settings_file}: {e}") from e
+                logging.critical(f"Unknown setting(s) in {settings_file}: {e}", extra=self._log_extra)
+                raise PocketMapperError(f"Unknown setting(s) in {settings_file}: {e}") from e
             except Exception as e:
                 logging.critical(
-                    f"Error reading settings file: {self._settings_file}. Is it in JSON format?", extra=self._log_extra
+                    f"Error reading settings file: {settings_file}. Is it in JSON format?", extra=self._log_extra
                 )
-                raise PocketMapperError(
-                    f"Error reading settings file: {self._settings_file}. Is it in JSON format?"
-                ) from e
+                raise PocketMapperError(f"Error reading settings file: {settings_file}. Is it in JSON format?") from e
 
-        # 3. Override settings with explicit command-line arguments
-        cli_overrides = {
-            "query": self._query,
-            "target": self._target,
-            "cache_dir": self._cache_dir,
-            "results_dir": self._results_dir,
-            "foldseek": self._foldseek,
-            "verbosity": self._verbosity,
-            "align_count": self._align_count,
-            "align_struct_method": self._align_struct_method,
-            "query_pocket_method": self._query_pocket_method,
-            "target_pocket_method": self._target_pocket_method,
-        }
-        cli_overrides = {key: value for key, value in cli_overrides.items() if value is not None}
-        settings = replace(settings, **cli_overrides)
+        # 3. Override settings with the arguments explicitly passed to search()
+        supplied = {key: value for key, value in cli_overrides.items() if value is not None}
+        settings = replace(settings, **supplied)
 
         # 4. Computed paths (only fills in paths not already set via the settings file)
         settings = settings.resolve_paths()
@@ -484,7 +459,7 @@ class PocketMapper:
         stage = {"stage": "Configuring Settings"}
 
         method = settings.align_struct_method
-        # fire hands over whatever was typed, and a settings file can hold anything at all.
+        # The CLI always hands over a str, but a settings file can hold anything at all.
         method = method.lower() if isinstance(method, str) else method
         if method not in ALIGN_STRUCT_METHODS:
             msg = (
@@ -1478,22 +1453,3 @@ class PocketMapper:
         # TODO this is unsafe
         for dir in tmp_dirs:
             shutil.rmtree(getattr(self._settings, dir))
-
-
-def main():
-    """
-    Console-script entry point: hand `PocketMapper` to fire.
-
-    Exits 1 on `PocketMapperError`, which has already been logged with full stage context at the raise
-    site. Modules raise rather than calling `exit()` precisely so the package stays embeddable -- keep
-    it that way when adding error paths.
-    """
-    try:
-        fire.Fire(PocketMapper())
-    except PocketMapperError:
-        # Already logged with full stage context at the raise site.
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()

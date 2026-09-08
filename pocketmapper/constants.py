@@ -79,45 +79,14 @@ ALIGN_STRUCT_METHODS = ("auto", "pocket", "foldseek")
 DEFAULT_CHAIN = "A"
 
 
-# The --help text. Kept to 80 columns and to one sentence per option: anything longer -- the input
-# grammar, the databases, the output columns, the Foldseek fallback -- lives in the README, which
-# the footer points at. Every option here must match the Settings dataclass and the README's Options
-# table; nothing generates one from the other.
-HELP_MESSAGE = """
-PocketMapper - compare the binding surfaces of protein-protein interactions.
-
-Usage:
-    pocketmapper search [OPTIONS]
-
-Options:
-  --query STR         Query entry, or a file with one entry per line.
-                      STRUCT[:CHAIN[:RESIDUES]], e.g. 4Q5J:B_F. (required)
-  --target STR        Target entry, a file with one entry per line, or a
-                      Foldseek DB name: human_domains, pdb. (required)
-  --settings PATH     JSON file of {"option": value}; CLI args override it.
-                      (default: none)
-  --cache_dir DIR     Where structures, pockets and PISA responses are cached.
-                      (default: pocketmapper_cache)
-  --results_dir DIR   Where results are written.
-                      (default: pocketmapper_results_<YYMMDD_HHMMSS>)
-  --verbosity INT     Log level: 4=DEBUG, 3=INFO, 2=WARNING, else ERROR.
-                      (default: 3)
-  --foldseek BOOL     Require the Foldseek aligner (True) or forbid it (False);
-                      unset auto-detects the binary. (default: unset)
-  --align_count INT   How many top-scoring targets to superpose onto each
-                      query; 0 disables. (default: 10)
-  --align_struct_method STR
-                      Which transform superposes a target onto its query:
-                      auto, pocket or foldseek. (default: auto)
-  --query_pocket_method STR
-                      Force the query pocket method rather than inferring it
-                      from the entry: pisa, passthrough, vdw or whole_chain.
-                      (default: unset)
-  --target_pocket_method STR
-                      As --query_pocket_method, for targets; also accepts
-                      foldseek_db. (default: unset)
-  --help              Show this message and exit.
-
+# The parts of `search --help` that argparse cannot generate. The per-option list is built from the
+# parser in cli.py, so it is no longer duplicated here; what remains is the settings-file-only paths
+# (which are not CLI options at all) and the examples. It hangs off the `search` subparser only --
+# the bare `pocketmapper --help` lists subcommands and nothing else. Kept to 80 columns. Anything
+# longer -- the input grammar, the databases, the output columns, the Foldseek fallback -- lives in
+# the README, which the footer points at. The path table below must still match the Settings
+# dataclass and the README.
+CLI_SEARCH_EPILOG = """
 Advanced options, settable only in the settings JSON. All are paths; the
 defaults below write <cache> for cache_dir and <results> for results_dir:
   structure_dir                        <cache>/ref_structures
@@ -137,6 +106,9 @@ Examples:
   # One pair, using Foldseek when the binary is installed and the built-in
   # BLOSUM62 aligner when it is not.
   pocketmapper search --query 4Q5J:B_F --target 4Q5J:A_E --results_dir ./out
+
+  # Query and target may also be given positionally, in that order.
+  pocketmapper search 4Q5J:B_F 4Q5J:A_E --results_dir ./out
 
   # Search a pocket against the bundled Foldseek DB of human domains.
   pocketmapper search --query 4Q5J:B_F --target human_domains

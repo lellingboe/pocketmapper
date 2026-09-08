@@ -3,9 +3,14 @@ Project implementation specifics. Cross-module and derived facts only. Anything 
 
 ## Pipeline
 
-`main()` → `fire.Fire(PocketMapper())`, so **every public method on `PocketMapper` is a CLI subcommand** —
-hence the leading underscores on all internals, to keep them out of fire's help. The seven steps of
-`search()` are listed in the `pocketmapper.py` module docstring.
+`cli.py` holds the argparse parser and the console-script `main()`; it is **the only module that knows
+about argv or exit codes**, and `search()` is its one subcommand. The seven steps of `search()` are listed
+in the `pocketmapper.py` module docstring.
+
+Two parsing details are load-bearing and documented at the parser: query and target are accepted both
+positionally and as `--query`/`--target` (nearly every e2e case uses the positional form), and every
+option defaults to `None` rather than to a `Settings` default, which is what leaves the JSON settings
+file overridable.
 
 ### Input grammar
 
@@ -126,15 +131,22 @@ Every log call must pass `extra={"stage": "..."}` or the record fails to format 
 
 Errors are `logging.critical(...)` then `raise PocketMapperError(...)`; `main()` catches and exits 1.
 
-**No `exit()`/`sys.exit()` inside modules** — deliberately removed, which no code comment can show. The one
-survivor is the CLI affordance `_check_help_search`, so `PocketMapper().search(help=True)` will kill a host
-process — library callers must not pass it.
+**No `exit()`/`sys.exit()` inside modules** — deliberately removed, which no code comment can show. There
+are now none: the last survivor was `_check_help_search`, deleted along with `search()`'s `help` parameter
+when argparse took over `--help`. The only `sys.exit` in the package is in `cli.py`'s `main()`, which is
+the boundary and is meant to have one.
 
 ## Settings
 
-A new option goes in **five hand-maintained places**: the `Settings` dataclass, the `cli_overrides` dict in
-`_configure_workflow`, the `search()` signature, `HELP_MESSAGE` (`constants.py`) and the README's Options
-list. Neither of the last two is generated from the dataclass. Miss one and the option is silently ignored.
+A new option goes in **four hand-maintained places**: the `Settings` dataclass, the `search()` signature
+together with the `cli_overrides` dict directly beneath it (one site — the dict mirrors the signature and
+sits next to it precisely so the two cannot drift), the parser in `cli.py`, and the README's Options list.
+None is generated from the dataclass. Miss one and the option is silently ignored.
+
+`search --help` *is* generated, from the parser's `help=` strings; `constants.CLI_SEARCH_EPILOG`
+carries only what argparse cannot — the settings-file-only paths, which are not CLI options at all,
+and the examples. It hangs off the `search` subparser alone; the bare `pocketmapper --help` is the
+subcommand list and nothing more.
 
 Resolution order and the tri-state `foldseek` / `align_struct_method` settings are documented where they are
 resolved — the `Settings` docstring and the `# 4b.` / `# 4c.` comments in `_configure_workflow`, which give
@@ -180,7 +192,7 @@ Each module's own docstring states its remit. Not stated anywhere in the code:
 
 ## As a library
 
-fire wraps `PocketMapper` only at the `main()` boundary, so nothing here needs a terminal. Two levels of
+The CLI is confined to `cli.py`, so nothing else here needs a terminal. Two levels of
 entry: `PocketMapper().search(...)` does the same work as the CLI, or drive a component directly —
 `qt_processor`, `structure_fetcher`, `structure_preprocessor`, `pisa_downloader`, `pisa_parser`,
 `sequence_aligner`, `structure_aligner`, `pocket_calculator` are each separately usable.
@@ -188,9 +200,9 @@ entry: `PocketMapper().search(...)` does the same work as the CLI, or drive a co
 - **A component reaching into a `Settings` can't be used without building one, and hides which fields it
   depends on** — so no component takes one. The `Settings` is unpacked at each call site in
   `pocketmapper.py` into the values that component needs.
-- **`pocketmapper/__init__.py` only exports `main` and `__version__`.** Submodules are reachable as
-  `pocketmapper.lib` etc. only as a side effect of `pocketmapper.pocketmapper` importing them — always use
-  explicit `from pocketmapper.<module> import <name>`.
+- **`pocketmapper/__init__.py` only exports `main` and `__version__`**, now from `pocketmapper.cli`.
+  Submodules are reachable as `pocketmapper.lib` etc. only as a side effect of that import chain — always
+  use explicit `from pocketmapper.<module> import <name>`.
 - **Always call `Settings(...).resolve_paths()`** if you build one yourself — the failure mode is in that
   method's docstring. `search()` does this for you.
 - **`search()` has global side effects**: `logging.config.dictConfig` reconfigures the *root* logger and

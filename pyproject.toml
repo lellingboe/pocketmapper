@@ -3,7 +3,6 @@ name = "pocketmapper"
 version = "0.1.0"
 dependencies = [
     "biopython>=1.80",
-    "fire>=0.5",
     "numpy>=1.24",
     "pandas>=2.0",
     "tqdm>=4.64",
@@ -39,7 +38,7 @@ dev = [
 ]
 
 [project.scripts]
-pocketmapper = "pocketmapper:main"
+pocketmapper = "pocketmapper.cli:main"
 
 [build-system]
 requires = [

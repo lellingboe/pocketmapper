@@ -70,8 +70,8 @@ jobs:
               importlib.import_module('pocketmapper.' + m.name)
               print('ok', m.name)
           "
-      # The bare group help, deliberately: `search --help` goes through
-      # _check_help_search, which calls exit().
+      # The bare entry point, which is what proves the console script resolves and
+      # the package imports. argparse prints the top-level help and exits 0.
       - name: CLI entry point
         run: pocketmapper --help
   # One end-to-end case per aligner, on each OS foldseek supports, plus the ends
