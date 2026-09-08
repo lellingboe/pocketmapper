@@ -8,8 +8,9 @@ importable without a terminal; see `pocketmapper.pocketmapper`.
 
 Three parsing details are load-bearing, each for a reason the code alone would not show:
 
-- Query and target are accepted both positionally and as `--query`/`--target`. Nearly every e2e case
-  uses the positional form, which predates this module.
+- Query and target are positional and required; there are no `--query`/`--target` options. The
+  `Settings` fields of those names stay for library callers, but argparse always supplies both here,
+  so a settings file's `query`/`target` can never win on the CLI path.
 - Every option defaults to None, never to a `Settings` default. `_configure_workflow` layers the JSON
   settings file under the CLI arguments by testing `is not None`, so a non-None default here would
   make the settings file unoverridable.
@@ -54,28 +55,6 @@ def _bool_arg(value):
     raise argparse.ArgumentTypeError(f"expected True or False, got {value!r}")
 
 
-def _merge_positional(parser, named, positional, name):
-    """
-    Collapse the positional and `--name` spellings of one argument into a single value.
-
-    Both spellings are supported, so they need separate argparse dests -- a `nargs="?"` positional
-    sharing a dest with an option overwrites that option with its own default whenever it is absent,
-    silently discarding `--query`.
-
-    Args:
-        parser (argparse.ArgumentParser): Parser to raise the usage error through.
-        named (str or None): Value from `--name`.
-        positional (str or None): Value from the positional slot.
-        name (str): Option name, for the error message.
-
-    Returns:
-        str or None: Whichever was supplied, or None if neither was.
-    """
-    if named is not None and positional is not None:
-        parser.error(f"{name} given both positionally ({positional!r}) and as --{name} ({named!r})")
-    return named if named is not None else positional
-
-
 def _build_parser():
     """
     Build the top-level parser and its one `search` subcommand.
@@ -105,30 +84,14 @@ def _build_parser():
     )
 
     search.add_argument(
-        "query_pos",
-        nargs="?",
-        default=None,
+        "query",
         metavar="QUERY",
-        help="Positional spelling of --query.",
+        help="Query entry, or a file with one entry per line. STRUCT[:CHAIN[:RESIDUES]], e.g. 4Q5J:B_F.",
     )
     search.add_argument(
-        "target_pos",
-        nargs="?",
-        default=None,
+        "target",
         metavar="TARGET",
-        help="Positional spelling of --target.",
-    )
-    search.add_argument(
-        "--query",
-        default=None,
-        metavar="STR",
-        help="Query entry, or a file with one entry per line. STRUCT[:CHAIN[:RESIDUES]], e.g. 4Q5J:B_F. (required)",
-    )
-    search.add_argument(
-        "--target",
-        default=None,
-        metavar="STR",
-        help="Target entry, a file with one entry per line, or a Foldseek DB name: human_domains, pdb. (required)",
+        help="Target entry, a file with one entry per line, or a Foldseek DB name: human_domains, pdb.",
     )
     search.add_argument(
         "--settings",
@@ -193,8 +156,9 @@ def _build_parser():
         metavar="STR",
         help="As --query_pocket_method, for targets; also accepts foldseek_db. (default: unset)",
     )
-    # A group of their own: these twelve roughly double the option count, and burying --query among
-    # them would make `search --help` unreadable. argparse prints the group after the main options.
+    # A group of their own: these twelve roughly double the option count, and burying --foldseek and
+    # --align_struct_method among them would make `search --help` unreadable. argparse prints the
+    # group after the main options.
     paths = search.add_argument_group(
         "path options",
         "Each defaults to a location under --cache_dir or --results_dir.",
@@ -273,10 +237,6 @@ def _build_parser():
         help="Where the run log is written. (default: <results_dir>/info.log)",
     )
 
-    # So main() can report a usage error against the subparser the argument actually belongs to;
-    # the top-level parser's usage line names only COMMAND, which is no help to someone who
-    # mistyped a search option.
-    search.set_defaults(subparser=search)
     return parser
 
 
@@ -303,13 +263,10 @@ def main(argv=None):
         parser.print_help()
         return
 
-    query = _merge_positional(args.subparser, args.query, args.query_pos, "query")
-    target = _merge_positional(args.subparser, args.target, args.target_pos, "target")
-
     try:
         PocketMapper().search(
-            query=query,
-            target=target,
+            query=args.query,
+            target=args.target,
             settings=args.settings,
             cache_dir=args.cache_dir,
             results_dir=args.results_dir,

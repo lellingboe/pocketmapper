@@ -7,10 +7,11 @@ Project implementation specifics. Cross-module and derived facts only. Anything 
 about argv or exit codes**, and `search()` is its one subcommand. The seven steps of `search()` are listed
 in the `pocketmapper.py` module docstring.
 
-Two parsing details are load-bearing and documented at the parser: query and target are accepted both
-positionally and as `--query`/`--target` (nearly every e2e case uses the positional form), and every
-option defaults to `None` rather than to a `Settings` default, which is what leaves the JSON settings
-file overridable.
+Two parsing details are load-bearing and documented at the parser: query and target are required
+positionals with no `--query`/`--target` spelling — so a settings file's `query`/`target` can never
+win on the CLI path, and those two fields exist for library callers alone — and every option defaults
+to `None` rather than to a `Settings` default, which is what leaves the JSON settings file
+overridable.
 
 ### Input grammar
 
@@ -150,12 +151,13 @@ is silently ignored — `main()` is the one that reads like boilerplate and is e
 
 Nothing enforces the agreement, but it is checkable in a few lines: `dataclasses.fields(Settings)`,
 `inspect.signature(PocketMapper.search)`, the `cli_overrides` keys, the subparser's `_actions` dests and
-`main()`'s `x=args.x` lines must all name the same fields (modulo `settings`, `query_pos`, `target_pos`,
-which are parser-side spellings rather than fields).
+`main()`'s `x=args.x` lines must all name the same fields (modulo `settings`, which is a parser-side
+spelling rather than a field). The `query` and `target` positionals carry those dests, so they line up
+with the rest.
 
 The twelve path fields are grouped separately in both places a human reads them — argparse's
 `path options` group in `_build_parser`, and the README's "Path options" table — because they roughly
-double the option count and would otherwise bury `--query`.
+double the option count and would otherwise bury `--foldseek` and `--align_struct_method`.
 
 `search --help` *is* generated, from the parser's `help=` strings; `constants.CLI_SEARCH_EPILOG`
 carries only the examples, which is all argparse cannot produce. It hangs off the `search` subparser

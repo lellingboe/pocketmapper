@@ -39,7 +39,7 @@ Foldseek also has precompiled binaries available at https://dev.mmseqs.com/folds
 ## Usage
 
 ```
-pocketmapper search --query 4Q5J:B_F --target 4Q5J:A_E --results_dir ./out
+pocketmapper search 4Q5J:B_F 4Q5J:A_E --results_dir ./out
 ```
 
 This compares the PISA interface of chain B against chain F of 4Q5J with the interface of chain A against
@@ -57,12 +57,20 @@ chain E of the same entry. Under the hood, one `search` run:
 
 Downloads are cached in `--cache_dir`, so a second run over the same structures is fast.
 
+### Arguments
+
+Both are required, and are given positionally in this order — there is no `--query`/`--target`
+spelling.
+
+| Argument | Summary |
+| --- | --- |
+| `QUERY` | Query entry, or a file with one entry per line (see [Input format](#input-format)). |
+| `TARGET` | Target entry, a file with one entry per line, or a Foldseek DB name (`human_domains`, `pdb`). |
+
 ### Options
 
 | Option | Type | Default | Summary |
 | --- | --- | --- | --- |
-| `--query` | str | *required* | Query entry, or a file with one entry per line (see [Input format](#input-format)). |
-| `--target` | str | *required* | Target entry, a file with one entry per line, or a Foldseek DB name (`human_domains`, `pdb`). |
 | `--settings` | path | none | JSON file of `{"option": value}`; explicit CLI arguments override it. |
 | `--cache_dir` | str | `pocketmapper_cache` | Where structures, pockets and PISA responses are cached. |
 | `--results_dir` | str | `pocketmapper_results_<YYMMDD_HHMMSS>` | Where results are written. |
@@ -73,9 +81,6 @@ Downloads are cached in `--cache_dir`, so a second run over the same structures 
 | `--query_pocket_method` | str | unset | Force the query pocket method instead of inferring it: `pisa`, `passthrough`, `vdw`, `whole_chain`. |
 | `--target_pocket_method` | str | unset | As `--query_pocket_method`, for targets; also accepts `foldseek_db`. |
 | `--help` | flag | — | Show the help message and exit. |
-
-`--query` and `--target` may also be given positionally, in that order, as the first two arguments:
-`pocketmapper search 4Q5J:B_F 4Q5J:A_E` is the same run as the example above.
 
 #### Path options
 
@@ -250,23 +255,23 @@ The rotation matrices are stored in Biopython's right-multiplying convention
 ### Examples
 A single pair, using Foldseek if it is installed and the local aligner otherwise:
 ```
-pocketmapper search --query 4Q5J:B_F --target 4Q5J:A_E --results_dir ./out_fs
+pocketmapper search 4Q5J:B_F 4Q5J:A_E --results_dir ./out_fs
 ```
 Forcing the local BLOSUM62 aligner even when Foldseek is available:
 ```
-pocketmapper search --query 4Q5J:B_F --target 4Q5J:A_E --foldseek False --results_dir ./out_local
+pocketmapper search 4Q5J:B_F 4Q5J:A_E --foldseek False --results_dir ./out_local
 ```
 An open search — is this pocket anywhere on chain A of 4Q5J at all?
 ```
-pocketmapper search --query 4Q5J:B_F --target 4Q5J:A --results_dir ./out_open
+pocketmapper search 4Q5J:B_F 4Q5J:A --results_dir ./out_open
 ```
 Searching a chain against the bundled Foldseek DB of human domains (requires the foldseek binary):
 ```
-pocketmapper search --query 4Q5J:B_F --target human_domains --results_dir ./out_hd
+pocketmapper search 4Q5J:B_F human_domains --results_dir ./out_hd
 ```
 Batch mode using files with one entry per line:
 ```
-pocketmapper search --query queries.txt --target targets.txt --settings config.json
+pocketmapper search queries.txt targets.txt --settings config.json
 ```
 
 ### Advanced options
@@ -275,7 +280,9 @@ pocketmapper search --query queries.txt --target targets.txt --settings config.j
 names as the CLI options, minus the leading `--`. Settings are layered lowest to highest: built-in
 defaults, then the JSON file, then any explicit CLI argument. Every option can be given either way —
 the JSON is for keeping a long invocation reproducible, never the only route to a setting. An
-unrecognised key is an error rather than being ignored.
+unrecognised key is an error rather than being ignored. The query and target are the exception in the
+other direction: they are positional arguments the CLI always supplies, so the `query` and `target`
+keys are only useful when calling `search()` as a library.
 
 `query_dir` and `target_dir` are deleted at the end of a run, as is `foldseek_tmp_dir` when Foldseek was
 used. Because all three are settable, a directory that does not resolve to somewhere under `--cache_dir`

@@ -89,17 +89,13 @@ CLI_SEARCH_EPILOG = """
 Examples:
   # One pair, using Foldseek when the binary is installed and the built-in
   # BLOSUM62 aligner when it is not.
-  pocketmapper search --query 4Q5J:B_F --target 4Q5J:A_E --results_dir ./out
-
-  # Query and target may also be given positionally, in that order.
   pocketmapper search 4Q5J:B_F 4Q5J:A_E --results_dir ./out
 
   # Search a pocket against the bundled Foldseek DB of human domains.
-  pocketmapper search --query 4Q5J:B_F --target human_domains
+  pocketmapper search 4Q5J:B_F human_domains
 
   # Batch mode: one entry per line in each file.
-  pocketmapper search --query queries.txt --target targets.txt \\
-      --settings config.json
+  pocketmapper search queries.txt targets.txt --settings config.json
 
 Input grammar, databases, output columns and the Foldseek fallback are
 documented in the README:
