@@ -6,14 +6,16 @@ atom by atom and keeps the residues whose van der Waals radii approach within 0.
 the only method available for structures with no PISA data -- AlphaFold models and local files.
 """
 
-import os
 import logging
-import gemmi
+import os
 from itertools import product
+
+import gemmi
 from numpy.linalg import norm
 
 from pocketmapper.constants import SINGLE_AA_CODE
-from pocketmapper.pocket import Pocket, PocketResidue
+from pocketmapper.pocket import Pocket
+from pocketmapper.pocket import PocketResidue
 
 
 class PocketCalculator:

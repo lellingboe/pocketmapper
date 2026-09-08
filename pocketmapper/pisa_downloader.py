@@ -9,15 +9,18 @@ Every request is spaced by `base_delay` to stay within the PDBe API's tolerance,
 makes the first run over a large hit list slow.
 """
 
-import os
-import logging
-from urllib.request import urlcleanup, urlretrieve
-import pandas as pd
-from time import sleep
-from tqdm import tqdm
 import json
+import logging
+import os
 from collections import defaultdict
 from glob import glob
+from time import sleep
+from urllib.request import urlcleanup
+from urllib.request import urlretrieve
+
+import pandas as pd
+from tqdm import tqdm
+
 from pocketmapper.exceptions import PocketMapperError
 
 

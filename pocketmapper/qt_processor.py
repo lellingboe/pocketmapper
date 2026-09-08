@@ -12,14 +12,17 @@ the results. Orchestration lives in `pocketmapper.py`; this module only parses.
 
 # TODO Folder input - iterate through files in folder with correct format
 
-from dataclasses import asdict, dataclass
 import hashlib
-from importlib.resources import files
+import json
 import logging
 import os
 import re
+from dataclasses import asdict
+from dataclasses import dataclass
+from importlib.resources import files
+
 import pandas as pd
-import json
+
 from pocketmapper.constants import DEFAULT_CHAIN
 from pocketmapper.exceptions import PocketMapperError
 

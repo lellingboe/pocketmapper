@@ -7,13 +7,15 @@ information to offer, so it writes "-" for the `u` and `t` transform columns -- 
 structural superposition by `align_struct_method="foldseek"` yields the query alone on this path.
 """
 
+from itertools import product
+
+import gemmi
+import pandas as pd
 from Bio import Align
 from Bio.Align import substitution_matrices
-import gemmi
-from itertools import product
-import pandas as pd
 
-from pocketmapper.constants import ALIGNMENT_COLUMNS, SINGLE_AA_CODE
+from pocketmapper.constants import ALIGNMENT_COLUMNS
+from pocketmapper.constants import SINGLE_AA_CODE
 
 
 class SequenceAligner:

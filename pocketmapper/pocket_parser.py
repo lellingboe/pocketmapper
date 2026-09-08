@@ -6,12 +6,14 @@ passthrough, vdw or whole_chain methods is interchangeable downstream. The shape
 fields exist, which are optional and why -- is declared in `pocket.py`.
 """
 
-import gemmi
 import logging
 import os
 
+import gemmi
+
 from pocketmapper.constants import SINGLE_AA_CODE
-from pocketmapper.pocket import Pocket, PocketResidue
+from pocketmapper.pocket import Pocket
+from pocketmapper.pocket import PocketResidue
 
 
 def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):

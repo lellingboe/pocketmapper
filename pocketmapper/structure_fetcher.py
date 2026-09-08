@@ -5,12 +5,13 @@ Downloads are concurrent and land as gzipped mmCIF in the output directory, whic
 on-disk cache between runs.
 """
 
-import os
-import logging
-from concurrent.futures import ThreadPoolExecutor
-from urllib.request import urlcleanup, urlretrieve
-import shutil
 import gzip
+import logging
+import os
+import shutil
+from concurrent.futures import ThreadPoolExecutor
+from urllib.request import urlcleanup
+from urllib.request import urlretrieve
 
 
 def _discard_partial(fpath):

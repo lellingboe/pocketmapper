@@ -6,11 +6,13 @@ the pipeline expects. This is the `pisa` pocket method, available for PDB entrie
 AlphaFold models and local files have no PISA data.
 """
 
-import os
 import json
 import logging
+import os
+
 from pocketmapper.constants import SINGLE_AA_CODE
-from pocketmapper.pocket import Pocket, PocketResidue
+from pocketmapper.pocket import Pocket
+from pocketmapper.pocket import PocketResidue
 
 
 class PisaParser:

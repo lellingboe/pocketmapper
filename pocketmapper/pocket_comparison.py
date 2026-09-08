@@ -19,7 +19,8 @@ alignment row rather than deep-copied.
 
 import json
 import logging
-from collections import defaultdict, namedtuple
+from collections import defaultdict
+from collections import namedtuple
 from itertools import product
 from typing import NamedTuple
 
@@ -31,14 +32,13 @@ from tqdm import tqdm
 
 from pocketmapper.constants import ALIGNMENT_COLUMNS
 from pocketmapper.exceptions import PocketMapperError
-from pocketmapper.lib import (
-    binary_similarity,
-    full_similarity,
-    read_blast_similarity_matrix,
-    read_offset_table,
-    seq_to_uniprot_map,
-)
-from pocketmapper.pocket import Pocket, PocketResidue
+from pocketmapper.lib import binary_similarity
+from pocketmapper.lib import full_similarity
+from pocketmapper.lib import read_blast_similarity_matrix
+from pocketmapper.lib import read_offset_table
+from pocketmapper.lib import seq_to_uniprot_map
+from pocketmapper.pocket import Pocket
+from pocketmapper.pocket import PocketResidue
 
 # One alignment row, unpacked positionally. Built with AlignmentRow(*values), so it depends on the
 # column order exactly as the old row[12]-style indexing did -- it just says which column it means.

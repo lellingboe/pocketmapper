@@ -35,6 +35,7 @@ dev = [
   "bump2version",
   "pre-commit",
   "flake8",
+  "isort",
 ]
 
 [project.scripts]
@@ -70,3 +71,8 @@ exclude = '''
   )/
 )
 '''
+
+[tool.isort]
+profile = "black"
+line_length = 120
+force_single_line = true

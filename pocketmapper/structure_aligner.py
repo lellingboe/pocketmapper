@@ -9,7 +9,9 @@ metadata naming each model.
 
 import logging
 import string
-from itertools import count, permutations
+from itertools import count
+from itertools import permutations
+
 import gemmi
 import numpy as np
 

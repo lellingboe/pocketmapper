@@ -10,6 +10,7 @@ import gzip
 import logging
 import os
 import shutil
+
 import gemmi
 from tqdm import tqdm
 

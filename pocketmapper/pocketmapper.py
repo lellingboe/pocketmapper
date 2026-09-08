@@ -22,32 +22,40 @@ they need, so none of them has to build one to be usable on its own.
 Author: Lachlan Ellingboe
 """
 
-from dataclasses import asdict, dataclass, field, replace
+import json
 import logging
 import logging.config
-import json
-import subprocess
-import pandas as pd
 import os
-from datetime import datetime
 import shutil
-from pocketmapper.lib import is_within, jsonify_dict, parse_foldseek_pdb_entry_name, safe_filename
+import subprocess
+from dataclasses import asdict
+from dataclasses import dataclass
+from dataclasses import field
+from dataclasses import replace
+from datetime import datetime
+
+import pandas as pd
+
+from pocketmapper.constants import ALIGN_STRUCT_METHODS
+from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT
+from pocketmapper.constants import FOLDSEEK_INSTALL_HINT
 from pocketmapper.exceptions import PocketMapperError
+from pocketmapper.lib import is_within
+from pocketmapper.lib import jsonify_dict
+from pocketmapper.lib import parse_foldseek_pdb_entry_name
+from pocketmapper.lib import safe_filename
 from pocketmapper.pisa_downloader import PisaDownloader
 from pocketmapper.pisa_parser import PisaParser
-from pocketmapper.pocket_comparison import compare_pockets, parse_pocket_transform
-from pocketmapper.sequence_aligner import SequenceAligner
 from pocketmapper.pocket_calculator import PocketCalculator
-from pocketmapper.qt_processor import QTProcessor, bundled_human_domains_offset_table
+from pocketmapper.pocket_comparison import compare_pockets
+from pocketmapper.pocket_comparison import parse_pocket_transform
+from pocketmapper.pocket_parser import parse_pocket_from_struct
+from pocketmapper.qt_processor import QTProcessor
+from pocketmapper.qt_processor import bundled_human_domains_offset_table
+from pocketmapper.sequence_aligner import SequenceAligner
 from pocketmapper.structure_aligner import StructureAligner
 from pocketmapper.structure_fetcher import StructureFetcher
 from pocketmapper.structure_preprocessor import StructurePreprocessor
-from pocketmapper.pocket_parser import parse_pocket_from_struct
-from pocketmapper.constants import (
-    ALIGN_STRUCT_METHODS,
-    FOLDSEEK_FORMAT_OUTPUT,
-    FOLDSEEK_INSTALL_HINT,
-)
 
 
 @dataclass
