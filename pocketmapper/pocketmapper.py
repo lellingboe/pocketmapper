@@ -77,6 +77,11 @@ class Settings:
     # is collapsed to one of those by _resolve_align_struct_method(), so nothing downstream sees it.
     align_struct_method: str = "auto"
     verbosity: int = 3
+    # query_dir, target_dir and foldseek_tmp_dir hold the per-run inputs actually handed to the
+    # aligner and the pocket parser, and _delete_tmp removes them on the way out. False keeps them:
+    # a run that produced no rows is diagnosed from what it was given, which is gone by the time
+    # anyone looks.
+    delete_tmp: bool = True
 
     # Derived paths -- left unset (None) until resolve_paths() fills them in, unless explicitly
     # provided via the settings file or the matching command-line option.
@@ -219,6 +224,7 @@ class PocketMapper:
         align_struct_method=None,
         query_pocket_method=None,
         target_pocket_method=None,
+        delete_tmp=None,
         structure_dir=None,
         pocket_dir=None,
         foldseek_tmp_dir=None,
@@ -255,6 +261,9 @@ class PocketMapper:
                 'pisa', 'passthrough', 'vdw', 'whole_chain' or 'foldseek_db'. Left unset, it is
                 inferred per entry from the input string.
             target_pocket_method (str, optional): As `query_pocket_method`, for the target side.
+            delete_tmp (bool, optional): Delete query_dir, target_dir and -- when Foldseek did the
+                aligning -- foldseek_tmp_dir at the end of the run. Defaults to True; False keeps
+                them for inspection.
             structure_dir (str, optional): Cache of fetched reference structures.
                 Defaults to <cache_dir>/ref_structures.
             pocket_dir (str, optional): Cache of parsed pockets. Defaults to <cache_dir>/pockets.
@@ -302,6 +311,7 @@ class PocketMapper:
             "align_struct_method": align_struct_method,
             "query_pocket_method": query_pocket_method,
             "target_pocket_method": target_pocket_method,
+            "delete_tmp": delete_tmp,
             "structure_dir": structure_dir,
             "pocket_dir": pocket_dir,
             "foldseek_tmp_dir": foldseek_tmp_dir,
@@ -1482,7 +1492,7 @@ class PocketMapper:
 
     def _delete_tmp(self):
         """
-        Delete this run's scratch directories.
+        Delete this run's scratch directories, unless `delete_tmp` says otherwise.
 
         Removes query_dir and target_dir, plus foldseek_tmp_dir when Foldseek did the aligning.
         Anything resolving outside cache_dir and results_dir is left alone and warned about: these
@@ -1500,6 +1510,13 @@ class PocketMapper:
         ]
         if self._settings.foldseek:
             tmp_dirs.append("foldseek_tmp_dir")
+
+        # Named rather than counted: which directories survive depends on the aligner, so a run kept
+        # for inspection should say where its inputs actually are.
+        if not self._settings.delete_tmp:
+            kept = ", ".join(getattr(self._settings, dir_key) for dir_key in tmp_dirs)
+            logging.info(f"delete_tmp is False; keeping {kept}", extra=self._log_extra)
+            return
 
         roots = [self._settings.cache_dir, self._settings.results_dir]
         for dir_key in tmp_dirs:

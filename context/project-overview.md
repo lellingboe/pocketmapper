@@ -163,6 +163,11 @@ them. The four groups are `aligned structure options`, `cache options` (what sur
 `--cache_dir` and `--results_dir` head the group whose defaults derive from them. Adding a path
 setting means picking one of those groups in both places.
 
+Lifetime wins over where the default comes from, and `--foldseek_tmp_dir` is the one place the two
+disagree: it defaults under `cache_dir` but a Foldseek run deletes it, so it sits in `temp options`
+rather than with the caches. Moving it back to `cache options` on the strength of its default would
+put a directory that does not survive the run under a heading that promises it does.
+
 `search --help` *is* generated, from the parser's `help=` strings; `constants.CLI_SEARCH_EPILOG`
 carries only the examples, which is all argparse cannot produce. It hangs off the `search` subparser
 alone; the bare `pocketmapper --help` is the subcommand list and nothing more.
@@ -236,9 +241,10 @@ entry: `PocketMapper().search(...)` does the same work as the CLI, or drive a co
   method's docstring. `search()` does this for you.
 - **`search()` has global side effects**: `logging.config.dictConfig` reconfigures the *root* logger and
   stomps on a host app's logging setup, and `_delete_tmp` `shutil.rmtree`s
-  `query_dir`/`target_dir`/`foldseek_tmp_dir` at the end. That last one is guarded rather than
-  unconditional: all three are settable, so `lib.is_within` skips (with a warning) any that does not
-  resolve under `cache_dir` or `results_dir`. The guard bounds the damage from a mistyped path; it is
-  not a reason to point those settings at a directory you care about.
+  `query_dir`/`target_dir`/`foldseek_tmp_dir` at the end unless `delete_tmp=False`, which keeps all
+  three. The rmtree is guarded rather than unconditional: all three are settable, so `lib.is_within`
+  skips (with a warning) any that does not resolve under `cache_dir` or `results_dir`. The guard
+  bounds the damage from a mistyped path; it is not a reason to point those settings at a directory
+  you care about.
 - Results come back through files — `search()` returns `None`, so read `pocket_comparison.tsv` /
   `alignment.tsv` from `results_dir` (paths available on `Settings`).

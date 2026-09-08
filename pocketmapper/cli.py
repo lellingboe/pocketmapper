@@ -174,12 +174,6 @@ def _build_parser():
         help="Cache of parsed pockets. (default: <cache_dir>/pockets)",
     )
     cache_paths.add_argument(
-        "--foldseek_tmp_dir",
-        default=None,
-        metavar="DIR",
-        help="Foldseek's scratch directory, deleted after a Foldseek run. (default: <cache_dir>/foldseek_tmp)",
-    )
-    cache_paths.add_argument(
         "--foldseek_preprocessed_structure_dir",
         default=None,
         metavar="DIR",
@@ -237,6 +231,15 @@ def _build_parser():
         "temp options",
     )
     temp_paths.add_argument(
+        "--delete_tmp",
+        nargs="?",
+        const=True,
+        type=_bool_arg,
+        default=None,
+        metavar="BOOL",
+        help="Delete the directories below at the end of the run; False keeps them. (default: True)",
+    )
+    temp_paths.add_argument(
         "--query_dir",
         default=None,
         metavar="DIR",
@@ -247,6 +250,15 @@ def _build_parser():
         default=None,
         metavar="DIR",
         help="Per-run target structures, deleted at the end of the run. (default: <results_dir>/target_structures)",
+    )
+    # Grouped by lifetime, not by where its default comes from: it is scratch that a Foldseek run
+    # deletes, so it belongs here rather than under the caches that survive the run -- and it is the
+    # one option in this group whose default hangs off --cache_dir.
+    temp_paths.add_argument(
+        "--foldseek_tmp_dir",
+        default=None,
+        metavar="DIR",
+        help="Foldseek's scratch directory, deleted after a Foldseek run. (default: <cache_dir>/foldseek_tmp)",
     )
 
     return parser
@@ -288,6 +300,7 @@ def main(argv=None):
             align_struct_method=args.align_struct_method,
             query_pocket_method=args.query_pocket_method,
             target_pocket_method=args.target_pocket_method,
+            delete_tmp=args.delete_tmp,
             structure_dir=args.structure_dir,
             pocket_dir=args.pocket_dir,
             foldseek_tmp_dir=args.foldseek_tmp_dir,

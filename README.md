@@ -94,7 +94,6 @@ What survives a run and makes the next one fast. Each defaults to a location und
 | `--cache_dir` | `pocketmapper_cache` | Where structures, pockets and PISA responses are cached. |
 | `--structure_dir` | `<cache_dir>/ref_structures` | Cache of fetched reference structures. |
 | `--pocket_dir` | `<cache_dir>/pockets` | Cache of parsed pockets. |
-| `--foldseek_tmp_dir` | `<cache_dir>/foldseek_tmp` | Foldseek's scratch directory, deleted after a Foldseek run. |
 | `--foldseek_preprocessed_structure_dir` | `<cache_dir>/foldseek_preprocessed_structures` | Cache of the single-chain structures Foldseek is given. |
 | `--fsdb_dir` | `<cache_dir>/fsdb` | Cache of bundled Foldseek databases. |
 
@@ -114,12 +113,16 @@ split a run's outputs across directories.
 
 #### Temp options
 
-Scratch space for a single run, deleted when it ends.
+Scratch space for a single run, deleted when it ends — set `--delete_tmp False` to keep all three for
+inspection. `--foldseek_tmp_dir` is the odd one out on defaults: it is grouped here because a Foldseek
+run deletes it, but it defaults under `--cache_dir` rather than `--results_dir`.
 
 | Option | Default | Summary |
 | --- | --- | --- |
+| `--delete_tmp` | `True` | Delete the directories below at the end of the run; `False` keeps them. |
 | `--query_dir` | `<results_dir>/query_structures` | Per-run query structures, deleted at the end of the run. |
 | `--target_dir` | `<results_dir>/target_structures` | Per-run target structures, deleted at the end of the run. |
+| `--foldseek_tmp_dir` | `<cache_dir>/foldseek_tmp` | Foldseek's scratch directory, deleted after a Foldseek run. |
 
 ### Input format
 Query and target entries are colon-separated:
@@ -305,7 +308,9 @@ keys are only useful when calling `search()` as a library.
 `query_dir` and `target_dir` are deleted at the end of a run, as is `foldseek_tmp_dir` when Foldseek was
 used. Because all three are settable, a directory that does not resolve to somewhere under `--cache_dir`
 or `--results_dir` is left in place with a warning instead of being deleted — a mistyped `--query_dir`
-costs you a stray directory, not its contents.
+costs you a stray directory, not its contents. `--delete_tmp False` keeps all three: they hold the
+per-run inputs the aligner and the pocket parser were actually given, which is what you want when a run
+returns nothing and you need to see why.
 
 **`--foldseek` is three-valued.** Left unset it means *auto*: Foldseek is used when its binary is on
 `PATH`, and the local BLOSUM62 aligner is used with a warning when it is not. `True` makes Foldseek a hard
