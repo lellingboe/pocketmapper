@@ -38,7 +38,7 @@ from pocketmapper.constants import ALIGN_STRUCT_METHODS
 from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT
 from pocketmapper.constants import FOLDSEEK_INSTALL_HINT
 from pocketmapper.exceptions import PocketMapperError
-from pocketmapper.foldseek import bundled_human_domains_offset_table
+from pocketmapper.foldseek import bundled_foldseek_dbs
 from pocketmapper.foldseek import check_foldseek
 from pocketmapper.foldseek import run_foldseek
 from pocketmapper.lib import is_within
@@ -1227,7 +1227,12 @@ class PocketMapper:
         # target_df on the PDB path, which synthesise_target_pockets excludes.
         offset_table_path = None
         if synthesise_target_pockets:
-            offset_table_path = bundled_human_domains_offset_table(self.target_df.loc[0, "struct_path"])
+            # Matched on the resolved path, so naming the bundled DB by its path and naming it
+            # "human_domains" give the same answer.
+            offset_paths = {
+                db["db_path"]: db["offset_path"] for db in bundled_foldseek_dbs(self.settings.fsdb_dir).values()
+            }
+            offset_table_path = offset_paths.get(self.target_df.loc[0, "struct_path"])
             if offset_table_path is None:
                 logging.info(
                     "Foldseek database ships no offset table; target residue ids will be positions "

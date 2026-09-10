@@ -70,9 +70,11 @@ are renumbered through `offset_table.tsv` — resolved in `compare_pockets_based
 in `synthesise_target_pocket`, both of which carry the reasoning. Three things follow that no single
 file states:
 
-- **Only the bundled `human_domains` DB is renumbered.** `foldseek.bundled_human_domains_offset_table`
-  matches on the resolved DB path, so a DB you supply yourself keeps 0-indexed positions within the
-  entry — logged at INFO, because the same column then means different things on different runs.
+- **Only the bundled `human_domains` DB is renumbered.** It is the one entry in
+  `foldseek.bundled_foldseek_dbs` with a non-None `offset_path`, and `compare_pockets_based_on_alignment`
+  looks that up by the target's resolved DB path rather than by name — so a DB you supply yourself keeps
+  0-indexed positions within the entry, logged at INFO because the same column then means different
+  things on different runs.
 - **`pocket_2_overlap_ids` is the only column affected**, since a whole-chain pocket already suppresses
   the other `pocket_2_*` columns and has no coordinates to superpose. Verified: against a
   same-environment baseline, a `human_domains` search changes that column and nothing else.

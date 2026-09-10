@@ -87,28 +87,9 @@ BUNDLED_HUMAN_DOMAINS_DB = bundled_human_domains_path("human_v3_20260901")
 BUNDLED_HUMAN_DOMAINS_OFFSET_TABLE = bundled_human_domains_path("offset_table.tsv")
 
 
-def bundled_human_domains_offset_table(struct_path):
-    """
-    The offset table shipped beside the bundled human-domains DB, or None for any other DB.
-
-    Only the bundled DB ships a table, so any other database gets None rather than a table that does
-    not describe it. Compared on the resolved path, so naming the bundled DB by its path and naming it
-    "human_domains" give the same answer.
-
-    Args:
-        struct_path (str): The Foldseek DB path in use.
-
-    Returns:
-        str | None: Path to the table, or None when `struct_path` is not the bundled DB.
-    """
-    if struct_path != BUNDLED_HUMAN_DOMAINS_DB:
-        return None
-    return BUNDLED_HUMAN_DOMAINS_OFFSET_TABLE
-
-
 def bundled_foldseek_dbs(fsdb_dir):
     """
-    The Foldseek database names accepted in place of a structure, mapped to their paths.
+    The Foldseek database names accepted in place of a structure, mapped to what is known about each.
 
     Takes `fsdb_dir` rather than being a constant because `pdb` is downloaded into it on first use, so
     its path is not known until the cache directory is settled. `human_domains` ships inside the
@@ -118,9 +99,16 @@ def bundled_foldseek_dbs(fsdb_dir):
         fsdb_dir (str): Cache directory for downloaded Foldseek databases.
 
     Returns:
-        dict: DB name -> path.
+        dict: DB name -> {"db_path": path to the database, "offset_path": path to the UniProt offset
+            table shipped beside it, or None for a database that ships none}.
     """
     return {
-        "human_domains": BUNDLED_HUMAN_DOMAINS_DB,
-        "pdb": os.path.join(fsdb_dir, "pdb"),
+        "human_domains": {
+            "db_path": BUNDLED_HUMAN_DOMAINS_DB,
+            "offset_path": BUNDLED_HUMAN_DOMAINS_OFFSET_TABLE,
+        },
+        "pdb": {
+            "db_path": os.path.join(fsdb_dir, "pdb"),
+            "offset_path": None,  # PDB hits carry real author ids; nothing to renumber
+        },
     }
