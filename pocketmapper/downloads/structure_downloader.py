@@ -13,7 +13,7 @@ from pocketmapper.downloads.lib_download import download_file
 from pocketmapper.lib import gzip_file
 
 
-class StructureFetcher:
+class StructureDownloader:
     """
     Downloads PDB and AlphaFold structures into a cached output directory.
 
