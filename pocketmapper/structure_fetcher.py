@@ -43,8 +43,8 @@ class StructureFetcher:
         self.out_dir = None
         self.cache = None
         self.logger = logging.getLogger(__name__)
-        self._log_extra = {"stage": "StructureFetcher"}
-        self.logger.debug(f"Initialized with cache: {self.cache}", extra=self._log_extra)
+        self.log_extra = {"stage": "StructureFetcher"}
+        self.logger.debug(f"Initialized with cache: {self.cache}", extra=self.log_extra)
 
     def set_output_directory(self, out_dir):
         """

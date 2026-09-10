@@ -43,7 +43,7 @@ class PisaDownloader:
             max_delay (float): Ceiling on the doubling backoff delay. Defaults to 30.0.
         """
         self.logger = logging.getLogger(__name__)
-        self._stage = {}
+        self.stage = {}
         self.max_retries = max_retries
         self.base_delay = base_delay
         self.max_delay = max_delay
@@ -69,11 +69,11 @@ class PisaDownloader:
                 return True
             except Exception as e:
                 if attempt == self.max_retries:
-                    logging.warning(f"Giving up on {url} after {self.max_retries} attempts: {e}", extra=self._stage)
+                    logging.warning(f"Giving up on {url} after {self.max_retries} attempts: {e}", extra=self.stage)
                     return False
                 logging.debug(
                     f"Attempt {attempt}/{self.max_retries} failed for {url} ({e}); retrying in {delay:.2f}s",
-                    extra=self._stage,
+                    extra=self.stage,
                 )
                 sleep(delay)
                 delay = min(delay * 2, self.max_delay)
@@ -101,10 +101,10 @@ class PisaDownloader:
         existing_files = glob(r"*.json", root_dir=interface_dir)
         missing_pdbs = [x.lower() for x in pdb_list if f"{x.lower()}.json" not in existing_files]
 
-        self._stage = {"stage": "Checking cache for interfaces"}
+        self.stage = {"stage": "Checking cache for interfaces"}
         if len(missing_pdbs) > 0:
             local_count = len(pdb_list) - len(missing_pdbs)
-            logging.info(f"{local_count}/{len(pdb_list)} interfaces found locally", extra=self._stage)
+            logging.info(f"{local_count}/{len(pdb_list)} interfaces found locally", extra=self.stage)
 
             found_pdbs = self.get_summaries(missing_pdbs, summary_dir)
             assembly_dict = self.parse_summaries(
@@ -113,7 +113,7 @@ class PisaDownloader:
             self.get_assemblies(assembly_dict, asm_dir)
             self.parse_assemblies(assembly_dict, asm_dir, interface_dir)
         else:
-            self.logger.info("All interfaces found locally", extra=self._stage)
+            self.logger.info("All interfaces found locally", extra=self.stage)
 
     def get_summaries(self, pdb_codes, summary_dir):
         """
@@ -127,7 +127,7 @@ class PisaDownloader:
             list: The codes whose summary is now on disk. Failures are logged and written to
                 `_Failed.txt` in `summary_dir` rather than raising.
         """
-        self._stage = {"stage": "Downloading PISA summaries"}
+        self.stage = {"stage": "Downloading PISA summaries"}
         print("Downloading summaries")
         problems = []
         valid = []
@@ -159,7 +159,7 @@ class PisaDownloader:
         Raises:
             PocketMapperError: If a cached summary cannot be parsed.
         """
-        self._stage = {"stage": "Parsing PISA summaries"}
+        self.stage = {"stage": "Parsing PISA summaries"}
         print("Parsing summaries")
         asm_dict = defaultdict(list)
         for pdb_code in tqdm(pdb_codes):
@@ -167,14 +167,14 @@ class PisaDownloader:
                 fname = os.path.join(summary_dir, f"{pdb_code}.json")
                 with open(fname) as f:
                     data = json.load(f)
-                logging.debug(f"Summary data for {pdb_code}: {data}", extra=self._stage)
+                logging.debug(f"Summary data for {pdb_code}: {data}", extra=self.stage)
                 if len(data[pdb_code]) != 1:
-                    logging.critical(f"More than one entry in summary for {pdb_code}", extra=self._stage)
+                    logging.critical(f"More than one entry in summary for {pdb_code}", extra=self.stage)
                     continue
                 for assembly in data[pdb_code][0]["assemblies"]:
                     asm_dict[pdb_code].append(assembly["assembly_id"])
             except Exception as e:
-                logging.exception(f"Issue parsing summary for {pdb_code}", extra=self._stage)
+                logging.exception(f"Issue parsing summary for {pdb_code}", extra=self.stage)
                 raise PocketMapperError(f"Issue parsing summary for {pdb_code}: {e}") from e
         return asm_dict
 
@@ -191,7 +191,7 @@ class PisaDownloader:
         Returns:
             None: Failures are collected into `_Failed.txt` in `asm_dir` rather than raising.
         """
-        self._stage = {"stage": "Downloading PISA assemblies"}
+        self.stage = {"stage": "Downloading PISA assemblies"}
         print("Downloading assemblies")
         problems = []
         for pdb_code, assemblies in tqdm(asm_dict.items()):
@@ -223,7 +223,7 @@ class PisaDownloader:
         Returns:
             None: Writes one `<pdb_code>.json` per entry into `interface_dir`.
         """
-        self._stage = {"stage": "Parsing PISA assemblies"}
+        self.stage = {"stage": "Parsing PISA assemblies"}
         print("Parsing assemblies")
         for pdb_code, assemblies in tqdm(asm_dict.items()):
 
@@ -237,7 +237,7 @@ class PisaDownloader:
                 except FileNotFoundError:
                     continue
                 if len(data.keys()) != 1:
-                    logging.critical(f"More than one entry in assembly for {pdb_code}_{asm}", extra=self._stage)
+                    logging.critical(f"More than one entry in assembly for {pdb_code}_{asm}", extra=self.stage)
                     continue
 
                 if "PISA" in data:
@@ -251,7 +251,7 @@ class PisaDownloader:
                         # Checking if interface is between two molecules
                         if len(interface["molecules"]) != 2:
                             logging.critical(
-                                f"More than one molecule in {pdb_code}, {interface['interface_id']}", extra=self._stage
+                                f"More than one molecule in {pdb_code}, {interface['interface_id']}", extra=self.stage
                             )
                             continue
                         # Checking the chain meet the expected specifications
@@ -263,7 +263,7 @@ class PisaDownloader:
                         entry_name = "".join(sorted(chain_ids))
                         all_interfaces[entry_name] = interface
                 except Exception:
-                    logging.exception(f"Issue parsing assembly for {pdb_code}_{asm}", extra=self._stage)
+                    logging.exception(f"Issue parsing assembly for {pdb_code}_{asm}", extra=self.stage)
                     continue
 
             interface_fname = os.path.join(interface_dir, f"{pdb_code}.json")

@@ -789,12 +789,12 @@ class PocketMapper:
         logging.info("Running Foldseek alignment...", extra=stage)
 
         # Setting up paths for foldseek databases
-        self._query_db_path = os.path.join(self.settings.query_dir, "query_db")
+        self.query_db_path = os.path.join(self.settings.query_dir, "query_db")
         query_db_cmd = [
             "foldseek",
             "createdb",
             self.settings.query_dir,
-            self._query_db_path,
+            self.query_db_path,
         ]
         logging.debug(
             f"Running Foldseek createdb for query with command: {' '.join([str(x) for x in query_db_cmd])}", extra=stage
@@ -802,15 +802,15 @@ class PocketMapper:
         subprocess.run(query_db_cmd, check=True)
 
         if self.fsdb_target:
-            self._target_db_path = self.target_df.loc[0, "struct_path"]
-            logging.debug(f"Targeting bundled human_domains Foldseek DB at {self._target_db_path}", extra=stage)
+            self.target_db_path = self.target_df.loc[0, "struct_path"]
+            logging.debug(f"Targeting bundled human_domains Foldseek DB at {self.target_db_path}", extra=stage)
         else:
-            self._target_db_path = os.path.join(self.settings.target_dir, "target_db")
+            self.target_db_path = os.path.join(self.settings.target_dir, "target_db")
             target_db_cmd = [
                 "foldseek",
                 "createdb",
                 self.settings.target_dir,
-                self._target_db_path,
+                self.target_db_path,
             ]
             logging.debug(
                 f"Running Foldseek createdb for target with command: {' '.join([str(x) for x in target_db_cmd])}",
@@ -821,8 +821,8 @@ class PocketMapper:
         query_target_align_cmd = [
             "foldseek",
             "easy-search",
-            self._query_db_path,
-            self._target_db_path,
+            self.query_db_path,
+            self.target_db_path,
             self.settings.alignment_path,
             self.settings.foldseek_tmp_dir,
             "--format-output",
@@ -1235,9 +1235,9 @@ class PocketMapper:
         # every other database has no target records at all, so its pockets must be synthesised.
         synthesise_target_pockets = self.fsdb_target and not self.fsdb_pdb_target
 
-        # Read from _target_df rather than _target_db_path so this does not depend on a step-4 side
+        # Read from target_df rather than target_db_path so this does not depend on a step-4 side
         # effect. Row 0 is still the single database record here: expand_fsdb_pdb_targets only rewrites
-        # _target_df on the PDB path, which synthesise_target_pockets excludes.
+        # target_df on the PDB path, which synthesise_target_pockets excludes.
         offset_table_path = None
         if synthesise_target_pockets:
             offset_table_path = bundled_human_domains_offset_table(self.target_df.loc[0, "struct_path"])
@@ -1450,7 +1450,7 @@ class PocketMapper:
             target_record_df = target_record_df.set_index("pocket_id")
 
         for query_id, target_ids in qt_id_map.items():
-            # pocket_id is the index of _query_df, so it is not in the row dict -- put it back, since
+            # pocket_id is the index of query_df, so it is not in the row dict -- put it back, since
             # foldseek_transform reads it for the COMPND metadata.
             query_record = self.query_df.loc[query_id].to_dict()
             query_record["pocket_id"] = query_id

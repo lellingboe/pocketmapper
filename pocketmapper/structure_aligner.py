@@ -30,8 +30,8 @@ class StructureAligner:
         Initialise the logger. The aligner holds no other state.
         """
         self.logger = logging.getLogger(__name__)
-        self._log_extra = {"stage": "StructureAligner"}
-        logging.debug("Initialized", extra=self._log_extra)
+        self.log_extra = {"stage": "StructureAligner"}
+        logging.debug("Initialized", extra=self.log_extra)
 
     def char_gen(self):
         """
@@ -166,7 +166,7 @@ class StructureAligner:
                 extra={"stage": "StructureAligner"},
             )
         if not kept_records:
-            self.logger.error(f"No structure could be placed, not writing {out_path}", extra=self._log_extra)
+            self.logger.error(f"No structure could be placed, not writing {out_path}", extra=self.log_extra)
             return
 
         aligned_struct = self.apply_transformation(structs, domain_chains, motif_chains, us, ts)

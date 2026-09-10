@@ -31,8 +31,8 @@ class StructurePreprocessor:
         Initialise with no output directory; `set_output_directory` supplies it later.
         """
         self.logger = logging.getLogger(__name__)
-        self._log_extra = {"stage": "Structure Preprocessor"}
-        self.logger.debug("Initialized", extra=self._log_extra)
+        self.log_extra = {"stage": "Structure Preprocessor"}
+        self.logger.debug("Initialized", extra=self.log_extra)
 
         self.out_dir = None
         self.cache = None

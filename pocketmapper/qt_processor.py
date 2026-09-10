@@ -120,10 +120,10 @@ class QTProcessor:
         """
         # Initialize logger
         self.logger = logging.getLogger(__name__)
-        self._log_extra = {"stage": "QTProcessor Initialization"}
+        self.log_extra = {"stage": "QTProcessor Initialization"}
         self.logger.debug(
             "Started",
-            extra=self._log_extra,
+            extra=self.log_extra,
         )
 
         self.structure_dir = structure_dir
@@ -142,7 +142,7 @@ class QTProcessor:
         self.passthrough_regex = r"^[A-Za-z0-9]\:(\d+\,?)+$"  # pattern like "A:1,2,3"
         self.vdw_regex = r"^[A-Za-z0-9](_[A-Za-z0-9])?(\:(\d+\,?)*)?$"  # pattern like "A_B:1,2,3"
 
-        self._bundled_foldseek_dbs = {
+        self.bundled_foldseek_dbs = {
             "human_domains": bundled_human_domains_path(BUNDLED_HUMAN_DOMAINS_DB),
             "pdb": os.path.join(fsdb_dir, "pdb"),
         }
@@ -164,12 +164,12 @@ class QTProcessor:
         Returns:
             pandas.DataFrame: the parsed records for this side.
         """
-        self._log_extra.update({"stage": f"Processing {name}"})
-        self.logger.debug(f"Processing {name}", extra=self._log_extra)
+        self.log_extra.update({"stage": f"Processing {name}"})
+        self.logger.debug(f"Processing {name}", extra=self.log_extra)
 
         # Check that the input is specified
         if isinstance(qt_input, type(None)):
-            self.logger.critical(f"{name} input is required. Exiting.", extra=self._log_extra)
+            self.logger.critical(f"{name} input is required. Exiting.", extra=self.log_extra)
             raise PocketMapperError(f"{name} input is required.")
 
         records = []
@@ -181,7 +181,7 @@ class QTProcessor:
                     for line in f.readlines():
                         records.append(self.parse_individual_qt(line.strip(), pocket_method=pocket_method))
             except Exception as e:
-                self.logger.critical(f"Problem reading the file {qt_input}: {e}", extra=self._log_extra)
+                self.logger.critical(f"Problem reading the file {qt_input}: {e}", extra=self.log_extra)
                 raise PocketMapperError(f"Problem reading the file {qt_input}: {e}") from e
         else:
             records.append(self.parse_individual_qt(qt_input, pocket_method=pocket_method))
@@ -209,12 +209,12 @@ class QTProcessor:
                 determined -- both are logged as warnings so one bad line does not abort the batch.
         """
         # Foldseek databases have a special format and are treated differently
-        if qt in self._bundled_foldseek_dbs or pocket_method == "foldseek_db":
+        if qt in self.bundled_foldseek_dbs or pocket_method == "foldseek_db":
             return QTRecord(
                 pocket_id=qt,
                 struct_info=qt,
                 struct_type="foldseek_db",
-                struct_path=self._bundled_foldseek_dbs.get(
+                struct_path=self.bundled_foldseek_dbs.get(
                     qt, qt
                 ),  # Use the bundled path if available, otherwise use the input as is
             )
@@ -234,7 +234,7 @@ class QTProcessor:
         # determining structure info
         struct_type = self.determine_struct_type(struct_info)
         if struct_type is None:
-            self.logger.warning(f"Could not determine structure type for {qt}", extra=self._log_extra)
+            self.logger.warning(f"Could not determine structure type for {qt}", extra=self.log_extra)
             return None
         struct_path = self.determine_ref_struct_path(struct_info, struct_type)
 
@@ -250,7 +250,7 @@ class QTProcessor:
             pocket_method if pocket_method is not None else self.determine_pocket_method(qt, struct_type)
         )
         if resolved_pocket_method is None:
-            self.logger.warning(f"Could not determine pocket method for {qt}", extra=self._log_extra)
+            self.logger.warning(f"Could not determine pocket method for {qt}", extra=self.log_extra)
             return None
 
         record = QTRecord(
@@ -266,7 +266,7 @@ class QTProcessor:
             pocket_method=resolved_pocket_method,
         )
         self.logger.debug(
-            f"Processed {qt} into structured data: {json.dumps(asdict(record), indent=4)}", extra=self._log_extra
+            f"Processed {qt} into structured data: {json.dumps(asdict(record), indent=4)}", extra=self.log_extra
         )
         return record
 
@@ -294,10 +294,10 @@ class QTProcessor:
         elif os.path.isfile(struct_str):
             return "local_file"
         elif os.path.isdir(struct_str):
-            logging.critical(f"Directory input is not currently supported: {struct_str}", extra=self._log_extra)
+            logging.critical(f"Directory input is not currently supported: {struct_str}", extra=self.log_extra)
             raise PocketMapperError(f"Directory input is not currently supported: {struct_str}")
         else:
-            logging.warning(f"Could not determine structure type for {struct_str}", extra=self._log_extra)
+            logging.warning(f"Could not determine structure type for {struct_str}", extra=self.log_extra)
             return None
 
     def determine_ref_struct_path(self, struct_info, struct_type):
@@ -320,7 +320,7 @@ class QTProcessor:
                 return struct_info
             case _:
                 logging.critical(
-                    f"Unknown structure type {struct_type} for struct_info {struct_info}", extra=self._log_extra
+                    f"Unknown structure type {struct_type} for struct_info {struct_info}", extra=self.log_extra
                 )
                 raise PocketMapperError(f"Unknown structure type {struct_type} for struct_info {struct_info}")
 
@@ -343,9 +343,7 @@ class QTProcessor:
         """
         # An entry may be a bare structure ("4Q5J"), in which case there is no pocket info at all.
         pocket_info_str = qt_str.split(":", 1)[1] if ":" in qt_str else ""
-        self.logger.debug(
-            f"Determining pocket method for {pocket_info_str} using regex patterns", extra=self._log_extra
-        )
+        self.logger.debug(f"Determining pocket method for {pocket_info_str} using regex patterns", extra=self.log_extra)
         match struct_type:
             case "alphafold":
                 if re.match(self.whole_chain_regex, pocket_info_str):
