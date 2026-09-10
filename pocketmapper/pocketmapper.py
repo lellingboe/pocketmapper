@@ -38,7 +38,7 @@ from pocketmapper.constants import ALIGN_STRUCT_METHODS
 from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT
 from pocketmapper.constants import FOLDSEEK_INSTALL_HINT
 from pocketmapper.downloads.pisa_downloader import PisaDownloader
-from pocketmapper.downloads.structure_fetcher import StructureDownloader
+from pocketmapper.downloads.structure_downloader import StructureDownloader
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import bundled_foldseek_dbs
 from pocketmapper.foldseek import check_foldseek
