@@ -70,7 +70,7 @@ are renumbered through `offset_table.tsv` — resolved in `compare_pockets_based
 in `synthesise_target_pocket`, both of which carry the reasoning. Three things follow that no single
 file states:
 
-- **Only the bundled `human_domains` DB is renumbered.** `qt_processor.bundled_human_domains_offset_table`
+- **Only the bundled `human_domains` DB is renumbered.** `foldseek.bundled_human_domains_offset_table`
   matches on the resolved DB path, so a DB you supply yourself keeps 0-indexed positions within the
   entry — logged at INFO, because the same column then means different things on different runs.
 - **`pocket_2_overlap_ids` is the only column affected**, since a whole-chain pocket already suppresses
@@ -137,6 +137,10 @@ Every log call must pass `extra={"stage": "..."}` or the record fails to format 
 
 Errors are `logging.critical(...)` then `raise PocketMapperError(...)`; `main()` catches and exits 1.
 
+That convention now holds on the Foldseek path too, which is most of what `foldseek.run_foldseek` buys:
+five of the six invocations used to be a bare `subprocess.run(..., check=True)`, so a failing Foldseek
+surfaced as a `CalledProcessError` traceback rather than a message. Exit code was 1 either way.
+
 **No `exit()`/`sys.exit()` inside modules** — deliberately removed, which no code comment can show. There
 are now none: the last survivor was `_check_help_search`, deleted along with `search()`'s `help` parameter
 when argparse took over `--help`. The only `sys.exit` in the package is in `cli.py`'s `main()`, which is
@@ -200,7 +204,7 @@ range in one more place, as a matrix.
   matrix covers 3.10 and 3.14 rather than the middle. Both produce identical comparison row counts across
   every non-`huge` case.
 - The bundled Foldseek DB is resolved through `files("pocketmapper")`, not through the data directory, for
-  the reason given at that call site in `qt_processor`.
+  the reason given at that call site in `foldseek`.
 
 ## Repo layout
 
@@ -234,7 +238,7 @@ Each module's own docstring states its remit. Not stated anywhere in the code:
 The CLI is confined to `cli.py`, so nothing else here needs a terminal. Two levels of
 entry: `PocketMapper().search(...)` does the same work as the CLI, or drive a component directly —
 `qt_processor`, `structure_fetcher`, `structure_preprocessor`, `pisa_downloader`, `pisa_parser`,
-`sequence_aligner`, `structure_aligner`, `pocket_calculator` are each separately usable.
+`sequence_aligner`, `structure_aligner`, `pocket_calculator`, `foldseek` are each separately usable.
 
 - **A component reaching into a `Settings` can't be used without building one, and hides which fields it
   depends on** — so no component takes one. The `Settings` is unpacked at each call site in

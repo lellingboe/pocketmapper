@@ -26,7 +26,6 @@ import logging
 import logging.config
 import os
 import shutil
-import subprocess
 from dataclasses import asdict
 from dataclasses import dataclass
 from dataclasses import field
@@ -39,6 +38,9 @@ from pocketmapper.constants import ALIGN_STRUCT_METHODS
 from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT
 from pocketmapper.constants import FOLDSEEK_INSTALL_HINT
 from pocketmapper.exceptions import PocketMapperError
+from pocketmapper.foldseek import bundled_human_domains_offset_table
+from pocketmapper.foldseek import check_foldseek
+from pocketmapper.foldseek import run_foldseek
 from pocketmapper.lib import is_within
 from pocketmapper.lib import jsonify_dict
 from pocketmapper.lib import parse_foldseek_pdb_entry_name
@@ -51,7 +53,6 @@ from pocketmapper.pocket_comparison import compare_pockets
 from pocketmapper.pocket_comparison import parse_pocket_transform
 from pocketmapper.pocket_parser import parse_pocket_from_struct
 from pocketmapper.qt_processor import QTProcessor
-from pocketmapper.qt_processor import bundled_human_domains_offset_table
 from pocketmapper.sequence_aligner import SequenceAligner
 from pocketmapper.structure_aligner import StructureAligner
 from pocketmapper.structure_fetcher import StructureFetcher
@@ -456,7 +457,7 @@ class PocketMapper:
         back; an explicit False always means the local aligner and never probes for the binary.
 
         Called before any structure is fetched, so an unmet requirement fails without wasted
-        downloads rather than as a raw FileNotFoundError from the first `foldseek` subprocess call.
+        downloads rather than partway through the run at the first `run_foldseek` call.
 
         Args:
             settings (Settings): Settings whose `foldseek` field may still be None.
@@ -473,7 +474,7 @@ class PocketMapper:
         if settings.foldseek is False:
             return settings
 
-        self.foldseek_available = shutil.which("foldseek") is not None
+        self.foldseek_available = check_foldseek()
         if self.foldseek_available:
             return replace(settings, foldseek=True)
 
@@ -696,7 +697,8 @@ class PocketMapper:
             None: The database is written to the record's `struct_path`.
 
         Raises:
-            PocketMapperError: If the download fails.
+            PocketMapperError: If the destination cannot be created, or -- from `run_foldseek` --
+                if the download fails.
         """
         self.log_extra.update({"stage": "Fetching Missing Foldseek Database"})
         fsdb_name = qt_df.loc[0, "struct_info"].upper()
@@ -705,15 +707,12 @@ class PocketMapper:
             logging.info(f"Fetching bundled Foldseek database '{fsdb_name}' to {fsdb_path}", extra=self.log_extra)
             try:
                 os.makedirs(os.path.dirname(fsdb_path), exist_ok=True)
-                cmd = ["foldseek", "databases", fsdb_name, fsdb_path, tmp_dir]
-                logging.debug(f"Running command: {' '.join([str(x) for x in cmd])}", extra=self.log_extra)
-                subprocess.run(cmd, check=True)
-                logging.info(f"Successfully fetched Foldseek database '{fsdb_name}'", extra=self.log_extra)
             except Exception as e:
-                logging.critical(
-                    f"Failed to fetch Foldseek database '{fsdb_name}' to {fsdb_path}: {e}", extra=self.log_extra
-                )
-                raise PocketMapperError(f"Failed to fetch Foldseek database '{fsdb_name}' to {fsdb_path}: {e}") from e
+                msg = f"Failed to create the directory for Foldseek database '{fsdb_name}' at {fsdb_path}: {e}"
+                logging.critical(msg, extra=self.log_extra)
+                raise PocketMapperError(msg) from e
+            run_foldseek(["databases", fsdb_name, fsdb_path, tmp_dir], self.log_extra)
+            logging.info(f"Successfully fetched Foldseek database '{fsdb_name}'", extra=self.log_extra)
 
     def alignment(self):
         """
@@ -777,10 +776,10 @@ class PocketMapper:
 
     def foldseek_alignment(self):
         """
-        Execute foldseek sub-commands via bash interfacing.
+        Build the query (and, unless the target is a database, target) Foldseek DB, then search them.
 
-        Triggers `foldseek easy-search`, pushing input query targets directly against formatted targets
-        using `self.settings.alignment_path` to store raw tabular matches.
+        `foldseek easy-search` writes its raw tabular matches to `self.settings.alignment_path`.
+        Every invocation goes through `foldseek.run_foldseek`, which logs and reports the failures.
 
         Returns:
             None
@@ -790,36 +789,16 @@ class PocketMapper:
 
         # Setting up paths for foldseek databases
         self.query_db_path = os.path.join(self.settings.query_dir, "query_db")
-        query_db_cmd = [
-            "foldseek",
-            "createdb",
-            self.settings.query_dir,
-            self.query_db_path,
-        ]
-        logging.debug(
-            f"Running Foldseek createdb for query with command: {' '.join([str(x) for x in query_db_cmd])}", extra=stage
-        )
-        subprocess.run(query_db_cmd, check=True)
+        run_foldseek(["createdb", self.settings.query_dir, self.query_db_path], stage)
 
         if self.fsdb_target:
             self.target_db_path = self.target_df.loc[0, "struct_path"]
             logging.debug(f"Targeting bundled human_domains Foldseek DB at {self.target_db_path}", extra=stage)
         else:
             self.target_db_path = os.path.join(self.settings.target_dir, "target_db")
-            target_db_cmd = [
-                "foldseek",
-                "createdb",
-                self.settings.target_dir,
-                self.target_db_path,
-            ]
-            logging.debug(
-                f"Running Foldseek createdb for target with command: {' '.join([str(x) for x in target_db_cmd])}",
-                extra=stage,
-            )
-            subprocess.run(target_db_cmd, check=True)
+            run_foldseek(["createdb", self.settings.target_dir, self.target_db_path], stage)
 
         query_target_align_cmd = [
-            "foldseek",
             "easy-search",
             self.query_db_path,
             self.target_db_path,
@@ -840,10 +819,7 @@ class PocketMapper:
                 min(3, self.settings.verbosity)
             ),  # cap foldseek verbosity at 3 (info level) since it can be very verbose at higher levels and we already have our own logging verbosity control
         ]
-        logging.debug(
-            f"Running Foldseek with command: {' '.join([str(x) for x in query_target_align_cmd])}", extra=stage
-        )
-        subprocess.run(query_target_align_cmd, check=True)
+        run_foldseek(query_target_align_cmd, stage)
         logging.debug("Foldseek alignment completed successfully", extra=stage)
 
     def local_alignment(self):
@@ -1424,29 +1400,14 @@ class PocketMapper:
 
             # Create the subdb using foldseek's createsubdb command
             subdb_path = os.path.join(subdb_dir, "subdb")
-            subdb_command = [
-                "foldseek",
-                "createsubdb",
-                subdb_chain_id_path,
-                source_db_path,
-                subdb_path,
-            ]
-            subprocess.run(subdb_command, check=True)
+            run_foldseek(["createsubdb", subdb_chain_id_path, source_db_path, subdb_path], stage)
 
             # Create a directory for extracted structures
             subdb_struct_dir = os.path.join(self.settings.aligned_structure_dir, "fsdb_structures")
             os.makedirs(subdb_struct_dir, exist_ok=True)
 
             # Convert the subdb to PDB format using foldseek's convert2pdb command
-            convert2pdb_command = [
-                "foldseek",
-                "convert2pdb",
-                "--pdb-output-mode",
-                "1",
-                subdb_path,
-                subdb_struct_dir,
-            ]
-            subprocess.run(convert2pdb_command, check=True)
+            run_foldseek(["convert2pdb", "--pdb-output-mode", "1", subdb_path, subdb_struct_dir], stage)
 
             # Make record df for the target records based on the unique target IDs and the subdb structure
             # directory. chain_info stays None: each extracted structure holds exactly the one chain of its
