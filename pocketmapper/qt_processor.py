@@ -25,6 +25,7 @@ import pandas as pd
 
 from pocketmapper.constants import DEFAULT_CHAIN
 from pocketmapper.exceptions import PocketMapperError
+from pocketmapper.lib import split_chain_info
 
 # The bundled human-domains Foldseek DB, named here and nowhere else -- bump it on a DB refresh.
 BUNDLED_HUMAN_DOMAINS_DB = "human_v3_20260901"
@@ -240,7 +241,8 @@ class QTProcessor:
 
         # Generate a unique name for the structure based on its components and a hash of the name
         input_fname = os.path.basename(struct_info).split(".")[0]
-        name = input_fname + "_" + chain_info[0]  # e.g., "P12345_A" or "1ABC_A"
+        domain_chain, _ = split_chain_info(chain_info)
+        name = input_fname + "_" + domain_chain  # e.g., "P12345_A" or "1ABC_A"
         name_md5 = hashlib.md5(name.encode()).hexdigest()
         preprocess_name = name + "_" + name_md5
         preprocess_path = os.path.join(self.foldseek_preprocessed_structure_dir, preprocess_name + ".cif")

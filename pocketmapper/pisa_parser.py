@@ -11,6 +11,7 @@ import logging
 import os
 
 from pocketmapper.constants import SINGLE_AA_CODE
+from pocketmapper.lib import split_chain_info
 from pocketmapper.pocket import Pocket
 from pocketmapper.pocket import PocketResidue
 
@@ -114,8 +115,14 @@ class PisaParser:
                 logging.warning(f"Could not load PISA data for {pdb_id}", extra=stage)
                 continue
 
-            # Extracting the relevant interface
-            interface_chains = "".join(sorted(record["chain_info"].split("_")))
+            # Extracting the relevant interface. A pisa entry always names two chains, but a forced
+            # --query_pocket_method skips the regex that guarantees it, and sorting a None below would
+            # raise where every other malformed record here is skipped with a warning.
+            domain_chain, motif_chain = split_chain_info(record["chain_info"])
+            if motif_chain is None:
+                logging.warning(f"No partner chain in chain_info '{record['chain_info']}' for {pdb_id}", extra=stage)
+                continue
+            interface_chains = "".join(sorted([domain_chain, motif_chain]))
             if interface_chains not in pisa_data:
                 logging.warning(f"No PISA data for {pdb_id} interface {interface_chains}", extra=stage)
                 continue
@@ -129,7 +136,7 @@ class PisaParser:
             # Getting the molecule id for the domain chain
             pocket_mol_id = None
             for mol in pisa_data["molecules"]:
-                if mol["chain_id"] == record["chain_info"][0]:  # Assuming first chain is the domain chain
+                if mol["chain_id"] == domain_chain:
                     pocket_mol_id = mol["molecule_id"]
                     break
             if pocket_mol_id is None:

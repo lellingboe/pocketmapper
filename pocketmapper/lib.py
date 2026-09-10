@@ -229,6 +229,31 @@ def parse_foldseek_pdb_entry_name(name):
     return match.group("pdb").upper(), match.group("chain").split("-")[0]
 
 
+def split_chain_info(chain_info):
+    """
+    Split a chain_info field into its domain chain and its motif chain.
+
+    chain_info is the middle field of an input entry ("4Q5J:B_F"): either a lone chain, or a pair joined
+    by an underscore where the first chain carries the pocket and the second is its binding partner.
+    Callers used to derive the domain chain by indexing the string ("A_B"[0]), which truncates any chain
+    id longer than one character. The input regexes in `QTProcessor.__init__` spell a chain as a single
+    character so the two agree for an inferred entry, but a forced --query_pocket_method skips those
+    regexes entirely, and "4Q5J:AA_BB" then resolved to chain "A" without complaint.
+
+    Args:
+        chain_info (str): The chain field, "A" or "A_B". Not optional -- the one caller that can see a
+            None (`StructureAligner.transform`, for Foldseek-database records) means "the first chain in
+            the file" by it, which is an index rather than a name, and handles that itself.
+
+    Returns:
+        tuple: (domain_chain, motif_chain); motif_chain is None when the entry named no partner.
+    """
+    chains = chain_info.split("_")
+    domain_chain = chains[0]
+    motif_chain = chains[1] if len(chains) > 1 else None
+    return domain_chain, motif_chain
+
+
 def seq_to_uniprot_map(domain):
     """
     Map each 0-indexed position of a domain onto its 1-indexed UniProt position.

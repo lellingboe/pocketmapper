@@ -111,6 +111,11 @@ its code site; what follows is the map of where, plus the checks that live nowhe
 - **`preprocess_name` is the alignment join key** — computed in `QTProcessor.parse_individual_qt`.
   Alignments are keyed by it, pockets by `pocket_id`, and `compare_pockets_based_on_alignment` builds
   `preproc_to_ids` to bridge them.
+- **`chain_info` is split in exactly one place** — `lib.split_chain_info`, which nine call sites across
+  seven modules now share. Four of them used to index the string (`chain_info[0]`), which is the domain
+  chain only while a chain id is one character. `QTProcessor`'s regexes guarantee that, but a forced
+  `--query_pocket_method` / `--target_pocket_method` skips them entirely, so `4Q5J:AA_BB` silently became
+  chain `A`. Never re-derive a domain or motif chain inline.
 - **Two tables have declared schemas** — `constants.ALIGNMENT_COLUMNS` and
   `pocket_comparison.POCKET_COMPARISON_COLUMNS`. A new column goes into the constant, never into one
   producer alone; see the note above `ALIGNMENT_COLUMNS`.

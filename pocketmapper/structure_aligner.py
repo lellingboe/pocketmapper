@@ -15,6 +15,8 @@ from itertools import permutations
 import gemmi
 import numpy as np
 
+from pocketmapper.lib import split_chain_info
+
 
 class StructureAligner:
     """
@@ -141,12 +143,7 @@ class StructureAligner:
                     domain_chain = 0  # first chain
                     motif_chain = None
                 else:
-                    chains = record["chain_info"].split("_")
-                    domain_chain = chains[0]
-                    if len(chains) > 1:
-                        motif_chain = chains[1]
-                    else:
-                        motif_chain = None
+                    domain_chain, motif_chain = split_chain_info(record["chain_info"])
 
                 # If everything has been successful add it things to be processed
                 structs.append(struct)

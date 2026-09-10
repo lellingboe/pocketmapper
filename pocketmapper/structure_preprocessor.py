@@ -14,6 +14,8 @@ import shutil
 import gemmi
 from tqdm import tqdm
 
+from pocketmapper.lib import split_chain_info
+
 
 class StructurePreprocessor:
     """
@@ -87,7 +89,7 @@ class StructurePreprocessor:
 
             struct_info = record["struct_info"]
             chain_info = record["chain_info"]  # e.g., A_B or A
-            chain = chain_info[0]  # e.g., "A"
+            chain, _ = split_chain_info(chain_info)
             # Ensuring divided structure is in the cache directory
             out_path = record[
                 "preprocess_path"

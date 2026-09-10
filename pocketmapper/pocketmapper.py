@@ -43,6 +43,7 @@ from pocketmapper.lib import is_within
 from pocketmapper.lib import jsonify_dict
 from pocketmapper.lib import parse_foldseek_pdb_entry_name
 from pocketmapper.lib import safe_filename
+from pocketmapper.lib import split_chain_info
 from pocketmapper.pisa_downloader import PisaDownloader
 from pocketmapper.pisa_parser import PisaParser
 from pocketmapper.pocket_calculator import PocketCalculator
@@ -1110,9 +1111,10 @@ class PocketMapper:
         # coordinates on the same Pocket, which is what the comparison and superposition need.
         for _, row in pisa_df.iterrows():
             if row["pocket_id"] in pisa_pockets:
+                domain_chain, _ = split_chain_info(row["chain_info"])
                 pisa_pockets[row["pocket_id"]] = parse_pocket_from_struct(
                     struct=row["struct_path"],
-                    chain_id=row["chain_info"].split("_")[0],
+                    chain_id=domain_chain,
                     pocket_residues=[int(x) for x in pisa_pockets[row["pocket_id"]].res_auth_ids],
                     pocket=pisa_pockets[row["pocket_id"]],
                 )
@@ -1134,9 +1136,10 @@ class PocketMapper:
         """
         passthrough_pockets = {}
         for _, row in pt_df.iterrows():
+            domain_chain, _ = split_chain_info(row["chain_info"])
             passthrough_pockets[row["pocket_id"]] = parse_pocket_from_struct(
                 struct=row["struct_path"],
-                chain_id=row["chain_info"].split("_")[0],
+                chain_id=domain_chain,
                 pocket_residues=[int(x) for x in row["residue_info"].split(",")],
             )
         return passthrough_pockets
@@ -1159,10 +1162,11 @@ class PocketMapper:
         vdw_pockets = {}
         pc = PocketCalculator()
         for _, row in vdw_df.iterrows():
+            domain_chain, motif_chain = split_chain_info(row["chain_info"])
             vdw_pockets[row["pocket_id"]] = pc.pocket_overlap(
                 structure=row["struct_path"],
-                domain_chain=row["chain_info"].split("_")[0],
-                motif_chain=row["chain_info"].split("_")[1],
+                domain_chain=domain_chain,
+                motif_chain=motif_chain,
             )
         return vdw_pockets
 
@@ -1186,9 +1190,10 @@ class PocketMapper:
 
         whole_chain_pockets = {}
         for _, row in wc_df.iterrows():
+            domain_chain, _ = split_chain_info(row["chain_info"])
             pocket = parse_pocket_from_struct(
                 struct=row["struct_path"],
-                chain_id=row["chain_info"].split("_")[0],
+                chain_id=domain_chain,
                 pocket_residues=None,  # None means the whole chain
             )
             # A missing structure or chain gives None back. Storing that would fail later with an opaque
