@@ -35,20 +35,20 @@ ordered residue list the comparison walks, and on the PISA path it is seeded fro
 
 ### Open searches
 
-README's "Open searches" covers the output shape; `_retrieve_whole_chain_pockets` and
-`_compare_pocket_pair` cover the per-pocket suppression of the `pocket_2_*` columns.
+README's "Open searches" covers the output shape; `retrieve_whole_chain_pockets` and
+`compare_pocket_pair` cover the per-pocket suppression of the `pocket_2_*` columns.
 
 A `pocket_2` value is not guaranteed to be a target. A query and target sharing a chain share a
 `preprocess_name`, so `compare_pockets` pairs every pocket on that chain with every other and some rows
-carry a query-only `pocket_id` in `pocket_2`. `_align_structs` filters those out before its `.loc` lookup;
+carry a query-only `pocket_id` in `pocket_2`. `align_structs` filters those out before its `.loc` lookup;
 without that it raises a bare pandas `KeyError`.
 
 ### Foldseek-DB targets
 
 When the target is a bundled Foldseek DB, `self.fsdb_target` is set: no target structures are fetched or
-preprocessed, and `_align_structs` reconstructs target PDBs via `foldseek createsubdb` + `convert2pdb`.
-What the target "pocket" is depends on the DB — `_expand_fsdb_pdb_targets` for a PDB DB, and
-`pocket_comparison._synthesise_target_pocket` for any other. On the PDB path, **hits with no usable PISA
+preprocessed, and `align_structs` reconstructs target PDBs via `foldseek createsubdb` + `convert2pdb`.
+What the target "pocket" is depends on the DB — `expand_fsdb_pdb_targets` for a PDB DB, and
+`pocket_comparison.synthesise_target_pocket` for any other. On the PDB path, **hits with no usable PISA
 data are dropped**, not compared against a stand-in.
 
 Three consequences of the PDB path that are not visible from any single file:
@@ -61,13 +61,13 @@ Three consequences of the PDB path that are not visible from any single file:
   `overlap_count == pocket_len`, identity 1.0, RMSD ~1e-14), and the `MIN_SEQ_IDENTITY` guard catches them
   when they don't — a populated `incorrect_mapping.json` signals that an entry's assembly and AU numbering
   diverged.
-- **`--align_struct_method pocket` is rejected for any Foldseek-DB target**, in `_configure_query_target`
+- **`--align_struct_method pocket` is rejected for any Foldseek-DB target**, in `configure_query_target`
   before anything is fetched. The rejection site gives the reason for both kinds of DB.
 
 **Target residue ids are UniProt coordinates when the DB ships an offset table.** A non-PDB DB's
-entries are domains carved out of UniProt sequences, so `_synthesise_target_pocket`'s residue *labels*
-are renumbered through `offset_table.tsv` — resolved in `_compare_pockets_based_on_alignment`, applied
-in `_synthesise_target_pocket`, both of which carry the reasoning. Three things follow that no single
+entries are domains carved out of UniProt sequences, so `synthesise_target_pocket`'s residue *labels*
+are renumbered through `offset_table.tsv` — resolved in `compare_pockets_based_on_alignment`, applied
+in `synthesise_target_pocket`, both of which carry the reasoning. Three things follow that no single
 file states:
 
 - **Only the bundled `human_domains` DB is renumbered.** `qt_processor.bundled_human_domains_offset_table`
@@ -84,7 +84,7 @@ file states:
 **The bundled DB ships without its `.source` file**, and a refreshed one must be stripped the same way.
 Foldseek's `createdb` writes `.source` alongside `.lookup`, but it duplicates the same key-to-name mapping
 and nothing reads it: verified by running `easy-search`, `createsubdb` and `convert2pdb` against a copy with
-it removed. `.lookup` is the one that must survive — `_align_structs` reads it to turn entry names into
+it removed. `.lookup` is the one that must survive — `align_structs` reads it to turn entry names into
 database keys. Dropping `.source` saves 1.7 MB in the repo and in both distributions.
 
 The DB is otherwise at its floor. `_ca` is 70 of its 98 MB, holding 11.2M residues at 6.33 bytes each, which
@@ -94,7 +94,7 @@ writes or reads a compressed structure DB, so there is nothing to gain by compre
 
 **No cap on how many hits get enriched**, by choice. `4Q5J:B_F` against the bundled `pdb` DB returns ~4,970
 hits across ~3,620 entries, and PISA is fetched per entry behind a sleep, so the first run takes hours.
-Reruns are cheap from the interface cache, and `_expand_fsdb_pdb_targets` logs both counts before starting
+Reruns are cheap from the interface cache, and `expand_fsdb_pdb_targets` logs both counts before starting
 so the wait is legible. Add a cap here if that becomes untenable.
 
 ## Invariants
@@ -103,13 +103,13 @@ Breaking one of these generally produces silently wrong output rather than an er
 its code site; what follows is the map of where, plus the checks that live nowhere else.
 
 - **`seq_pos` is the value everything hinges on** — declared on `pocket.PocketResidue`, set in
-  `pocket_parser.parse_pocket_from_struct`, used in `pocket_comparison._map_pocket_into_alignment`. A new
+  `pocket_parser.parse_pocket_from_struct`, used in `pocket_comparison.map_pocket_into_alignment`. A new
   pocket method computing it any other way yields zero overlap with no error. Check it by comparing a
   pocket against itself: `overlap_count == pocket_len`. It is also **not** the reported residue id:
-  `_synthesise_target_pocket` keys its residues by UniProt position while leaving `seq_pos` the
+  `synthesise_target_pocket` keys its residues by UniProt position while leaving `seq_pos` the
   0-indexed alignment coordinate, and that separation is the only reason renumbering is safe.
 - **`preprocess_name` is the alignment join key** — computed in `QTProcessor.parse_individual_qt`.
-  Alignments are keyed by it, pockets by `pocket_id`, and `_compare_pockets_based_on_alignment` builds
+  Alignments are keyed by it, pockets by `pocket_id`, and `compare_pockets_based_on_alignment` builds
   `preproc_to_ids` to bridge them.
 - **Two tables have declared schemas** — `constants.ALIGNMENT_COLUMNS` and
   `pocket_comparison.POCKET_COMPARISON_COLUMNS`. A new column goes into the constant, never into one
@@ -141,7 +141,7 @@ the boundary and is meant to have one.
 
 **Every `Settings` field is reachable from the command line**, and the settings JSON sets nothing the
 CLI cannot. The file is a convenience for keeping a long invocation reproducible, never the only route
-to a setting; the layering that makes it one is in `_configure_workflow`.
+to a setting; the layering that makes it one is in `configure_workflow`.
 
 A new option goes in **five hand-maintained places**: the `Settings` dataclass, the `search()` signature
 together with the `cli_overrides` dict directly beneath it (one site — the dict mirrors the signature and
@@ -156,10 +156,10 @@ spelling rather than a field). The `query` and `target` positionals carry those 
 with the rest.
 
 Options are grouped by lifetime in both places a human reads them — argparse's argument groups in
-`_build_parser`, and the README's matching subsections. The path fields alone roughly double the
+`build_parser`, and the README's matching subsections. The path fields alone roughly double the
 option count, so leaving them ungrouped would bury `--foldseek` and `--query_pocket_method` among
 them. The four groups are `aligned structure options`, `cache options` (what survives a run),
-`out options` (what the run produces) and `temp options` (what `_delete_tmp` removes at the end);
+`out options` (what the run produces) and `temp options` (what `delete_tmp` removes at the end);
 `--cache_dir` and `--results_dir` head the group whose defaults derive from them. Adding a path
 setting means picking one of those groups in both places.
 
@@ -173,7 +173,7 @@ carries only the examples, which is all argparse cannot produce. It hangs off th
 alone; the bare `pocketmapper --help` is the subcommand list and nothing more.
 
 Resolution order and the tri-state `foldseek` / `align_struct_method` settings are documented where they are
-resolved — the `Settings` docstring and the `# 4b.` / `# 4c.` comments in `_configure_workflow`, which give
+resolved — the `Settings` docstring and the `# 4b.` / `# 4c.` comments in `configure_workflow`, which give
 the reasons those call sites are load-bearing. Keep new resolution logic there.
 
 ## Python versions
@@ -240,7 +240,7 @@ entry: `PocketMapper().search(...)` does the same work as the CLI, or drive a co
 - **Always call `Settings(...).resolve_paths()`** if you build one yourself — the failure mode is in that
   method's docstring. `search()` does this for you.
 - **`search()` has global side effects**: `logging.config.dictConfig` reconfigures the *root* logger and
-  stomps on a host app's logging setup, and `_delete_tmp` `shutil.rmtree`s
+  stomps on a host app's logging setup, and `delete_tmp` `shutil.rmtree`s
   `query_dir`/`target_dir`/`foldseek_tmp_dir` at the end unless `delete_tmp=False`, which keeps all
   three. The rmtree is guarded rather than unconditional: all three are settable, so `lib.is_within`
   skips (with a warning) any that does not resolve under `cache_dir` or `results_dir`. The guard

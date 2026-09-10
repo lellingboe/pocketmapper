@@ -33,7 +33,7 @@ class PocketResidue:
     # into the alignment, so a producer computing it any other way yields zero overlap with no error.
     # -1 marks a pocket residue with no CA atom, which Foldseek ignores and which therefore falls
     # outside every aligned region. None means no producer ever reached this residue: PISA lists
-    # interface residues that need not exist in the parsed chain, and `_map_pocket_into_alignment`
+    # interface residues that need not exist in the parsed chain, and `map_pocket_into_alignment`
     # will raise on those rather than skip them. Pre-existing, and left as a hard failure.
     seq_pos: int | None = None
     ca_coords: list | None = None
@@ -51,18 +51,18 @@ class Pocket:
     A pocket on a single chain. The chain itself is implicit in the pocket_id this is stored under.
 
     `pocket_comparison` must never write to one of these. Each side's projection onto an alignment is
-    returned as a `_MappedPocket` instead, which is what lets the same Pocket be read straight out of
+    returned as a `MappedPocket` instead, which is what lets the same Pocket be read straight out of
     the pocket collection on every alignment row rather than deep-copied.
     """
 
     # The ordered pocket residue list, and NOT the same thing as `list(residues)`. The two diverge on
     # the PISA path: this is seeded from the PISA interface while `residues` is filled in chain order
     # and may miss interface residues absent from the parsed chain. The order is load-bearing --
-    # `_overlap_ids` returns ids in this order and the two sides' overlap lists have to correspond
+    # `overlap_ids` returns ids in this order and the two sides' overlap lists have to correspond
     # position for position.
     res_auth_ids: list = field(default_factory=list)
     residues: dict = field(default_factory=dict)
-    # The CA sequence of the WHOLE chain, not of the pocket. `_seq_identity` compares it against the
+    # The CA sequence of the WHOLE chain, not of the pocket. `seq_identity` compares it against the
     # sequence the aligner reported for that chain, so a pocket-only sequence would never match.
     ca_sequence: str = ""
     # False until at least one pocket residue is found with CA coordinates; a pocket that never gets

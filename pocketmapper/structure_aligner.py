@@ -39,7 +39,7 @@ class StructureAligner:
 
         The output structure may hold more chains than any one input, so names are generated rather than
         reused. "0" is skipped throughout: it is reserved for the domain chain, which
-        `_apply_transformation` renames so it can be found consistently across models.
+        `apply_transformation` renames so it can be found consistently across models.
 
         Single characters are emitted first, then two-character pairs once that space is exhausted.
 
@@ -95,7 +95,7 @@ class StructureAligner:
         Build an aligned multi-structure PDB from ready-made rigid-body transforms.
 
         The general entry point: it knows nothing about where a transform came from, only how to apply it.
-        `foldseek_transform` sources them from Foldseek's whole-chain alignment; `_align_structs` sources
+        `foldseek_transform` sources them from Foldseek's whole-chain alignment; `align_structs` sources
         them from the pocket superposition in pocket_comparison.tsv.
 
         The first record is the reference frame and is always placed untransformed, so `transforms[0]` is
@@ -180,8 +180,8 @@ class StructureAligner:
         with: a record dropped for want of a transform used to keep its COMPND entry, so the header named
         models the file did not contain.
 
-        The chain labels must come from a fresh `_char_gen()` consumed in the same order
-        `_apply_transformation` consumed its own, or the header and the coordinates disagree.
+        The chain labels must come from a fresh `char_gen()` consumed in the same order
+        `apply_transformation` consumed its own, or the header and the coordinates disagree.
 
         Args:
             kept_records (list): Records present in `aligned_struct`, in model order.

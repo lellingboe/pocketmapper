@@ -74,7 +74,7 @@ class SequenceAligner:
         on both sides is parsed only once.
 
         The returned columns are pinned to `constants.ALIGNMENT_COLUMNS`. That order is a positional
-        contract shared with `_foldseek_alignment` and with `pocket_comparison`, which unpacks each row
+        contract shared with `foldseek_alignment` and with `pocket_comparison`, which unpacks each row
         into an `AlignmentRow` by position -- see the note above the constant.
 
         Args:

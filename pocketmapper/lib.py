@@ -238,7 +238,7 @@ def seq_to_uniprot_map(domain):
     table are discontiguous, and a scalar offset cannot express those at all.
 
     The result is monotonically increasing and injective as long as the regions are increasing and
-    non-overlapping, which every shipped spec is. Callers rely on both: `_synthesise_target_pocket`
+    non-overlapping, which every shipped spec is. Callers rely on both: `synthesise_target_pocket`
     keys a dict by these values, so a repeated position would silently drop residues.
 
     Args:

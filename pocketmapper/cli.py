@@ -11,7 +11,7 @@ Three parsing details are load-bearing, each for a reason the code alone would n
 - Query and target are positional and required; there are no `--query`/`--target` options. The
   `Settings` fields of those names stay for library callers, but argparse always supplies both here,
   so a settings file's `query`/`target` can never win on the CLI path.
-- Every option defaults to None, never to a `Settings` default. `_configure_workflow` layers the JSON
+- Every option defaults to None, never to a `Settings` default. `configure_workflow` layers the JSON
   settings file under the CLI arguments by testing `is not None`, so a non-None default here would
   make the settings file unoverridable.
 - No `choices=` anywhere. The same values arrive from the settings file, which never passes through

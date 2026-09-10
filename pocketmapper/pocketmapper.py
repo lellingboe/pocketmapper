@@ -7,14 +7,14 @@ knows about argv or exit codes.
 
 `search()` is the whole workflow, top to bottom:
 
-1. `_configure_workflow` -> Settings, directories, job_settings.json, logging.
-2. `_configure_query_target` -> QTProcessor -> one DataFrame of QTRecords per side.
-3. `_fetch_missing_structures` (or `_fetch_missing_fsdb`) -> mmCIF into structure_dir.
-4. `_alignment` -> foldseek or the local aligner -> alignment.tsv.
-5. `_get_pockets` -> `_retrieve_{pisa,passthrough,vdw,whole_chain}_pockets`, merged into one
+1. `configure_workflow` -> Settings, directories, job_settings.json, logging.
+2. `configure_query_target` -> QTProcessor -> one DataFrame of QTRecords per side.
+3. `fetch_missing_structures` (or `fetch_missing_fsdb`) -> mmCIF into structure_dir.
+4. `alignment` -> foldseek or the local aligner -> alignment.tsv.
+5. `get_pockets` -> `retrieve_{pisa,passthrough,vdw,whole_chain}_pockets`, merged into one
    pocket_id -> Pocket dict. The Pocket shape itself is declared in `pocket.py`.
-6. `_compare_pockets_based_on_alignment` -> pocket_comparison.compare_pockets -> pocket_comparison.tsv.
-7. `_align_structs` -> superposes the top align_count targets per query into aligned_structures/.
+6. `compare_pockets_based_on_alignment` -> pocket_comparison.compare_pockets -> pocket_comparison.tsv.
+7. `align_structs` -> superposes the top align_count targets per query into aligned_structures/.
 
 This is the only module that knows about `Settings`; components are handed the individual values
 they need, so none of them has to build one to be usable on its own.
@@ -76,17 +76,17 @@ class Settings:
     query_pocket_method: str | None = None
     target_pocket_method: str | None = None
     # Tri-state: None (the default) means "auto" -- use Foldseek when the binary is on PATH and
-    # fall back to the local aligner when it is not. _resolve_foldseek() turns this into a concrete
+    # fall back to the local aligner when it is not. resolve_foldseek() turns this into a concrete
     # bool before anything else reads it, so the rest of the pipeline only ever sees True/False.
     foldseek: bool | None = None
     align_count: int = 10
     # Which transform superposes a target onto its query in step 7: "foldseek" (Foldseek's whole-chain
     # fit) or "pocket" (the fit of the two pockets on their overlapping residues). The default "auto"
-    # is collapsed to one of those by _resolve_align_struct_method(), so nothing downstream sees it.
+    # is collapsed to one of those by resolve_align_struct_method(), so nothing downstream sees it.
     align_struct_method: str = "auto"
     verbosity: int = 3
     # query_dir, target_dir and foldseek_tmp_dir hold the per-run inputs actually handed to the
-    # aligner and the pocket parser, and _delete_tmp removes them on the way out. False keeps them:
+    # aligner and the pocket parser, and delete_tmp removes them on the way out. False keeps them:
     # a run that produced no rows is diagnosed from what it was given, which is gone by the time
     # anyone looks.
     delete_tmp: bool = True
@@ -163,7 +163,7 @@ class PocketMapper:
 
         self.fsdb_target = False
         self.fsdb_pdb_target = False
-        # Set for real by _resolve_foldseek(); read by _configure_query_target to explain *why*
+        # Set for real by resolve_foldseek(); read by configure_query_target to explain *why*
         # a Foldseek-DB target was rejected. True here so a caller that skips search() is not
         # told the binary is missing when nothing has looked for it.
         self.foldseek_available = True
@@ -426,12 +426,12 @@ class PocketMapper:
         self.configure_logging(settings.verbosity, settings.log_path)
 
         # 4b. Resolve the tri-state foldseek setting into a concrete bool. Must come after
-        # _configure_logging (the root logger is still at CRITICAL before it, so the fallback
+        # configure_logging (the root logger is still at CRITICAL before it, so the fallback
         # warning would be swallowed) and before the settings are logged and dumped below, so
         # job_settings.json records what the run actually did.
         settings = self.resolve_foldseek(settings)
 
-        # 4c. Same reasoning, and it reads the bool _resolve_foldseek just settled, so it must follow it.
+        # 4c. Same reasoning, and it reads the bool resolve_foldseek just settled, so it must follow it.
         settings = self.resolve_align_struct_method(settings)
 
         logging.info(f"Settings: {json.dumps(asdict(settings), indent=4)}", extra=self.log_extra)
@@ -467,7 +467,7 @@ class PocketMapper:
         Raises:
             PocketMapperError: If foldseek was explicitly requested but is not installed.
         """
-        # Local stage dict: _configure_logging leaves self._log_extra reading "Configuring Logging".
+        # Local stage dict: configure_logging leaves self.log_extra reading "Configuring Logging".
         stage = {"stage": "Configuring Settings"}
 
         if settings.foldseek is False:
@@ -508,7 +508,7 @@ class PocketMapper:
         the same call as an unmet `--foldseek True`, and for the same reason: better to fail before
         anything is downloaded than to hand back a method the user did not ask for.
 
-        Called from _configure_workflow after _resolve_foldseek, whose resolved bool it reads, and
+        Called from configure_workflow after resolve_foldseek, whose resolved bool it reads, and
         before the settings are logged and dumped, so job_settings.json records what the run did.
 
         Args:
@@ -599,7 +599,7 @@ class PocketMapper:
             if self.settings.foldseek:
                 self.fsdb_target = True
                 # Neither kind of Foldseek DB can be superposed on its pocket, and which kind this is
-                # is not known until _expand_fsdb_pdb_targets has read the hit names -- so reject both
+                # is not known until expand_fsdb_pdb_targets has read the hit names -- so reject both
                 # here, before anything is fetched. Unreachable from "auto": a DB target forces
                 # foldseek on, and auto resolves to "foldseek" whenever it is on.
                 if self.settings.align_struct_method == "pocket":
@@ -719,8 +719,8 @@ class PocketMapper:
         """
         Coordinate structural alignment routes bridging query and target proteins.
 
-        Dispatches to `_foldseek_alignment()` if the foldseek flag is set, else rolls
-        back to `_local_alignment()`. Requisites like `_foldseek_preprocessing()`
+        Dispatches to `foldseek_alignment()` if the foldseek flag is set, else rolls
+        back to `local_alignment()`. Requisites like `foldseek_preprocessing()`
         precede foldseek routines.
 
         Returns:
@@ -780,7 +780,7 @@ class PocketMapper:
         Execute foldseek sub-commands via bash interfacing.
 
         Triggers `foldseek easy-search`, pushing input query targets directly against formatted targets
-        using `self._settings.alignment_path` to store raw tabular matches.
+        using `self.settings.alignment_path` to store raw tabular matches.
 
         Returns:
             None
@@ -901,8 +901,8 @@ class PocketMapper:
         """
         Build every pocket in the run, dispatching each record to its pocket method.
 
-        Fans out to `_retrieve_pisa_pockets`, `_retrieve_passthrough_pockets`, `_retrieve_vdw_pockets` and
-        `_retrieve_whole_chain_pockets`, then merges their results into one dict. All four return the same
+        Fans out to `retrieve_pisa_pockets`, `retrieve_passthrough_pockets`, `retrieve_vdw_pockets` and
+        `retrieve_whole_chain_pockets`, then merges their results into one dict. All four return the same
         Pocket shape (see `pocket.py`), so nothing downstream needs to know which method produced
         a given pocket.
 
@@ -934,18 +934,18 @@ class PocketMapper:
         The PDB database is built from real PDB entries, though, so its hits have real PISA interfaces:
         this reads the hit names out of the alignment table, resolves each to a PDB ID and chain, asks
         PISA which chains that chain touches, and appends one `pisa` record per interface to
-        `self._target_df`. `_retrieve_pisa_pockets` then handles them like any other pisa entry.
+        `self.target_df`. `retrieve_pisa_pockets` then handles them like any other pisa entry.
 
         The generated records carry the Foldseek entry name as their `preprocess_name` rather than the
         one `QTProcessor` derives, because that is the key alignments are stored under -- it is what
         joins these pockets back to their alignment rows and to their Foldseek transforms.
 
-        Runs after `_alignment`, so `alignment.tsv` exists. Does nothing unless the target is a Foldseek
+        Runs after `alignment`, so `alignment.tsv` exists. Does nothing unless the target is a Foldseek
         database whose entries are named in the PDB style; a database of anything else (human_domains)
         keeps the synthesised whole-chain pockets.
 
         Returns:
-            None: appends to `self._target_df` and sets `self._fsdb_pdb_target`.
+            None: appends to `self.target_df` and sets `self.fsdb_pdb_target`.
         """
         if not self.fsdb_target:
             return
@@ -972,7 +972,7 @@ class PocketMapper:
             extra=stage,
         )
 
-        # Same directories _retrieve_pisa_pockets uses, so the two share one cache and its own call is a
+        # Same directories retrieve_pisa_pockets uses, so the two share one cache and its own call is a
         # no-op for everything downloaded here.
         pisa_response_dir = os.path.join(self.settings.pocket_dir, "pisa_responses")
         interface_dir = os.path.join(pisa_response_dir, "interfaces")
@@ -1009,7 +1009,7 @@ class PocketMapper:
 
         # Fetching structures last, so only entries that actually produced a pocket are downloaded.
         # Hits whose structure can't be fetched come back marked success=False and are dropped here;
-        # _fetch_missing_structures raises only if not one of them could be fetched, which would leave
+        # fetch_missing_structures raises only if not one of them could be fetched, which would leave
         # nothing to compare against at all.
         target_df = self.fetch_missing_structures("foldseek hit", pd.DataFrame(records), self.settings.structure_dir)
         target_df = target_df.query("success")
@@ -1018,7 +1018,7 @@ class PocketMapper:
             f"Added {len(target_df)} PISA target pockets from {target_df['preprocess_name'].nunique()} Foldseek hits",
             extra=stage,
         )
-        # Row 0 stays the database record itself -- _foldseek_alignment and _align_structs read its struct_path.
+        # Row 0 stays the database record itself -- foldseek_alignment and align_structs read its struct_path.
         self.target_df = pd.concat([self.target_df, target_df], ignore_index=True)
 
     def retrieve_pisa_pockets(self):
@@ -1231,12 +1231,12 @@ class PocketMapper:
                 preproc_to_ids[row["preprocess_name"]] = [row["pocket_id"]]
         logging.debug(f"Preprocessed name to pocket ID mapping: {preproc_to_ids}", extra=stage)
 
-        # A PDB Foldseek database has real PISA pockets for its hits (see _expand_fsdb_pdb_targets);
+        # A PDB Foldseek database has real PISA pockets for its hits (see expand_fsdb_pdb_targets);
         # every other database has no target records at all, so its pockets must be synthesised.
         synthesise_target_pockets = self.fsdb_target and not self.fsdb_pdb_target
 
         # Read from _target_df rather than _target_db_path so this does not depend on a step-4 side
-        # effect. Row 0 is still the single database record here: _expand_fsdb_pdb_targets only rewrites
+        # effect. Row 0 is still the single database record here: expand_fsdb_pdb_targets only rewrites
         # _target_df on the PDB path, which synthesise_target_pockets excludes.
         offset_table_path = None
         if synthesise_target_pockets:
@@ -1340,7 +1340,7 @@ class PocketMapper:
             candidates = pocket_comparison_df.query(f"pocket_1 == '{query_id}' and overlap_count > 0")
             overlapping_count = len(candidates)
             if method == "pocket":
-                # _superpose fits nothing below three overlapping residues, so those targets have no
+                # superpose fits nothing below three overlapping residues, so those targets have no
                 # transform. Drop them here rather than when writing, or they would eat align_count
                 # slots and the run would quietly produce fewer structures than asked for.
                 candidates = candidates.dropna(subset=["p2_to_p1_u", "p2_to_p1_t"])
@@ -1380,7 +1380,7 @@ class PocketMapper:
             logging.debug(f"Using Foldseek database at {source_db_path} for structural alignment", extra=stage)
 
             # With a PDB database the target IDs are pocket IDs ("4Q5J:B_F"), not database entry names, so
-            # map them back through the records built by _expand_fsdb_pdb_targets. One pocket ID can come
+            # map them back through the records built by expand_fsdb_pdb_targets. One pocket ID can come
             # from more than one entry (the same chain in two assemblies) -- keep the first, or the lookup
             # below returns duplicate rows and the structure gets superposed twice.
             if self.fsdb_pdb_target:

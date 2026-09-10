@@ -30,8 +30,8 @@ from pocketmapper.exceptions import PocketMapperError
 BUNDLED_HUMAN_DOMAINS_DB = "human_v3_20260901"
 
 # The UniProt coordinates of every entry in the DB above, shipped beside it and keyed by the same
-# entry names. `pocketmapper._compare_pockets_based_on_alignment` resolves it and
-# `pocket_comparison._synthesise_target_pocket` applies it, so the two files are now coupled: refresh
+# entry names. `pocketmapper.compare_pockets_based_on_alignment` resolves it and
+# `pocket_comparison.synthesise_target_pocket` applies it, so the two files are now coupled: refresh
 # the table with the DB, or a hit on an entry the table has lost aborts the run.
 BUNDLED_HUMAN_DOMAINS_OFFSET_TABLE = "offset_table.tsv"
 

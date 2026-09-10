@@ -143,7 +143,7 @@ def map_pocket_into_alignment(pocket, aln_seq, aln_positions, start, end):
     Args:
         pocket (Pocket): The pocket to project.
         aln_seq (str): This side's gapped alignment string.
-        aln_positions (list): As returned by `_aln_positions` for `aln_seq`.
+        aln_positions (list): As returned by `aln_positions` for `aln_seq`.
         start (int): 1-based first aligned residue on this side.
         end (int): 1-based last aligned residue on this side.
 
@@ -182,7 +182,7 @@ def record_code_mismatches(mapped, self_id, other_id, unknown_ids):
     Fold one projection's code disagreements into unknown_ids, keyed by this particular pairing.
 
     Args:
-        mapped (_MappedPocket): The projection whose mismatches are being recorded.
+        mapped (MappedPocket): The projection whose mismatches are being recorded.
         self_id (str): pocket_id of the pocket that was projected.
         other_id (str): pocket_id of the pocket it is being compared against.
         unknown_ids (dict): Nested accumulator, mutated in place.
@@ -199,7 +199,7 @@ def synthesise_target_pocket(aln, ctx):
     A whole-chain stand-in for a Foldseek-database hit that has no pocket record of its own.
 
     Only for a database whose entries are not PDB chains (human_domains); a PDB database gets real
-    PISA pockets instead, via `_expand_fsdb_pdb_targets`. The residues carry no codes or coordinates,
+    PISA pockets instead, via `expand_fsdb_pdb_targets`. The residues carry no codes or coordinates,
     so the pocket_2_* columns and the RMSD block are both suppressed downstream, which leaves
     pocket_2_overlap_ids as the only column these ids reach.
 
@@ -207,12 +207,12 @@ def synthesise_target_pocket(aln, ctx):
     1-indexed UniProt positions -- a database entry is a domain carved out of a UniProt sequence, and
     its own 0-indexed numbering means nothing outside PocketMapper. Without one, they stay 0-indexed
     positions within the entry. Either way `seq_pos` is the 0-indexed position and nothing else:
-    the ids are labels, `seq_pos` is what `_map_pocket_into_alignment` projects, and keeping the two
+    the ids are labels, `seq_pos` is what `map_pocket_into_alignment` projects, and keeping the two
     apart is what makes the renumbering safe.
 
     Args:
         aln (AlignmentRow): The row to build the pseudo-pocket from; reads `target`, `tend` and `tseq`.
-        ctx (_Context): Scoring state, read for `offsets`.
+        ctx (Context): Scoring state, read for `offsets`.
 
     Returns:
         Pocket: `whole_chain` set, `has_coords` false, and residues carrying `seq_pos` alone.
@@ -352,7 +352,7 @@ def overlap_ids(pocket, mapped, overlap_positions):
 
     Args:
         pocket (Pocket): The pocket, read for `res_auth_ids`.
-        mapped (_MappedPocket): Its projection onto this row.
+        mapped (MappedPocket): Its projection onto this row.
         overlap_positions (set): Alignment positions shared by both pockets.
 
     Returns:
@@ -423,7 +423,7 @@ def parse_pocket_transform(u_cell, t_cell):
 
     Returns:
         tuple: (u, t) ready for gemmi, or None when the pair has no transform -- fewer than three
-            overlapping residues, or a pocket with no coordinates, both of which leave `_superpose`
+            overlapping residues, or a pocket with no coordinates, both of which leave `superpose`
             returning nothing and the cells empty.
     """
     if not isinstance(u_cell, str) or not isinstance(t_cell, str):
@@ -475,11 +475,11 @@ def compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_map
         aln (AlignmentRow): The row bridging the two pockets.
         pocket_id_1 (str): Query pocket id.
         p1 (Pocket): Query pocket.
-        p1_mapped (_MappedPocket): Its projection onto this row.
+        p1_mapped (MappedPocket): Its projection onto this row.
         pocket_id_2 (str): Target pocket id.
         p2 (Pocket): Target pocket.
-        p2_mapped (_MappedPocket): Its projection onto this row.
-        ctx (_Context): Scoring state shared across the call.
+        p2_mapped (MappedPocket): Its projection onto this row.
+        ctx (Context): Scoring state shared across the call.
 
     Returns:
         dict: One comparison row. The pocket_2_* descriptor columns and `jaccard_index` are omitted
@@ -538,7 +538,7 @@ class Context(NamedTuple):
     The scoring state shared by every comparison in one call.
 
     `offsets` is the database's offset table (entry name -> region spec), empty when the target is not
-    a Foldseek database or ships no table; it is read only by `_synthesise_target_pocket`.
+    a Foldseek database or ships no table; it is read only by `synthesise_target_pocket`.
     """
 
     similarity_matrix: dict
@@ -587,9 +587,9 @@ def compare_pockets(
             os.path.join(os.path.dirname(pocketmapper.__file__), "blosum62.bla").
         synthesise_target_pockets (bool): Build a whole-chain pseudo-pocket per alignment row instead
             of looking the target up in `pocket_dict`. Only for a Foldseek database that has no target
-            records of its own (see `_expand_fsdb_pdb_targets`); it is a property of the job. Whether
+            records of its own (see `expand_fsdb_pdb_targets`); it is a property of the job. Whether
             the pocket_2_* descriptor columns and the jaccard_index are written, by contrast, is a
-            property of each pocket -- see `_compare_pocket_pair`.
+            property of each pocket -- see `compare_pocket_pair`.
         offset_table_path (str | None): Path to the offset table shipped with that database, which
             renumbers the synthesised targets' residues into UniProt coordinates. Consulted only
             alongside `synthesise_target_pockets`; None leaves them as positions within the entry.
