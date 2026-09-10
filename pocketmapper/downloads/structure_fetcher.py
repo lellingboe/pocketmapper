@@ -5,27 +5,12 @@ Downloads are concurrent and land as gzipped mmCIF in the output directory, whic
 on-disk cache between runs.
 """
 
-import gzip
 import logging
 import os
-import shutil
 from concurrent.futures import ThreadPoolExecutor
-from urllib.request import urlcleanup
-from urllib.request import urlretrieve
 
-
-def discard_partial(fpath):
-    """
-    Delete a partially written download, ignoring the case where it never got created.
-
-    Args:
-        fpath (str): Path to remove.
-
-    Returns:
-        None
-    """
-    if os.path.exists(fpath):
-        os.remove(fpath)
+from pocketmapper.downloads.lib_download import download_file
+from pocketmapper.lib import gzip_file
 
 
 class StructureFetcher:
@@ -36,10 +21,18 @@ class StructureFetcher:
     The ordering is required and nothing enforces it.
     """
 
-    def __init__(self):
+    def __init__(self, max_retries=5, base_delay=0.25, max_delay=30.0):
         """
         Initialise with no output directory; `set_output_directory` supplies it later.
+
+        Args:
+            max_retries (int): Attempts per download before giving up. Defaults to 5.
+            base_delay (float): Seconds to wait after the first failed attempt. Defaults to 0.25.
+            max_delay (float): Ceiling on the doubling backoff delay. Defaults to 30.0.
         """
+        self.max_retries = max_retries
+        self.base_delay = base_delay
+        self.max_delay = max_delay
         self.out_dir = None
         self.cache = None
         self.logger = logging.getLogger(__name__)
@@ -65,8 +58,8 @@ class StructureFetcher:
         testing the joined output path can never match and silently re-fetches every structure on every
         run. Left read-only during `fetch_structures`, which reads it from 100 threads at once.
 
-        A `<name>.cif.gz.part` left by an interrupted download lands here too, but can never match a
-        `.cif.gz` lookup, so it is inert.
+        A `<name>.cif.gz.part` or `<name>.cif.gz.raw.part` left by an interrupted download lands here
+        too, but neither can match a `.cif.gz` lookup, so they are inert.
         """
         self.cache = set(os.listdir(self.out_dir))
 
@@ -133,36 +126,25 @@ class StructureFetcher:
         """
         stage = {"stage": "Downloading AlphaFold File"}
         out_fpath = os.path.join(self.out_dir, f"{uniprot_acc}.cif.gz")
-        temp_fpath = os.path.join(self.out_dir, f"{uniprot_acc}.cif")
-        part_fpath = f"{out_fpath}.part"
         if os.path.basename(out_fpath) not in self.cache:
             url = f"https://alphafold.ebi.ac.uk/files/AF-{uniprot_acc}-F1-model_{version}.cif"
-            try:
-                urlcleanup()
-                urlretrieve(url, temp_fpath)
-            except OSError:
-                discard_partial(temp_fpath)
-                self.logger.warning(f"OSError when downloading {uniprot_acc}", extra=stage)
+            # AlphaFold serves plain mmCIF; the cache holds it gzipped, so it is compressed on the
+            # way in rather than stored twice.
+            if not download_file(
+                url,
+                out_fpath,
+                transform=gzip_file,
+                max_retries=self.max_retries,
+                base_delay=self.base_delay,
+                max_delay=self.max_delay,
+                log_extra=stage,
+            ):
                 return (uniprot_acc, False)
-            except Exception:
-                discard_partial(temp_fpath)
-                self.logger.warning(f"Atypical error when downloading {uniprot_acc}", extra=stage)
-                return (uniprot_acc, False)
-
-            # Compressing the downloaded cif file to gz format and removing the original cif file to save
-            # space. The gzip goes to a .part first and is moved into place only once complete: the cache
-            # trusts any .cif.gz it finds, so a truncated one under the real name would be served for good.
-            with open(temp_fpath, "rb") as f_in:
-                with gzip.open(part_fpath, "wb") as f_out:
-                    shutil.copyfileobj(f_in, f_out)
-            os.replace(part_fpath, out_fpath)
-            os.remove(temp_fpath)
-
         return (uniprot_acc, True)
 
     def fetch_mmcif(self, pdb_code):
         """
-        Download a PDB structure in mmCIF format and compress it to gzip.
+        Download a PDB structure, which the wwPDB already serves as gzipped mmCIF.
 
         Args:
             pdb_code (str): The 4-character PDB code for the target structure.
@@ -173,22 +155,16 @@ class StructureFetcher:
         """
         stage = {"stage": "Downloading PDB File"}
         out_fpath = os.path.join(self.out_dir, f"{pdb_code}.cif.gz")
-        part_fpath = f"{out_fpath}.part"
         pdb_code_lowered = pdb_code.lower()
         if os.path.basename(out_fpath) not in self.cache:
             url = f"https://files.wwpdb.org/pub/pdb/data/structures/divided/mmCIF/{pdb_code_lowered[1:3]}/{pdb_code_lowered}.cif.gz"
-            self.logger.debug(f"Attempting to download {pdb_code} from {url}", extra=stage)
-            try:
-                urlcleanup()
-                urlretrieve(url, part_fpath)
-            except OSError:
-                discard_partial(part_fpath)
-                self.logger.warning(f"Unable to download {pdb_code}", extra=stage)
+            if not download_file(
+                url,
+                out_fpath,
+                max_retries=self.max_retries,
+                base_delay=self.base_delay,
+                max_delay=self.max_delay,
+                log_extra=stage,
+            ):
                 return (pdb_code, False)
-            except Exception:
-                discard_partial(part_fpath)
-                self.logger.warning(f"Atypical error when downloading {pdb_code}", extra=stage)
-                return (pdb_code, False)
-            # Moved into place only once the download is complete -- see fetch_alphafold.
-            os.replace(part_fpath, out_fpath)
         return (pdb_code, True)

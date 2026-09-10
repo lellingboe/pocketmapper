@@ -6,9 +6,11 @@ plain values and returns plain values. Workflow logic belongs in the component m
 (pocket_comparison, sequence_aligner, ...) rather than here.
 """
 
+import gzip
 import hashlib
 import os
 import re
+import shutil
 
 UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]")
 
@@ -56,6 +58,22 @@ def safe_filename(name, max_len=80):
     stem = UNSAFE_FILENAME_CHARS.sub("_", os.path.basename(name.rstrip("/")))
     stem = stem[: max(max_len - len(name_hash) - 1, 0)].rstrip("_")
     return f"{stem}_{name_hash}" if stem else name_hash
+
+
+def gzip_file(src_fpath, dst_fpath):
+    """
+    Write a gzip-compressed copy of a file.
+
+    Args:
+        src_fpath (str): File to read.
+        dst_fpath (str): Path to write the compressed copy to; overwritten if it already exists.
+
+    Returns:
+        None
+    """
+    with open(src_fpath, "rb") as f_in:
+        with gzip.open(dst_fpath, "wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
 
 
 def is_within(path, roots):

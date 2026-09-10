@@ -6,7 +6,6 @@ its alignment chain before the search directory is built. Parsing and writing ar
 throughout; the single-chain copies are written as gzipped mmCIF.
 """
 
-import gzip
 import logging
 import os
 import shutil
@@ -14,6 +13,7 @@ import shutil
 import gemmi
 from tqdm import tqdm
 
+from pocketmapper.lib import gzip_file
 from pocketmapper.lib import split_chain_info
 
 
@@ -133,9 +133,7 @@ class StructurePreprocessor:
                 # trusts any .cif.gz it finds, so a truncated one under the real name would be served
                 # for good.
                 part_path_gz = f"{out_path_gz}.part"
-                with open(out_path, "rb") as f_in:
-                    with gzip.open(part_path_gz, "wb") as f_out:
-                        shutil.copyfileobj(f_in, f_out)
+                gzip_file(out_path, part_path_gz)
                 os.replace(part_path_gz, out_path_gz)
                 os.remove(out_path)
 

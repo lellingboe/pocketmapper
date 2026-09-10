@@ -330,9 +330,10 @@ database target needs the binary whatever this is set to.
 
 **Using PocketMapper as a library.** `PocketMapper().search(...)` runs the same workflow as the CLI and
 writes the same files; results come back through `results_dir`, not as a return value. The individual
-components (`qt_processor`, `structure_fetcher`, `pisa_downloader`, `sequence_aligner`,
-`structure_aligner`, `pocket_calculator`, ...) are each usable on their own. Note that `search()`
-reconfigures the root logger and deletes its temporary directories on the way out.
+components (`qt_processor`, `downloads.structure_fetcher`, `downloads.pisa_downloader`,
+`sequence_aligner`, `structure_aligner`, `pocket_calculator`, ...) are each usable on their own.
+Note that `search()` reconfigures the root logger and deletes its temporary directories on the way
+out.
 
 ## Contact / Authors
 PocketMapper is developed by Lachlan Ellingboe (Lachlan.Ellingboe@icr.ac.uk).

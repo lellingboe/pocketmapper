@@ -37,6 +37,8 @@ import pandas as pd
 from pocketmapper.constants import ALIGN_STRUCT_METHODS
 from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT
 from pocketmapper.constants import FOLDSEEK_INSTALL_HINT
+from pocketmapper.downloads.pisa_downloader import PisaDownloader
+from pocketmapper.downloads.structure_fetcher import StructureFetcher
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import bundled_foldseek_dbs
 from pocketmapper.foldseek import check_foldseek
@@ -46,7 +48,6 @@ from pocketmapper.lib import jsonify_dict
 from pocketmapper.lib import parse_foldseek_pdb_entry_name
 from pocketmapper.lib import safe_filename
 from pocketmapper.lib import split_chain_info
-from pocketmapper.pisa_downloader import PisaDownloader
 from pocketmapper.pisa_parser import PisaParser
 from pocketmapper.pocket_calculator import PocketCalculator
 from pocketmapper.pocket_comparison import compare_pockets
@@ -55,7 +56,6 @@ from pocketmapper.pocket_parser import parse_pocket_from_struct
 from pocketmapper.qt_processor import QTProcessor
 from pocketmapper.sequence_aligner import SequenceAligner
 from pocketmapper.structure_aligner import StructureAligner
-from pocketmapper.structure_fetcher import StructureFetcher
 from pocketmapper.structure_preprocessor import StructurePreprocessor
 
 

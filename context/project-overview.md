@@ -99,6 +99,40 @@ hits across ~3,620 entries, and PISA is fetched per entry behind a sleep, so the
 Reruns are cheap from the interface cache, and `expand_fsdb_pdb_targets` logs both counts before starting
 so the wait is legible. Add a cap here if that becomes untenable.
 
+## Downloads
+
+`downloads/` holds what fetches bytes over HTTP, and nothing else. `foldseek.py` and
+`PocketMapper.fetch_missing_fsdb` stay outside it: they download a database by shelling out to the
+`foldseek` binary, so they share none of the machinery here, and moving them would split `foldseek.py`
+away from `check_foldseek` and `bundled_foldseek_dbs`, which `qt_processor` imports for reasons
+unrelated to downloading.
+
+`lib_download` offers **two entry points, not one**, because the two things the package fetches differ
+in every operational respect. `download_file` is for bulk structure files: unpaced, stateless, and
+called from `fetch_structures`' 100 threads. `download_api` is for REST endpoints: it paces its
+requests and, on a transient failure, doubles that host's pacing and never lowers it again. Both write
+through a `.part` file and share one retry test.
+
+Three consequences no single file states:
+
+- **The pacing delay and the backoff delay are the same number.** That is what "carry the backoff
+  forward" means here: the escalation one retry needed becomes the pace of every later request to that
+  host. It is also why `get_summaries` and `get_assemblies` no longer sleep themselves — the helper owns
+  pacing, and a caller-side sleep would double it.
+- **The delay registry is module-level and never decays**, so it outlives any one `PisaDownloader` —
+  which matters, because `download_pisa_interfaces` builds a fresh one on each of its two calls per run.
+  It equally outlives a whole `search()`, so a library caller running several in one process carries an
+  elevated delay across all of them; `reset_host_delays` is the escape hatch.
+- **Only 5xx and 408/425/429 are retried.** A whitelist among 4xx rather than a blacklist of 404, so an
+  unrecognised 4xx costs one request instead of the whole budget. The old PISA code caught bare
+  `Exception`, so every entry PISA lacked cost 5 requests and ~3.75s of sleeping — on the full-PDB path
+  that is thousands of entries.
+
+A leftover `.part` is inert in every cache directory: `get_interfaces` globs `*.json`, which cannot
+match `x.json.part`, the other PISA stages check an exact path, and `StructureFetcher`'s cache tests a
+`.cif.gz` filename.
+
+
 ## Invariants
 
 Breaking one of these generally produces silently wrong output rather than an error. Each is documented at
@@ -195,13 +229,16 @@ beside it, `[tool.black] target-version`, and the README's Installation line. Th
 range in one more place, as a matrix.
 
 - **The floor is 3.10 and going lower buys nothing.** Three `match` statements (`qt_processor.py` x2,
-  `structure_fetcher.py`) and the PEP 604 `str | None` field annotations on `Pocket`, `PocketResidue`,
+  `downloads/structure_fetcher.py`) and the PEP 604 `str | None` field annotations on `Pocket`, `PocketResidue`,
   `QTRecord` and `Settings` all require it. No module carries `from __future__ import annotations`, so those
   annotations are evaluated at import rather than deferred. Rewriting all of that for 3.9 would still fail:
   biopython requires >=3.10.
 - **`compat` is what guards the floor, not `lint`.** flake8 parses with whatever interpreter runs it, so lint
   at 3.12 cannot see a 3.12-only construct. `compileall` at 3.10 is what catches syntax; the import step is
-  what catches the annotation and `importlib.resources` failures that compileall cannot.
+  what catches the annotation and `importlib.resources` failures that compileall cannot. That step walks with
+  `pkgutil.walk_packages` and a prefix, not `iter_modules`: `iter_modules` stops at the top level, so once
+  `downloads` became a subpackage it would import that package's `__init__` and silently skip the three
+  modules under it. It asserts a module count for the same reason.
 - **3.10 is the only version pip resolves to pandas 2.x** — 3.11 and up get pandas 3.x. That is why the e2e
   matrix covers 3.10 and 3.14 rather than the middle. Both produce identical comparison row counts across
   every non-`huge` case.
@@ -227,20 +264,26 @@ Each module's own docstring states its remit. Not stated anywhere in the code:
   fresh clone and CI never see them — but setuptools reuses `build/lib/` in place rather than clearing it,
   so on a machine that has one, `pip install .` silently ships whatever dead modules it still holds
   (`align.py`, `local_aligner.py`, `pisa.py`) on top of the current sources. `pisa.py` still carries the
-  3.12-only f-string that `pisa_downloader.py` no longer does, so an import-everything check passes in CI
-  and fails locally. Delete `build/` before building or testing a wheel; never edit `build/lib/pocketmapper/`.
+  3.12-only f-string that `downloads/pisa_downloader.py` no longer does, so an import-everything check
+  passes in CI and fails locally. A stale copy now also holds `structure_fetcher.py` and
+  `pisa_downloader.py` at their old top-level paths, which shadow the `downloads` package versions and
+  hide a missed import update. Delete `build/` before building or testing a wheel; never edit
+  `build/lib/pocketmapper/`.
 - **Structure parsing is gemmi throughout** (`.cif.gz` on disk). Biopython is used only for pairwise
   alignment (`sequence_aligner.py`) and SVD superposition (`pocket_comparison.py`).
 - `StructureFetcher` and `StructurePreprocessor` share a required call order that nothing enforces; both
   classes' docstrings say so. Both cache on bare filenames and write through a `.part` file, for reasons
-  their `update_cache` docstrings give.
+  their `update_cache` docstrings give — `StructureFetcher` gets that from `downloads.lib_download`,
+  while `StructurePreprocessor` keeps its own, since it writes a file it computed rather than one it
+  fetched.
 
 ## As a library
 
 The CLI is confined to `cli.py`, so nothing else here needs a terminal. Two levels of
 entry: `PocketMapper().search(...)` does the same work as the CLI, or drive a component directly —
-`qt_processor`, `structure_fetcher`, `structure_preprocessor`, `pisa_downloader`, `pisa_parser`,
-`sequence_aligner`, `structure_aligner`, `pocket_calculator`, `foldseek` are each separately usable.
+`qt_processor`, `downloads.structure_fetcher`, `structure_preprocessor`, `downloads.pisa_downloader`,
+`pisa_parser`, `sequence_aligner`, `structure_aligner`, `pocket_calculator`, `foldseek` are each
+separately usable.
 
 - **A component reaching into a `Settings` can't be used without building one, and hides which fields it
   depends on** — so no component takes one. The `Settings` is unpacked at each call site in

@@ -62,13 +62,24 @@ jobs:
       # Imported from the installed package, not the checkout, so this exercises
       # what the wheel actually ships -- including the bundled Foldseek DB path,
       # which qt_processor resolves with importlib.resources at construction time.
+      # walk_packages, not iter_modules: iter_modules stops at the top level, so once
+      # downloads became a subpackage it would import that package's __init__ and
+      # silently skip the modules underneath it. onerror re-raises because
+      # walk_packages swallows import errors by default, which would turn the failure
+      # this step exists to catch into a silent pass. The count is a tripwire for the
+      # same class of regression.
       - name: Import every module
         run: |
           python -c "
           import importlib, pkgutil, pocketmapper
-          for m in pkgutil.iter_modules(pocketmapper.__path__):
-              importlib.import_module('pocketmapper.' + m.name)
+          def onerror(name):
+              raise
+          count = 0
+          for m in pkgutil.walk_packages(pocketmapper.__path__, prefix='pocketmapper.', onerror=onerror):
+              importlib.import_module(m.name)
               print('ok', m.name)
+              count += 1
+          assert count >= 19, f'walked only {count} modules; a subpackage was lost'
           "
       # The bare entry point, which is what proves the console script resolves and
       # the package imports. argparse prints the top-level help and exits 0.

@@ -5,8 +5,9 @@ Three stages, each cached on disk so a rerun costs nothing: entry summaries give
 one request per assembly gives its interfaces, and those are flattened into a single
 `<pdb_code>.json` per entry keyed by sorted chain pair -- the shape `PisaParser` reads.
 
-Every request is spaced by `base_delay` to stay within the PDBe API's tolerance, which is what
-makes the first run over a large hit list slow.
+Every request is spaced to stay within the PDBe API's tolerance, which is what makes the first run
+over a large hit list slow. The spacing grows if the API starts refusing requests and is not lowered
+again, so a rate-limited run slows down and stays slow rather than re-provoking the API.
 """
 
 import json
@@ -14,13 +15,11 @@ import logging
 import os
 from collections import defaultdict
 from glob import glob
-from time import sleep
-from urllib.request import urlcleanup
-from urllib.request import urlretrieve
 
 import pandas as pd
 from tqdm import tqdm
 
+from pocketmapper.downloads.lib_download import download_api
 from pocketmapper.exceptions import PocketMapperError
 
 
@@ -30,7 +29,8 @@ class PisaDownloader:
 
     `get_interfaces` is the entry point; the remaining methods are its stages and are separately
     usable. Failed downloads are recorded in a `_Failed.txt` beside the files they belong to rather
-    than raising, so one dead entry does not abort a large batch.
+    than raising, so one dead entry does not abort a large batch. Responses are written through a
+    `.part` file, so an interrupted run cannot leave a truncated response for a later run to trust.
     """
 
     def __init__(self, max_retries=5, base_delay=0.25, max_delay=30.0):
@@ -39,45 +39,34 @@ class PisaDownloader:
 
         Args:
             max_retries (int): Attempts per URL before giving up. Defaults to 5.
-            base_delay (float): Seconds between requests, and the first backoff delay. Defaults to 0.25.
+            base_delay (float): Seconds between requests, before any backoff. Defaults to 0.25.
             max_delay (float): Ceiling on the doubling backoff delay. Defaults to 30.0.
         """
         self.logger = logging.getLogger(__name__)
-        self.stage = {}
+        self.stage = {"stage": "PisaDownloader"}
         self.max_retries = max_retries
         self.base_delay = base_delay
         self.max_delay = max_delay
 
     def fetch_with_backoff(self, url, out_fname):
         """
-        Download `url` to `out_fname`, retrying on failure with exponential backoff.
-
-        Delay starts at `base_delay` and doubles after each failed attempt, capped at `max_delay`.
+        Download `url` to `out_fname` under this instance's pacing and retry settings.
 
         Args:
             url (str): Address to fetch.
             out_fname (str): Path to write the response to.
 
         Returns:
-            bool: True on success, False once `max_retries` is exhausted.
+            bool: True on success, False once the attempts are exhausted.
         """
-        delay = self.base_delay
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                urlcleanup()
-                urlretrieve(url, out_fname)
-                return True
-            except Exception as e:
-                if attempt == self.max_retries:
-                    logging.warning(f"Giving up on {url} after {self.max_retries} attempts: {e}", extra=self.stage)
-                    return False
-                logging.debug(
-                    f"Attempt {attempt}/{self.max_retries} failed for {url} ({e}); retrying in {delay:.2f}s",
-                    extra=self.stage,
-                )
-                sleep(delay)
-                delay = min(delay * 2, self.max_delay)
-        return False
+        return download_api(
+            url,
+            out_fname,
+            max_retries=self.max_retries,
+            base_delay=self.base_delay,
+            max_delay=self.max_delay,
+            log_extra=self.stage,
+        )
 
     def get_interfaces(self, pdb_list, summary_dir, asm_dir, interface_dir):
         """
@@ -141,7 +130,6 @@ class PisaDownloader:
                     valid.append(pdb_code)
                 else:
                     problems.append(pdb_code)
-                sleep(self.base_delay)
         pd.Series(problems).to_csv(os.path.join(summary_dir, "_Failed.txt"), header=False, index=False)
         return valid
 
@@ -182,7 +170,7 @@ class PisaDownloader:
         """
         Download the PISA interfaces for every assembly of every entry.
 
-        One request per assembly, spaced by `base_delay`; already-cached assemblies are skipped.
+        One request per assembly, paced by the shared downloader; already-cached assemblies are skipped.
 
         Args:
             asm_dict (dict): pdb_code -> list of assembly ids, as returned by `parse_summaries`.
@@ -201,7 +189,6 @@ class PisaDownloader:
                     url = f"https://www.ebi.ac.uk/pdbe/api/pisa/interfaces/{pdb_code}/{asm}"
                     if not self.fetch_with_backoff(url, out_fname):
                         problems.append(f"{pdb_code}_{asm}")
-                    sleep(self.base_delay)
         pd.Series(problems).to_csv(os.path.join(asm_dir, "_Failed.txt"), header=False, index=False)
 
     def parse_assemblies(self, asm_dict, asm_dir, interface_dir):
