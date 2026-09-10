@@ -38,7 +38,7 @@ from pocketmapper.constants import ALIGN_STRUCT_METHODS
 from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT
 from pocketmapper.constants import FOLDSEEK_INSTALL_HINT
 from pocketmapper.downloads.pisa_downloader import PisaDownloader
-from pocketmapper.downloads.structure_fetcher import StructureFetcher
+from pocketmapper.downloads.structure_fetcher import StructureDownloader
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import bundled_foldseek_dbs
 from pocketmapper.foldseek import check_foldseek
@@ -651,7 +651,7 @@ class PocketMapper:
         # Downloading structures
         self.log_extra.update({"stage": "Fetching Missing Structures"})
         logging.info("Starting", extra=self.log_extra)
-        structure_fetcher = StructureFetcher()
+        structure_fetcher = StructureDownloader()
 
         logging.debug(f"{name.capitalize()} data before fetching structures: \n{qt_df.head()}", extra=self.log_extra)
 
