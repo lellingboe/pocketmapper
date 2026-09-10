@@ -1,9 +1,8 @@
 """
 PocketMapper: map and compare binding pockets across protein structures.
 
-`search()` is the only public method; everything else on the class is an internal step and carries
-a leading underscore to say so. The command line lives in `cli.py`, which is the only module that
-knows about argv or exit codes.
+`search()` is the only public method; everything else on the class is an internal step of it. The
+command line lives in `cli.py`, which is the only module that knows about argv or exit codes.
 
 `search()` is the whole workflow, top to bottom:
 
@@ -11,7 +10,7 @@ knows about argv or exit codes.
 2. `configure_query_target` -> QTProcessor -> one DataFrame of QTRecords per side.
 3. `fetch_missing_structures` (or `fetch_missing_fsdb`) -> mmCIF into structure_dir.
 4. `alignment` -> foldseek or the local aligner -> alignment.tsv.
-5. `get_pockets` -> `retrieve_{pisa,passthrough,vdw,whole_chain}_pockets`, merged into one
+5. `get_pockets` -> a `retrieve_*_pockets` builder per pocket method, merged into one
    pocket_id -> Pocket dict. The Pocket shape itself is declared in `pocket.py`.
 6. `compare_pockets_based_on_alignment` -> pocket_comparison.compare_pockets -> pocket_comparison.tsv.
 7. `align_structs` -> superposes the top align_count targets per query into aligned_structures/.
@@ -873,38 +872,94 @@ class PocketMapper:
         )
         alignment.to_csv(self.settings.alignment_path, index=False, sep="\t")
 
-    def dump_pockets(self, pockets, filename, indent=None):
+    def dump_pockets(self, pockets, filename):
         """
         Write a pocket collection to the pocket cache directory as JSON, for inspection only.
 
         Nothing reads these files back -- pockets are recomputed every run -- so they are debug
         artefacts rather than a cache. `asdict` gives the nested shape declared in `pocket.py`:
-        residues sit under a `residues` key rather than alongside the metadata.
+        residues sit under a `residues` key rather than alongside the metadata. Written compact for
+        the same reason: on a bundled-`pdb` Foldseek run `pisa_pockets.json` holds thousands of
+        pockets, and nothing reads it to justify the whitespace.
 
-        A None survives into the file as `null` rather than raising here. Three of the four callers
+        A None survives into the file as `null` rather than raising here. Three of the four builders
         store whatever their producer returned, including None for a missing structure or chain, and
         the failure for those belongs where it already is -- in `compare_pockets`.
 
         Args:
             pockets (dict): pocket_id -> Pocket (or None).
             filename (str): Basename to write under `pocket_dir`.
-            indent (int | None): Passed to json.dump. Defaults to None.
 
         Returns:
             None: Writes a file.
         """
         serialisable = {pid: asdict(pocket) if pocket is not None else None for pid, pocket in pockets.items()}
         with open(os.path.join(self.settings.pocket_dir, filename), "w") as f:
-            json.dump(serialisable, f, indent=indent)
+            json.dump(serialisable, f)
+
+    def download_pisa_interfaces(self, pdb_list):
+        """
+        Download PISA summaries, assemblies and interfaces for `pdb_list` into the pocket cache.
+
+        Both callers -- `expand_fsdb_pdb_targets` and `retrieve_pisa_pockets` -- go through here, so
+        the two share one set of directories. Let them compute their own and the second re-downloads
+        everything the first already fetched, behind PisaDownloader's per-entry sleep.
+
+        Args:
+            pdb_list (list): PDB IDs to fetch interfaces for.
+
+        Returns:
+            str: The interface directory -- the only one of the three anything reads back.
+        """
+        pisa_response_dir = os.path.join(self.settings.pocket_dir, "pisa_responses")
+        interface_dir = os.path.join(pisa_response_dir, "interfaces")
+        PisaDownloader().get_interfaces(
+            pdb_list=pdb_list,
+            summary_dir=os.path.join(pisa_response_dir, "summaries"),
+            asm_dir=os.path.join(pisa_response_dir, "assemblies"),
+            interface_dir=interface_dir,
+        )
+        return interface_dir
+
+    def select_pocket_records(self, pocket_method, label, dedup_subset=None):
+        """
+        Select the successfully fetched records of one pocket method, from both sides at once.
+
+        Args:
+            pocket_method (str): The `pocket_method` value to match.
+            label (str): Human-readable name of the method, used in the log lines.
+            dedup_subset (list, optional): Columns to drop duplicate records on. Only `pisa` passes
+                one: its pocket is fully determined by structure and chain, and the Foldseek-DB
+                expansion generates the same pair once per hit. The other methods must not dedup on
+                structure and chain -- two passthrough pockets on one chain differ only in
+                `residue_info`. Defaults to None, meaning keep every record.
+
+        Returns:
+            pandas.DataFrame: The matching records, possibly empty.
+        """
+        stage = {"stage": f"Retrieving {label} Pockets"}
+        logging.info(f"Checking for {label} pockets...", extra=stage)
+
+        qt_df = pd.concat([self.query_df, self.target_df], ignore_index=True).query(
+            f"success and pocket_method == '{pocket_method}'"
+        )
+        if dedup_subset is not None:
+            qt_df = qt_df.drop_duplicates(subset=dedup_subset)
+
+        if len(qt_df) == 0:
+            logging.info(f"No {label} pockets to retrieve", extra=stage)
+        else:
+            logging.info(f"{len(qt_df)} {label} pockets to retrieve", extra=stage)
+        return qt_df
 
     def get_pockets(self):
         """
         Build every pocket in the run, dispatching each record to its pocket method.
 
-        Fans out to `retrieve_pisa_pockets`, `retrieve_passthrough_pockets`, `retrieve_vdw_pockets` and
-        `retrieve_whole_chain_pockets`, then merges their results into one dict. All four return the same
-        Pocket shape (see `pocket.py`), so nothing downstream needs to know which method produced
-        a given pocket.
+        Fans out over the `builders` table rather than over hand-written calls: one row per
+        `pocket_method`, naming the log label, the dedup columns and the builder, with the key
+        doubling as the dump filename stem. Every builder returns the same Pocket shape (see
+        `pocket.py`), so nothing downstream needs to know which method produced a given pocket.
 
         Returns:
             dict: pocket_id -> Pocket, across both sides.
@@ -916,12 +971,25 @@ class PocketMapper:
         # picks them up like any other pisa entry. No-op for every other kind of target.
         self.expand_fsdb_pdb_targets()
 
-        pisa_pockets = self.retrieve_pisa_pockets()
-        passthrough_pockets = self.retrieve_passthrough_pockets()
-        vdw_pockets = self.retrieve_vdw_pockets()
-        whole_chain_pockets = self.retrieve_whole_chain_pockets()
+        # pocket_method -> (log label, drop_duplicates subset, builder). Insertion order is the
+        # merge order. A new pocket method is one row here plus its builder, and nothing else.
+        builders = {
+            "pisa": ("PISA", ["struct_info", "chain_info"], self.retrieve_pisa_pockets),
+            "passthrough": ("passthrough", None, self.retrieve_passthrough_pockets),
+            "vdw": ("VDW", None, self.retrieve_vdw_pockets),
+            "whole_chain": ("whole chain", None, self.retrieve_whole_chain_pockets),
+        }
 
-        pockets = pisa_pockets | passthrough_pockets | vdw_pockets | whole_chain_pockets
+        pockets = {}
+        for pocket_method, (label, dedup_subset, builder) in builders.items():
+            qt_df = self.select_pocket_records(pocket_method, label, dedup_subset)
+            if len(qt_df) == 0:
+                continue
+            method_pockets = builder(qt_df)
+            self.dump_pockets(method_pockets, f"{pocket_method}_pockets.json")
+            logging.debug(f"Extracted {label} pockets: {method_pockets}", extra=stage)
+            pockets |= method_pockets
+
         logging.debug(f"Combined pockets: {pockets}", extra=stage)
         return pockets
 
@@ -972,17 +1040,8 @@ class PocketMapper:
             extra=stage,
         )
 
-        # Same directories retrieve_pisa_pockets uses, so the two share one cache and its own call is a
-        # no-op for everything downloaded here.
-        pisa_response_dir = os.path.join(self.settings.pocket_dir, "pisa_responses")
-        interface_dir = os.path.join(pisa_response_dir, "interfaces")
-        downloader = PisaDownloader()
-        downloader.get_interfaces(
-            pdb_list=pdb_list,
-            summary_dir=os.path.join(pisa_response_dir, "summaries"),
-            asm_dir=os.path.join(pisa_response_dir, "assemblies"),
-            interface_dir=interface_dir,
-        )
+        # Shares retrieve_pisa_pockets' cache, so its own call is a no-op for everything fetched here.
+        interface_dir = self.download_pisa_interfaces(pdb_list)
 
         # Building one record per interface the hit chain takes part in
         parser = PisaParser()
@@ -1021,49 +1080,34 @@ class PocketMapper:
         # Row 0 stays the database record itself -- foldseek_alignment and align_structs read its struct_path.
         self.target_df = pd.concat([self.target_df, target_df], ignore_index=True)
 
-    def retrieve_pisa_pockets(self):
+    def retrieve_pisa_pockets(self, pisa_df):
         """
-        Request, parse, and translate remote pocket mapping endpoints through the PDBe PISA service.
+        Build a Pocket per record from the PDBe PISA interface it names.
 
-        Downloads corresponding assembly and interface data over REST points. Extracts residue maps
-        associating directly to structured indices previously resolved, persisting local copies to the cache.
+        Downloads (or reuses from cache) the PISA files for every PDB entry in `pisa_df`, takes each
+        record's pocket to be the residues its own chain contributes to the named interface, then
+        reads the CA coordinates for those residues out of the structure. `PisaParser` skips records
+        whose entry or interface cannot be resolved, so the result may be smaller than `pisa_df`.
+
+        Args:
+            pisa_df (pandas.DataFrame): Records with `pocket_method == "pisa"`, as returned by
+                `select_pocket_records`.
 
         Returns:
-            dict: Translated pocket coordinates indexed by `pocket_id`.
+            dict: pocket_id -> Pocket.
         """
         stage = {"stage": "Retrieving PISA Pockets"}
-        logging.info("Checking for PISA pockets...", extra=stage)
 
-        # Selecting relevant records from quert and taget dataframes
-        pisa_df = (
-            pd.concat([self.query_df, self.target_df], ignore_index=True)
-            .query("success and pocket_method == 'pisa'")
-            .drop_duplicates(subset=["struct_info", "chain_info"])
-        )
-        if len(pisa_df) == 0:
-            logging.info("No PISA pockets to retrieve", extra=stage)
-            return {}
-        else:
-            logging.info(f"{len(pisa_df)} PISA pockets to retrieve", extra=stage)
-
-        pisa_response_dir = os.path.join(self.settings.pocket_dir, "pisa_responses")
         pisa_pdb_list = pisa_df["struct_info"].unique().tolist()
-        logging.debug(f"PDBs for which to retrieve PISA pockets: {pisa_pdb_list}", extra=self.log_extra)
-        downloader = PisaDownloader()
-        downloader.get_interfaces(
-            pdb_list=pisa_pdb_list,
-            summary_dir=os.path.join(pisa_response_dir, "summaries"),
-            asm_dir=os.path.join(pisa_response_dir, "assemblies"),
-            interface_dir=os.path.join(pisa_response_dir, "interfaces"),
-        )
+        logging.debug(f"PDBs for which to retrieve PISA pockets: {pisa_pdb_list}", extra=stage)
+        interface_dir = self.download_pisa_interfaces(pisa_pdb_list)
 
         parser = PisaParser()
-        pisa_pockets = parser.get_pockets_from_records(
-            records=pisa_df.to_dict(orient="records"),
-            in_dir=os.path.join(pisa_response_dir, "interfaces"),
-        )
-        logging.debug(f"Extracted PISA pockets: {pisa_pockets}", extra=self.log_extra)
+        pisa_pockets = parser.get_pockets_from_records(records=pisa_df.to_dict(orient="records"), in_dir=interface_dir)
+        logging.debug(f"PISA pockets before coordinates: {pisa_pockets}", extra=stage)
 
+        # PisaParser gives residue ids but no geometry; this second pass fills in seq_pos and the CA
+        # coordinates on the same Pocket, which is what the comparison and superposition need.
         for _, row in pisa_df.iterrows():
             if row["pocket_id"] in pisa_pockets:
                 pisa_pockets[row["pocket_id"]] = parse_pocket_from_struct(
@@ -1072,50 +1116,57 @@ class PocketMapper:
                     pocket_residues=[int(x) for x in pisa_pockets[row["pocket_id"]].res_auth_ids],
                     pocket=pisa_pockets[row["pocket_id"]],
                 )
-        logging.debug(f"Extracted PISA pockets with coords: {pisa_pockets}", extra=self.log_extra)
-
-        self.dump_pockets(pisa_pockets, "pisa_pockets.json")
-
         return pisa_pockets
 
-    def retrieve_passthrough_pockets(self):
+    def retrieve_passthrough_pockets(self, pt_df):
         """
-        Convert manually defined list-based user parameters directly into atomic coordinate graphs.
+        Build a Pocket from the residue ids the entry names outright.
 
-        Target data frames assigned a 'passthrough' target type have explicitly identified residues parsed
-        statically based on existing indices within pre-existing mmcif structures.
+        A passthrough entry carries its own residue list ("P24941:A:160,161"), so there is nothing to
+        compute: the ids are read from `residue_info` and looked up in the structure.
+
+        Args:
+            pt_df (pandas.DataFrame): Records with `pocket_method == "passthrough"`, as returned by
+                `select_pocket_records`.
 
         Returns:
-            dict: Translated pocket coordinates indexed by `pocket_id`.
+            dict: pocket_id -> Pocket.
         """
-        stage = {"stage": "Passthrough Pocket Calculation"}
-        logging.info("Checking for passthrough pockets...", extra=stage)
-
-        pt_df = pd.concat([self.query_df, self.target_df], ignore_index=True).query(
-            "success and pocket_method == 'passthrough'"
-        )
-        if len(pt_df) == 0:
-            logging.info("No passthrough pockets to retrieve", extra=stage)
-            return {}
-        else:
-            logging.info(f"{len(pt_df)} passthrough pockets to retrieve", extra=stage)
-
-        # for each pocket in query and target parse pocket info from the structure and store in a dict
         passthrough_pockets = {}
         for _, row in pt_df.iterrows():
-            pocket_residues = [int(x) for x in row["residue_info"].split(",")]
-            pocket = parse_pocket_from_struct(
+            passthrough_pockets[row["pocket_id"]] = parse_pocket_from_struct(
                 struct=row["struct_path"],
                 chain_id=row["chain_info"].split("_")[0],
-                pocket_residues=pocket_residues,
+                pocket_residues=[int(x) for x in row["residue_info"].split(",")],
             )
-            passthrough_pockets[row["pocket_id"]] = pocket
-        self.dump_pockets(passthrough_pockets, "passthrough_pockets.json", indent=4)
-        logging.debug(f"Extracted passthrough pockets: {passthrough_pockets}", extra=self.log_extra)
-
         return passthrough_pockets
 
-    def retrieve_whole_chain_pockets(self):
+    def retrieve_vdw_pockets(self, vdw_df):
+        """
+        Build a Pocket from the van der Waals contacts between the entry's two chains.
+
+        A chain pair on a structure PISA cannot serve -- a local file or an AlphaFold model --
+        resolves to this method. The pocket is the residues of the first chain whose atoms come
+        within van der Waals contact of the second; see `PocketCalculator.pocket_overlap`.
+
+        Args:
+            vdw_df (pandas.DataFrame): Records with `pocket_method == "vdw"`, as returned by
+                `select_pocket_records`.
+
+        Returns:
+            dict: pocket_id -> Pocket.
+        """
+        vdw_pockets = {}
+        pc = PocketCalculator()
+        for _, row in vdw_df.iterrows():
+            vdw_pockets[row["pocket_id"]] = pc.pocket_overlap(
+                structure=row["struct_path"],
+                domain_chain=row["chain_info"].split("_")[0],
+                motif_chain=row["chain_info"].split("_")[1],
+            )
+        return vdw_pockets
+
+    def retrieve_whole_chain_pockets(self, wc_df):
         """
         Build the "pocket" for an open search: every CA-bearing residue of the chain.
 
@@ -1124,20 +1175,14 @@ class PocketMapper:
         `compare_pockets` synthesises for Foldseek-database hits, this is a real Pocket parsed from the
         structure, so it carries residue codes and CA coordinates and can be superposed.
 
-        Returns:
-            dict: Translated pocket coordinates indexed by `pocket_id`.
-        """
-        stage = {"stage": "Whole Chain Pocket Calculation"}
-        logging.info("Checking for whole chain pockets...", extra=stage)
+        Args:
+            wc_df (pandas.DataFrame): Records with `pocket_method == "whole_chain"`, as returned by
+                `select_pocket_records`.
 
-        wc_df = pd.concat([self.query_df, self.target_df], ignore_index=True).query(
-            "success and pocket_method == 'whole_chain'"
-        )
-        if len(wc_df) == 0:
-            logging.info("No whole chain pockets to retrieve", extra=stage)
-            return {}
-        else:
-            logging.info(f"{len(wc_df)} whole chain pockets to retrieve", extra=stage)
+        Returns:
+            dict: pocket_id -> Pocket.
+        """
+        stage = {"stage": "Retrieving whole chain Pockets"}
 
         whole_chain_pockets = {}
         for _, row in wc_df.iterrows():
@@ -1157,46 +1202,7 @@ class PocketMapper:
                 )
                 continue
             whole_chain_pockets[row["pocket_id"]] = pocket
-        self.dump_pockets(whole_chain_pockets, "whole_chain_pockets.json", indent=4)
-        logging.debug(f"Extracted whole chain pockets: {whole_chain_pockets}", extra=self.log_extra)
-
         return whole_chain_pockets
-
-    def retrieve_vdw_pockets(self):
-        """
-        Evaluate pocket clusters structurally using Van-der-Waals (VDW) interaction overlapping metrics.
-
-        Passes valid structures referencing 'vdw' methods into `PocketCalculator` implementations to
-        synthesize interactive residue domains from a protein-motif complex.
-
-        Returns:
-            dict: Translated pocket coordinates indexed by `pocket_id`.
-        """
-        stage = {"stage": "VDW Pocket Calculation"}
-        logging.info("Checking for VDW pockets...", extra=stage)
-        vdw_df = pd.concat([self.query_df, self.target_df], ignore_index=True).query(
-            "success and pocket_method == 'vdw'"
-        )
-        if len(vdw_df) == 0:
-            logging.info("No VDW pockets to retrieve", extra=stage)
-            return {}
-        else:
-            logging.info(f"{len(vdw_df)} VDW pockets to retrieve", extra=stage)
-
-        vdw_pockets = {}
-        pc = PocketCalculator()
-        for _, row in vdw_df.iterrows():
-
-            pocket = pc.pocket_overlap(
-                structure=row["struct_path"],
-                domain_chain=row["chain_info"].split("_")[0],
-                motif_chain=row["chain_info"].split("_")[1],
-            )
-            vdw_pockets[row["pocket_id"]] = pocket
-        self.dump_pockets(vdw_pockets, "vdw_pockets.json", indent=4)
-        logging.debug(f"Extracted VDW pockets: {vdw_pockets}", extra=self.log_extra)
-
-        return vdw_pockets
 
     def compare_pockets_based_on_alignment(self, pockets):
         """
