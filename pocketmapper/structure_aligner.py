@@ -33,7 +33,7 @@ class StructureAligner:
         self._log_extra = {"stage": "StructureAligner"}
         logging.debug("Initialized", extra=self._log_extra)
 
-    def _char_gen(self):
+    def char_gen(self):
         """
         Yield short, PDB-friendly chain identifiers for aligned output.
 
@@ -52,7 +52,7 @@ class StructureAligner:
         for x, y in permutations(nice_chars, 2):
             yield (x + y)
 
-    def _apply_transformation(self, structs, domain_chains, motif_chains, us, ts):
+    def apply_transformation(self, structs, domain_chains, motif_chains, us, ts):
         """
         Apply rigid-body transforms to a set of structures and merge them.
 
@@ -71,7 +71,7 @@ class StructureAligner:
         """
         # Align everything to the first struct
         ref_st = gemmi.Structure()
-        chain_names = self._char_gen()
+        chain_names = self.char_gen()
 
         for i, cn, st, dc, mc, u, t in zip(count(1), chain_names, structs, domain_chains, motif_chains, us, ts):
             ref_st.add_model(gemmi.Model(i))
@@ -169,10 +169,10 @@ class StructureAligner:
             self.logger.error(f"No structure could be placed, not writing {out_path}", extra=self._log_extra)
             return
 
-        aligned_struct = self._apply_transformation(structs, domain_chains, motif_chains, us, ts)
-        self._write_aligned(kept_records, aligned_struct, out_path)
+        aligned_struct = self.apply_transformation(structs, domain_chains, motif_chains, us, ts)
+        self.write_aligned(kept_records, aligned_struct, out_path)
 
-    def _write_aligned(self, kept_records, aligned_struct, out_path):
+    def write_aligned(self, kept_records, aligned_struct, out_path):
         """
         Write a merged structure out as a PDB with a COMPND header naming each model.
 
@@ -195,7 +195,7 @@ class StructureAligner:
 
         model_nums = (str(x) for x in count(1))
         model_names = [record["pocket_id"] for record in kept_records]
-        chain_names = self._char_gen()
+        chain_names = self.char_gen()
         header = ""
         for model_num, model_name, chain_name in zip(model_nums, model_names, chain_names):
             line_nums = (str(x) for x in count(1))

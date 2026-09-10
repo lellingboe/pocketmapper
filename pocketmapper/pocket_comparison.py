@@ -6,13 +6,13 @@ BLOSUM62 aligner together with the Pockets produced by the pocket methods, and r
 rows that become pocket_comparison.tsv.
 
 The alignment table's column order is a positional contract, declared once as
-constants.ALIGNMENT_COLUMNS: _foldseek_alignment passes constants.FOLDSEEK_FORMAT_OUTPUT to
+constants.ALIGNMENT_COLUMNS: foldseek_alignment passes constants.FOLDSEEK_FORMAT_OUTPUT to
 Foldseek's --format-output, SequenceAligner.align_records pins its DataFrame to the same list, and
 each row is unpacked here into an AlignmentRow. Reorder the constant and all three move together;
 edit any producer in isolation and the comparison breaks silently.
 
 Nothing here mutates the Pockets it is given -- the invariant is stated on the class itself. Each
-side's projection onto the alignment is returned as a _MappedPocket instead of being written back
+side's projection onto the alignment is returned as a MappedPocket instead of being written back
 into the pocket, which is what lets the same Pocket be read straight out of pocket_dict on every
 alignment row rather than deep-copied.
 """
@@ -90,7 +90,7 @@ POCKET_COMPARISON_COLUMNS = [
 ]
 
 
-class _MappedPocket(NamedTuple):
+class MappedPocket(NamedTuple):
     """
     A pocket's residues projected onto one alignment row.
 
@@ -110,7 +110,7 @@ class _MappedPocket(NamedTuple):
     code_mismatches: list
 
 
-def _aln_positions(aln_seq):
+def aln_positions(aln_seq):
     """
     Map each non-gap position of an aligned sequence to its index within the gapped string.
 
@@ -126,7 +126,7 @@ def _aln_positions(aln_seq):
     return [i for i, res in enumerate(aln_seq) if res != "-"]
 
 
-def _map_pocket_into_alignment(pocket, aln_seq, aln_positions, start, end):
+def map_pocket_into_alignment(pocket, aln_seq, aln_positions, start, end):
     """
     Project a pocket's residues onto one side of an alignment row.
 
@@ -148,7 +148,7 @@ def _map_pocket_into_alignment(pocket, aln_seq, aln_positions, start, end):
         end (int): 1-based last aligned residue on this side.
 
     Returns:
-        _MappedPocket: The projection.
+        MappedPocket: The projection.
     """
     adj = 1 - start
     aligned_len = end - start + 1
@@ -169,7 +169,7 @@ def _map_pocket_into_alignment(pocket, aln_seq, aln_positions, start, end):
         if entry.res_code_single is not None and aln_res_code != entry.res_code_single:
             code_mismatches.append((aln_res_code, entry.res_code, res))
 
-    return _MappedPocket(
+    return MappedPocket(
         positions=positions,
         pos_by_res=dict(pos_by_res),
         in_aln_count=len(positions),
@@ -177,7 +177,7 @@ def _map_pocket_into_alignment(pocket, aln_seq, aln_positions, start, end):
     )
 
 
-def _record_code_mismatches(mapped, self_id, other_id, unknown_ids):
+def record_code_mismatches(mapped, self_id, other_id, unknown_ids):
     """
     Fold one projection's code disagreements into unknown_ids, keyed by this particular pairing.
 
@@ -194,7 +194,7 @@ def _record_code_mismatches(mapped, self_id, other_id, unknown_ids):
         unknown_ids[aln_res_code][res_code].add(f"{other_id},{self_id},{res}")
 
 
-def _synthesise_target_pocket(aln, ctx):
+def synthesise_target_pocket(aln, ctx):
     """
     A whole-chain stand-in for a Foldseek-database hit that has no pocket record of its own.
 
@@ -223,7 +223,7 @@ def _synthesise_target_pocket(aln, ctx):
     """
     res_ids = [str(k) for k in range(aln.tend)]
     if ctx.offsets:
-        res_ids = _uniprot_res_ids(aln, ctx.offsets)
+        res_ids = uniprot_res_ids(aln, ctx.offsets)
 
     return Pocket(
         res_auth_ids=res_ids,
@@ -242,7 +242,7 @@ def _synthesise_target_pocket(aln, ctx):
     )
 
 
-def _uniprot_res_ids(aln, offsets):
+def uniprot_res_ids(aln, offsets):
     """
     The UniProt residue numbers of a database entry's first `tend` positions.
 
@@ -293,7 +293,7 @@ def _uniprot_res_ids(aln, offsets):
     return [str(uniprot_map[k]) for k in range(aln.tend)]
 
 
-def _describe_pocket(pocket_id, pocket, cache):
+def describe_pocket(pocket_id, pocket, cache):
     """
     The residue list, length and sequence of a pocket, memoised.
 
@@ -320,7 +320,7 @@ def _describe_pocket(pocket_id, pocket, cache):
     return described
 
 
-def _seq_identity(pocket_id, pocket, domain, aln_seq, cache):
+def seq_identity(pocket_id, pocket, domain, aln_seq, cache):
     """
     Identity between a pocket's own CA sequence and the sequence the aligner reported for its chain.
 
@@ -346,7 +346,7 @@ def _seq_identity(pocket_id, pocket, domain, aln_seq, cache):
     return identity
 
 
-def _overlap_ids(pocket, mapped, overlap_positions):
+def overlap_ids(pocket, mapped, overlap_positions):
     """
     The pocket's author seqids that landed on an overlapping alignment position, in pocket order.
 
@@ -362,7 +362,7 @@ def _overlap_ids(pocket, mapped, overlap_positions):
     return [res for res in pocket.res_auth_ids if pos_by_res.get(res, -1) in overlap_positions]
 
 
-def _superpose(p1, p2, p1_overlap_ids, p2_overlap_ids, overlap_count, sup):
+def superpose(p1, p2, p1_overlap_ids, p2_overlap_ids, overlap_count, sup):
     """
     Superpose the two pockets on their overlapping residues.
 
@@ -408,14 +408,14 @@ def parse_pocket_transform(u_cell, t_cell):
 
     Two conversions, both easy to get silently wrong:
 
-    _superpose stores Biopython's SVDSuperimposer.get_rotran() output verbatim, and that rotation is
+    superpose stores Biopython's SVDSuperimposer.get_rotran() output verbatim, and that rotation is
     RIGHT-multiplying (dot(coords, u) + t). gemmi.Transform LEFT-multiplies (u @ v + t), which is the
     convention Foldseek's own u already uses, so the matrix must be TRANSPOSED here. Checked against
     the two fits of the same pair in tests/e2e/e2e_results/test_core_1: |u.T - foldseek_u|max = 0.049,
     |u - foldseek_u|max = 1.08. Never hand a raw cell to gemmi.
 
     The cells are Python list reprs rather than the comma-joined strings alignment.tsv uses for the
-    same quantities, because _superpose writes lists and to_csv reprs them.
+    same quantities, because superpose writes lists and to_csv reprs them.
 
     Args:
         u_cell (str): The `p2_to_p1_u` cell, a list repr of nine floats.
@@ -433,7 +433,7 @@ def parse_pocket_transform(u_cell, t_cell):
     return u, t
 
 
-def _score_overlap(aln, overlap_positions, similarity_matrix):
+def score_overlap(aln, overlap_positions, similarity_matrix):
     """
     Sequence identity and the three BLOSUM62 similarity scores over the overlapping residues.
 
@@ -463,7 +463,7 @@ def _score_overlap(aln, overlap_positions, similarity_matrix):
     }
 
 
-def _compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_mapped, ctx):
+def compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_mapped, ctx):
     """
     Score one pocket against one other on a single alignment row.
 
@@ -496,7 +496,7 @@ def _compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_ma
         output["pocket_1_res_ids"],
         output["pocket_1_len"],
         output["pocket_1_seq"],
-    ) = _describe_pocket(pocket_id_1, p1, ctx.descriptions)
+    ) = describe_pocket(pocket_id_1, p1, ctx.descriptions)
     output["pocket_1_pct_aln"] = p1_mapped.in_aln_count / output["pocket_1_len"]
 
     # An open search -- a whole chain rather than a pocket on it -- has no pocket 2 to describe, and
@@ -508,7 +508,7 @@ def _compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_ma
             output["pocket_2_res_ids"],
             output["pocket_2_len"],
             output["pocket_2_seq"],
-        ) = _describe_pocket(pocket_id_2, p2, ctx.descriptions)
+        ) = describe_pocket(pocket_id_2, p2, ctx.descriptions)
         output["pocket_2_pct_aln"] = p2_mapped.in_aln_count / output["pocket_2_len"]
 
     # Kept in pocket-1 order: the overlap sequences are built by indexing the alignment strings with it.
@@ -519,8 +519,8 @@ def _compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_ma
         return output
 
     overlap_set = set(overlap_positions)
-    p1_overlap_ids = _overlap_ids(p1, p1_mapped, overlap_set)
-    p2_overlap_ids = _overlap_ids(p2, p2_mapped, overlap_set)
+    p1_overlap_ids = overlap_ids(p1, p1_mapped, overlap_set)
+    p2_overlap_ids = overlap_ids(p2, p2_mapped, overlap_set)
     output["pocket_1_overlap_ids"] = ",".join(p1_overlap_ids)
     output["pocket_2_overlap_ids"] = ",".join(p2_overlap_ids)
 
@@ -528,12 +528,12 @@ def _compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_ma
         union_size = len(p1.res_auth_ids) + len(p2.res_auth_ids) - len(overlap_positions)
         output["jaccard_index"] = len(overlap_positions) / union_size
 
-    output.update(_score_overlap(aln, overlap_positions, ctx.similarity_matrix))
-    output.update(_superpose(p1, p2, p1_overlap_ids, p2_overlap_ids, len(overlap_positions), ctx.superimposer))
+    output.update(score_overlap(aln, overlap_positions, ctx.similarity_matrix))
+    output.update(superpose(p1, p2, p1_overlap_ids, p2_overlap_ids, len(overlap_positions), ctx.superimposer))
     return output
 
 
-class _Context(NamedTuple):
+class Context(NamedTuple):
     """
     The scoring state shared by every comparison in one call.
 
@@ -548,7 +548,7 @@ class _Context(NamedTuple):
     offsets: dict
 
 
-def _resolve_pockets(domain, pocket_dict, preproc_to_ids):
+def resolve_pockets(domain, pocket_dict, preproc_to_ids):
     """
     The pockets sitting on one aligned chain. One chain can carry several pockets.
 
@@ -598,7 +598,7 @@ def compare_pockets(
         tuple: (comparison table, the residue codes the aligner and pocketmapper disagreed on, the
             pockets whose sequence did not match the aligner's well enough to be trusted).
     """
-    ctx = _Context(
+    ctx = Context(
         similarity_matrix=read_blast_similarity_matrix(blosum_path),
         superimposer=SVDSuperimposer(),
         descriptions={},
@@ -615,19 +615,19 @@ def compare_pockets(
     for values in tqdm(alignment_df.itertuples(index=False, name=None)):
         aln = AlignmentRow(*values)
         try:
-            pockets_1 = _resolve_pockets(aln.query, pocket_dict, preproc_to_ids)
+            pockets_1 = resolve_pockets(aln.query, pocket_dict, preproc_to_ids)
             if not pockets_1:
                 continue
 
             if synthesise_target_pockets:
-                pockets_2 = {aln.target: _synthesise_target_pocket(aln, ctx)}
+                pockets_2 = {aln.target: synthesise_target_pocket(aln, ctx)}
             else:
-                pockets_2 = _resolve_pockets(aln.target, pocket_dict, preproc_to_ids)
+                pockets_2 = resolve_pockets(aln.target, pocket_dict, preproc_to_ids)
                 if not pockets_2:
                     continue
 
-            q_positions = _aln_positions(aln.qaln)
-            t_positions = _aln_positions(aln.taln)
+            q_positions = aln_positions(aln.qaln)
+            t_positions = aln_positions(aln.taln)
 
             # Each side is projected onto this row once, then reused across every pairing.
             mapped_1 = {}
@@ -647,7 +647,7 @@ def compare_pockets(
                 if not p1.pocket_exists or not p2.pocket_exists:
                     continue
 
-                p1_identity = _seq_identity(pocket_id_1, p1, aln.query, aln.qseq, ctx.identities)
+                p1_identity = seq_identity(pocket_id_1, p1, aln.query, aln.qseq, ctx.identities)
                 if p1_identity < MIN_SEQ_IDENTITY:
                     incorrect_mapping[pocket_id_1] = {
                         "p1_seq_identity": p1_identity,
@@ -655,7 +655,7 @@ def compare_pockets(
                         "fs_seq": aln.qseq,
                     }
 
-                p2_identity = _seq_identity(pocket_id_2, p2, aln.target, aln.tseq, ctx.identities)
+                p2_identity = seq_identity(pocket_id_2, p2, aln.target, aln.tseq, ctx.identities)
                 if p2_identity < MIN_SEQ_IDENTITY:
                     incorrect_mapping[pocket_id_2] = {
                         "p2_seq_identity": p2_identity,
@@ -664,19 +664,19 @@ def compare_pockets(
                     }
 
                 if pocket_id_1 not in mapped_1:
-                    mapped_1[pocket_id_1] = _map_pocket_into_alignment(p1, aln.qaln, q_positions, aln.qstart, aln.qend)
+                    mapped_1[pocket_id_1] = map_pocket_into_alignment(p1, aln.qaln, q_positions, aln.qstart, aln.qend)
                 if pocket_id_2 not in mapped_2:
-                    mapped_2[pocket_id_2] = _map_pocket_into_alignment(p2, aln.taln, t_positions, aln.tstart, aln.tend)
+                    mapped_2[pocket_id_2] = map_pocket_into_alignment(p2, aln.taln, t_positions, aln.tstart, aln.tend)
                 p1_mapped = mapped_1[pocket_id_1]
                 p2_mapped = mapped_2[pocket_id_2]
 
                 # The projections are shared across pairings, but unknown_ids names both pockets, so
                 # each pairing contributes its own entries.
-                _record_code_mismatches(p1_mapped, pocket_id_1, pocket_id_2, unknown_ids)
-                _record_code_mismatches(p2_mapped, pocket_id_2, pocket_id_1, unknown_ids)
+                record_code_mismatches(p1_mapped, pocket_id_1, pocket_id_2, unknown_ids)
+                record_code_mismatches(p2_mapped, pocket_id_2, pocket_id_1, unknown_ids)
 
                 output_rows.append(
-                    _compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_mapped, ctx)
+                    compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_mapped, ctx)
                 )
 
         except Exception:

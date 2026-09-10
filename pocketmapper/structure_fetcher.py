@@ -14,7 +14,7 @@ from urllib.request import urlcleanup
 from urllib.request import urlretrieve
 
 
-def _discard_partial(fpath):
+def discard_partial(fpath):
     """
     Delete a partially written download, ignoring the case where it never got created.
 
@@ -141,11 +141,11 @@ class StructureFetcher:
                 urlcleanup()
                 urlretrieve(url, temp_fpath)
             except OSError:
-                _discard_partial(temp_fpath)
+                discard_partial(temp_fpath)
                 self.logger.warning(f"OSError when downloading {uniprot_acc}", extra=stage)
                 return (uniprot_acc, False)
             except Exception:
-                _discard_partial(temp_fpath)
+                discard_partial(temp_fpath)
                 self.logger.warning(f"Atypical error when downloading {uniprot_acc}", extra=stage)
                 return (uniprot_acc, False)
 
@@ -182,11 +182,11 @@ class StructureFetcher:
                 urlcleanup()
                 urlretrieve(url, part_fpath)
             except OSError:
-                _discard_partial(part_fpath)
+                discard_partial(part_fpath)
                 self.logger.warning(f"Unable to download {pdb_code}", extra=stage)
                 return (pdb_code, False)
             except Exception:
-                _discard_partial(part_fpath)
+                discard_partial(part_fpath)
                 self.logger.warning(f"Atypical error when downloading {pdb_code}", extra=stage)
                 return (pdb_code, False)
             # Moved into place only once the download is complete -- see fetch_alphafold.

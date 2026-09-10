@@ -36,7 +36,7 @@ BUNDLED_HUMAN_DOMAINS_DB = "human_v3_20260901"
 BUNDLED_HUMAN_DOMAINS_OFFSET_TABLE = "offset_table.tsv"
 
 
-def _bundled_human_domains_path(filename):
+def bundled_human_domains_path(filename):
     """
     Resolve a file shipped in the package's `human_domains` directory.
 
@@ -69,9 +69,9 @@ def bundled_human_domains_offset_table(struct_path):
     Returns:
         str | None: Path to the table, or None when `struct_path` is not the bundled DB.
     """
-    if struct_path != _bundled_human_domains_path(BUNDLED_HUMAN_DOMAINS_DB):
+    if struct_path != bundled_human_domains_path(BUNDLED_HUMAN_DOMAINS_DB):
         return None
-    return _bundled_human_domains_path(BUNDLED_HUMAN_DOMAINS_OFFSET_TABLE)
+    return bundled_human_domains_path(BUNDLED_HUMAN_DOMAINS_OFFSET_TABLE)
 
 
 @dataclass
@@ -143,7 +143,7 @@ class QTProcessor:
         self.vdw_regex = r"^[A-Za-z0-9](_[A-Za-z0-9])?(\:(\d+\,?)*)?$"  # pattern like "A_B:1,2,3"
 
         self._bundled_foldseek_dbs = {
-            "human_domains": _bundled_human_domains_path(BUNDLED_HUMAN_DOMAINS_DB),
+            "human_domains": bundled_human_domains_path(BUNDLED_HUMAN_DOMAINS_DB),
             "pdb": os.path.join(fsdb_dir, "pdb"),
         }
 

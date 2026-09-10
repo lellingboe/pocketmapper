@@ -23,7 +23,7 @@ class SequenceAligner:
     Produces the alignment table from sequence alone, without Foldseek.
     """
 
-    def _replaceNonCommonResidues(self, peptide):
+    def replaceNonCommonResidues(self, peptide):
         """
         Map anything outside the 20 standard amino acids to "X".
 
@@ -45,7 +45,7 @@ class SequenceAligner:
 
         return "".join(processed_peptide)
 
-    def _align_seqs(self, peptide1, peptide2, aligner):
+    def align_seqs(self, peptide1, peptide2, aligner):
         """
         Align two sequences and expand the result to gapped strings.
 
@@ -57,8 +57,8 @@ class SequenceAligner:
         Returns:
             list: [query_aligned, target_aligned], each a list of characters with "-" for gaps.
         """
-        peptide1 = self._replaceNonCommonResidues(peptide1)
-        peptide2 = self._replaceNonCommonResidues(peptide2)
+        peptide1 = self.replaceNonCommonResidues(peptide1)
+        peptide2 = self.replaceNonCommonResidues(peptide2)
         alignments = aligner.align(peptide1, peptide2)
 
         peptide1_aligned = [peptide1[i] if i != -1 else "-" for i in alignments[0].indices[0]]
@@ -110,7 +110,7 @@ class SequenceAligner:
             target = t_record["preprocess_name"]
             qseq = name_to_seq[query]
             tseq = name_to_seq[target]
-            qaln, taln = self._align_seqs(qseq, tseq, aligner)
+            qaln, taln = self.align_seqs(qseq, tseq, aligner)
             aln_len = len(qaln)
 
             identity = 0

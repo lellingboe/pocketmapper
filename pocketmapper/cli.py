@@ -30,11 +30,11 @@ from pocketmapper.pocketmapper import PocketMapper
 # Accepted spellings for a boolean option value. Fire used to `ast.literal_eval` the token, so
 # `--foldseek False` is what every local-aligner e2e case passes and what the runner's skip gate
 # greps for; the True/False spellings must keep working exactly as written.
-_TRUE_VALUES = ("true", "1", "yes")
-_FALSE_VALUES = ("false", "0", "no")
+TRUE_VALUES = ("true", "1", "yes")
+FALSE_VALUES = ("false", "0", "no")
 
 
-def _bool_arg(value):
+def bool_arg(value):
     """
     Parse a boolean option value from the command line.
 
@@ -48,14 +48,14 @@ def _bool_arg(value):
         argparse.ArgumentTypeError: If the token is not a recognised boolean spelling.
     """
     lowered = value.strip().lower()
-    if lowered in _TRUE_VALUES:
+    if lowered in TRUE_VALUES:
         return True
-    if lowered in _FALSE_VALUES:
+    if lowered in FALSE_VALUES:
         return False
     raise argparse.ArgumentTypeError(f"expected True or False, got {value!r}")
 
 
-def _build_parser():
+def build_parser():
     """
     Build the top-level parser and its one `search` subcommand.
 
@@ -112,7 +112,7 @@ def _build_parser():
         "--foldseek",
         nargs="?",
         const=True,
-        type=_bool_arg,
+        type=bool_arg,
         default=None,
         metavar="BOOL",
         help="Require the Foldseek aligner (True) or forbid it (False); unset auto-detects the binary. "
@@ -234,7 +234,7 @@ def _build_parser():
         "--delete_tmp",
         nargs="?",
         const=True,
-        type=_bool_arg,
+        type=bool_arg,
         default=None,
         metavar="BOOL",
         help="Delete the directories below at the end of the run; False keeps them. (default: True)",
@@ -278,7 +278,7 @@ def main(argv=None):
     Returns:
         None: Exits 1 on a pipeline error; results are written to the run's results_dir.
     """
-    parser = _build_parser()
+    parser = build_parser()
     args = parser.parse_args(argv)
 
     # No subcommand is not an error: fire printed its group help and exited 0 here, and CI's compat

@@ -48,7 +48,7 @@ class PisaDownloader:
         self.base_delay = base_delay
         self.max_delay = max_delay
 
-    def _fetch_with_backoff(self, url, out_fname):
+    def fetch_with_backoff(self, url, out_fname):
         """
         Download `url` to `out_fname`, retrying on failure with exponential backoff.
 
@@ -137,7 +137,7 @@ class PisaDownloader:
                 valid.append(pdb_code)
             else:
                 url = f"https://www.ebi.ac.uk/pdbe/api/v2/pdb/entry/summary/{pdb_code}"
-                if self._fetch_with_backoff(url, out_fname):
+                if self.fetch_with_backoff(url, out_fname):
                     valid.append(pdb_code)
                 else:
                     problems.append(pdb_code)
@@ -199,7 +199,7 @@ class PisaDownloader:
                 out_fname = os.path.join(asm_dir, f"{pdb_code}_{asm}.json")
                 if not os.path.exists(out_fname):
                     url = f"https://www.ebi.ac.uk/pdbe/api/pisa/interfaces/{pdb_code}/{asm}"
-                    if not self._fetch_with_backoff(url, out_fname):
+                    if not self.fetch_with_backoff(url, out_fname):
                         problems.append(f"{pdb_code}_{asm}")
                     sleep(self.base_delay)
         pd.Series(problems).to_csv(os.path.join(asm_dir, "_Failed.txt"), header=False, index=False)

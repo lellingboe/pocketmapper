@@ -26,7 +26,7 @@ class PisaParser:
         """
         logging.getLogger(__name__)
 
-    def _load_interfaces(self, pdb_id, in_dir):
+    def load_interfaces(self, pdb_id, in_dir):
         """
         Load the cached interface file for a PDB entry, or None if there isn't one.
 
@@ -66,7 +66,7 @@ class PisaParser:
                 or the chain takes part in no interface.
         """
         stage = {"stage": "Calculating Pockets"}
-        pisa_data = self._load_interfaces(pdb_id, in_dir)
+        pisa_data = self.load_interfaces(pdb_id, in_dir)
         if pisa_data is None:
             logging.debug(f"Could not load PISA data for {pdb_id}", extra=stage)
             return []
@@ -109,7 +109,7 @@ class PisaParser:
             pdb_id = record["struct_info"]
 
             # Loading PISA pocket file
-            pisa_data = self._load_interfaces(pdb_id, in_dir)
+            pisa_data = self.load_interfaces(pdb_id, in_dir)
             if pisa_data is None:
                 logging.warning(f"Could not load PISA data for {pdb_id}", extra=stage)
                 continue

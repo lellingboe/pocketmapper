@@ -10,7 +10,7 @@ import hashlib
 import os
 import re
 
-_UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]")
+UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]")
 
 
 def jsonify_dict(item):
@@ -53,7 +53,7 @@ def safe_filename(name, max_len=80):
         str: A safe stem, at most max_len characters (or 32, if max_len leaves no room).
     """
     name_hash = hashlib.md5(name.encode()).hexdigest()
-    stem = _UNSAFE_FILENAME_CHARS.sub("_", os.path.basename(name.rstrip("/")))
+    stem = UNSAFE_FILENAME_CHARS.sub("_", os.path.basename(name.rstrip("/")))
     stem = stem[: max(max_len - len(name_hash) - 1, 0)].rstrip("_")
     return f"{stem}_{name_hash}" if stem else name_hash
 
@@ -203,7 +203,7 @@ def read_blast_similarity_matrix(similarity_matrix_path, delimiter=" "):
 
 # Foldseek's PDB database names its entries "<pdbid>-assembly<N>_<chain>", with a "-<copy>" suffix on
 # chains duplicated within an assembly (e.g. "5ian-assembly1_B-2").
-_FOLDSEEK_PDB_ENTRY = re.compile(r"^(?P<pdb>[0-9A-Za-z]{4})-assembly(?P<assembly>\d+)_(?P<chain>.+)$")
+FOLDSEEK_PDB_ENTRY = re.compile(r"^(?P<pdb>[0-9A-Za-z]{4})-assembly(?P<assembly>\d+)_(?P<chain>.+)$")
 
 
 def parse_foldseek_pdb_entry_name(name):
@@ -223,7 +223,7 @@ def parse_foldseek_pdb_entry_name(name):
             also how a caller tells a PDB Foldseek database apart from one built on something else
             (e.g. human_domains).
     """
-    match = _FOLDSEEK_PDB_ENTRY.match(name)
+    match = FOLDSEEK_PDB_ENTRY.match(name)
     if match is None:
         return None
     return match.group("pdb").upper(), match.group("chain").split("-")[0]

@@ -43,7 +43,7 @@ FOLDSEEK_INSTALL_HINT = (
 )
 
 # The alignment table's columns, in order. This is a positional contract shared by three modules:
-# _foldseek_alignment passes FOLDSEEK_FORMAT_OUTPUT to Foldseek's --format-output, the local
+# foldseek_alignment passes FOLDSEEK_FORMAT_OUTPUT to Foldseek's --format-output, the local
 # SequenceAligner builds the same columns in the same order, and pocket_comparison unpacks each row
 # positionally into an AlignmentRow. Reordering this list moves all three together; editing any one
 # of them in isolation breaks the comparison silently, which is why the list lives here.
@@ -71,7 +71,7 @@ ALIGNMENT_COLUMNS = [
 FOLDSEEK_FORMAT_OUTPUT = ",".join(ALIGNMENT_COLUMNS)
 
 # The structural-alignment methods step 7 accepts. "auto" is resolved to one of the other two by
-# _resolve_align_struct_method before anything downstream reads it.
+# resolve_align_struct_method before anything downstream reads it.
 ALIGN_STRUCT_METHODS = ("auto", "pocket", "foldseek")
 
 # The chain used when an entry names a structure but no chain at all ("4Q5J"). AlphaFold models are

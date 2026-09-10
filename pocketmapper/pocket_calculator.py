@@ -167,7 +167,7 @@ class PocketCalculator:
         pocket.pocket_exists = True
         pocket.has_coords = True
         # This method predates the declared shape and used to omit ca_sequence entirely, which would
-        # have raised in _seq_identity the moment it was wired into search(). Declaring the field made
+        # have raised in seq_identity the moment it was wired into search(). Declaring the field made
         # the gap visible; it is filled in here rather than left to break later.
         pocket.ca_sequence = "".join(ca_sequence)
         return {name: pocket}

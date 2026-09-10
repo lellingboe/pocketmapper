@@ -156,19 +156,19 @@ class PocketMapper:
         the package must pass `extra={"stage": ...}` -- a record without it fails to format. Nothing
         enforces that.
         """
-        self._log_extra = {"stage": "init"}
-        self._log_fmt = "%(levelname)s: %(stage)s - %(msg)s"
+        self.log_extra = {"stage": "init"}
+        self.log_fmt = "%(levelname)s: %(stage)s - %(msg)s"
         logging.getLogger(__name__)
-        logging.basicConfig(level=logging.CRITICAL, format=self._log_fmt)
+        logging.basicConfig(level=logging.CRITICAL, format=self.log_fmt)
 
         self.fsdb_target = False
-        self._fsdb_pdb_target = False
+        self.fsdb_pdb_target = False
         # Set for real by _resolve_foldseek(); read by _configure_query_target to explain *why*
         # a Foldseek-DB target was rejected. True here so a caller that skips search() is not
         # told the binary is missing when nothing has looked for it.
-        self._foldseek_available = True
+        self.foldseek_available = True
 
-    def _configure_logging(self, verbosity, log_path):
+    def configure_logging(self, verbosity, log_path):
         """
         Configure logging level and handlers based on user settings.
 
@@ -179,7 +179,7 @@ class PocketMapper:
             verbosity (int): The verbosity level (4=DEBUG, 3=INFO, 2=WARNING, else ERROR).
             log_path (str): The path to the log file.
         """
-        self._log_extra.update({"stage": "Configuring Logging"})
+        self.log_extra.update({"stage": "Configuring Logging"})
 
         # Set log level based on verbosity setting (default to INFO if not set)
         log_level = None
@@ -195,7 +195,7 @@ class PocketMapper:
         log_config = {
             "version": 1,
             "formatters": {
-                "standard": {"format": self._log_fmt},
+                "standard": {"format": self.log_fmt},
             },
             "handlers": {
                 "console": {
@@ -300,7 +300,7 @@ class PocketMapper:
             None: Results are written to `results_dir` -- read pocket_comparison.tsv and
                 alignment.tsv from there.
         """
-        self._log_extra = {
+        self.log_extra = {
             "stage": "Starting Search"
         }  # dict needed for logging extra info, can be updated throughout the process to indicate the current stage in logs
 
@@ -334,32 +334,32 @@ class PocketMapper:
             "fsdb_dir": fsdb_dir,
         }
 
-        self._settings = self._configure_workflow(settings, cli_overrides)
-        self._query_df, self._target_df = (
-            self._configure_query_target()
+        self.settings = self.configure_workflow(settings, cli_overrides)
+        self.query_df, self.target_df = (
+            self.configure_query_target()
         )  # parses the query and target inputs to determine their types and sets up the relevant data structures for each entry
 
-        self._query_df = self._fetch_missing_structures(
-            "query", self._query_df, self._settings.structure_dir
+        self.query_df = self.fetch_missing_structures(
+            "query", self.query_df, self.settings.structure_dir
         )  # Fetch any missing structures
         if self.fsdb_target:
-            self._fetch_missing_fsdb(
-                self._target_df, self._settings.foldseek_tmp_dir
+            self.fetch_missing_fsdb(
+                self.target_df, self.settings.foldseek_tmp_dir
             )  # Fetch any missing foldseek databases
         else:
-            self._target_df = self._fetch_missing_structures(
-                "target", self._target_df, self._settings.structure_dir
+            self.target_df = self.fetch_missing_structures(
+                "target", self.target_df, self.settings.structure_dir
             )  # Fetch any missing structures
 
-        self._alignment()  # Align the query and target structures using either local sequence alignment or foldseek based on the settings
-        pockets = self._get_pockets()  # Adds seq_pos and ca-coords to the pocket info dict
-        self._compare_pockets_based_on_alignment(pockets)
-        self._align_structs()
-        self._delete_tmp()
+        self.alignment()  # Align the query and target structures using either local sequence alignment or foldseek based on the settings
+        pockets = self.get_pockets()  # Adds seq_pos and ca-coords to the pocket info dict
+        self.compare_pockets_based_on_alignment(pockets)
+        self.align_structs()
+        self.delete_tmp()
 
         logging.info("PocketMapper search completed successfully.", extra={"stage": "End"})
 
-    def _configure_workflow(self, settings_file, cli_overrides):
+    def configure_workflow(self, settings_file, cli_overrides):
         """
         Build the fully resolved `Settings` for this run.
 
@@ -376,7 +376,7 @@ class PocketMapper:
         Returns:
             Settings: The resolved configuration. Also written to `job_settings_path`.
         """
-        self._log_extra.update({"stage": "Configuring Settings"})
+        self.log_extra.update({"stage": "Configuring Settings"})
 
         # 1. Base defaults
         settings = Settings()
@@ -384,18 +384,18 @@ class PocketMapper:
         # 2. Populate settings from the settings file if provided
         if settings_file is not None:
             if not os.path.isfile(settings_file):
-                logging.critical(f"Settings file not found: {settings_file}", extra=self._log_extra)
+                logging.critical(f"Settings file not found: {settings_file}", extra=self.log_extra)
                 raise PocketMapperError(f"Settings file not found: {settings_file}")
             try:
                 with open(settings_file) as f:
                     settings_data_from_file = json.load(f)
                 settings = replace(settings, **settings_data_from_file)
             except TypeError as e:
-                logging.critical(f"Unknown setting(s) in {settings_file}: {e}", extra=self._log_extra)
+                logging.critical(f"Unknown setting(s) in {settings_file}: {e}", extra=self.log_extra)
                 raise PocketMapperError(f"Unknown setting(s) in {settings_file}: {e}") from e
             except Exception as e:
                 logging.critical(
-                    f"Error reading settings file: {settings_file}. Is it in JSON format?", extra=self._log_extra
+                    f"Error reading settings file: {settings_file}. Is it in JSON format?", extra=self.log_extra
                 )
                 raise PocketMapperError(f"Error reading settings file: {settings_file}. Is it in JSON format?") from e
 
@@ -420,33 +420,33 @@ class PocketMapper:
             try:
                 os.makedirs(path, exist_ok=True)
             except OSError as e:
-                logging.critical(f"Error creating directory {path}", extra=self._log_extra)
+                logging.critical(f"Error creating directory {path}", extra=self.log_extra)
                 raise PocketMapperError(f"Error creating directory {path}") from e
 
-        self._configure_logging(settings.verbosity, settings.log_path)
+        self.configure_logging(settings.verbosity, settings.log_path)
 
         # 4b. Resolve the tri-state foldseek setting into a concrete bool. Must come after
         # _configure_logging (the root logger is still at CRITICAL before it, so the fallback
         # warning would be swallowed) and before the settings are logged and dumped below, so
         # job_settings.json records what the run actually did.
-        settings = self._resolve_foldseek(settings)
+        settings = self.resolve_foldseek(settings)
 
         # 4c. Same reasoning, and it reads the bool _resolve_foldseek just settled, so it must follow it.
-        settings = self._resolve_align_struct_method(settings)
+        settings = self.resolve_align_struct_method(settings)
 
-        logging.info(f"Settings: {json.dumps(asdict(settings), indent=4)}", extra=self._log_extra)
+        logging.info(f"Settings: {json.dumps(asdict(settings), indent=4)}", extra=self.log_extra)
 
         # 5. Output dump
         try:
             os.makedirs(os.path.dirname(settings.job_settings_path), exist_ok=True)
             with open(settings.job_settings_path, "w") as f:
                 json.dump(asdict(settings), f, indent=4)
-            logging.info(f"Settings successfully dumped to {settings.job_settings_path}", extra=self._log_extra)
+            logging.info(f"Settings successfully dumped to {settings.job_settings_path}", extra=self.log_extra)
         except Exception as e:
-            logging.error(f"Failed to dump settings to {settings.job_settings_path}: {e}", extra=self._log_extra)
+            logging.error(f"Failed to dump settings to {settings.job_settings_path}: {e}", extra=self.log_extra)
         return settings
 
-    def _resolve_foldseek(self, settings):
+    def resolve_foldseek(self, settings):
         """
         Turn the tri-state `foldseek` setting into a concrete bool.
 
@@ -473,8 +473,8 @@ class PocketMapper:
         if settings.foldseek is False:
             return settings
 
-        self._foldseek_available = shutil.which("foldseek") is not None
-        if self._foldseek_available:
+        self.foldseek_available = shutil.which("foldseek") is not None
+        if self.foldseek_available:
             return replace(settings, foldseek=True)
 
         if settings.foldseek is True:
@@ -494,7 +494,7 @@ class PocketMapper:
         )
         return replace(settings, foldseek=False)
 
-    def _resolve_align_struct_method(self, settings):
+    def resolve_align_struct_method(self, settings):
         """
         Turn the tri-value `align_struct_method` setting into "pocket" or "foldseek".
 
@@ -552,7 +552,7 @@ class PocketMapper:
 
         return replace(settings, align_struct_method=method)
 
-    def _configure_query_target(self):
+    def configure_query_target(self):
         """
         Parse the query and target inputs into record DataFrames.
 
@@ -567,42 +567,42 @@ class PocketMapper:
         Raises:
             PocketMapperError: If either side is unusable, or on the align_struct_method rejection above.
         """
-        self._log_extra.update({"stage": "Determine Query/Target Types"})
+        self.log_extra.update({"stage": "Determine Query/Target Types"})
 
         qtprocessor = QTProcessor(
-            structure_dir=self._settings.structure_dir,
-            foldseek_preprocessed_structure_dir=self._settings.foldseek_preprocessed_structure_dir,
-            fsdb_dir=self._settings.fsdb_dir,
+            structure_dir=self.settings.structure_dir,
+            foldseek_preprocessed_structure_dir=self.settings.foldseek_preprocessed_structure_dir,
+            fsdb_dir=self.settings.fsdb_dir,
         )
         q_df = qtprocessor.process_qt_cmdline_input(
-            qt_input=self._settings.query,
+            qt_input=self.settings.query,
             name="query",
-            pocket_method=self._settings.query_pocket_method,
+            pocket_method=self.settings.query_pocket_method,
         )
         t_df = qtprocessor.process_qt_cmdline_input(
-            qt_input=self._settings.target,
+            qt_input=self.settings.target,
             name="target",
-            pocket_method=self._settings.target_pocket_method,
+            pocket_method=self.settings.target_pocket_method,
         )
 
         errors = []
         if len(q_df) < 1:
-            logging.critical("No valid query entries after processing", extra=self._log_extra)
+            logging.critical("No valid query entries after processing", extra=self.log_extra)
             errors.append("no valid query entries")
         if len(t_df) < 1:
-            logging.critical("No valid target entries after processing", extra=self._log_extra)
+            logging.critical("No valid target entries after processing", extra=self.log_extra)
             errors.append("no valid target entries")
         if errors:
             raise PocketMapperError("; ".join(errors))
 
         if t_df.loc[0, "struct_type"] == "foldseek_db":
-            if self._settings.foldseek:
+            if self.settings.foldseek:
                 self.fsdb_target = True
                 # Neither kind of Foldseek DB can be superposed on its pocket, and which kind this is
                 # is not known until _expand_fsdb_pdb_targets has read the hit names -- so reject both
                 # here, before anything is fetched. Unreachable from "auto": a DB target forces
                 # foldseek on, and auto resolves to "foldseek" whenever it is on.
-                if self._settings.align_struct_method == "pocket":
+                if self.settings.align_struct_method == "pocket":
                     msg = (
                         "align_struct_method 'pocket' is not available against a Foldseek database "
                         "target. A human_domains-style hit has no coordinates to superpose at all, and "
@@ -610,12 +610,12 @@ class PocketMapper:
                         "wwPDB asymmetric unit, so a pocket fit would be applied in the wrong frame. "
                         "Use --align_struct_method foldseek."
                     )
-                    logging.critical(msg, extra=self._log_extra)
+                    logging.critical(msg, extra=self.log_extra)
                     raise PocketMapperError(msg)
             else:
                 # foldseek is already resolved to a concrete bool here, so False means either the
                 # binary is missing or the user turned it off -- say which, since the fixes differ.
-                if not self._foldseek_available:
+                if not self.foldseek_available:
                     msg = (
                         "A Foldseek database was specified as the target, which requires the "
                         f"'foldseek' binary, but it was not found on PATH. {FOLDSEEK_INSTALL_HINT}"
@@ -625,11 +625,11 @@ class PocketMapper:
                         "Foldseek database specified as target but foldseek is not enabled. "
                         "Remove --foldseek False to use it."
                     )
-                logging.critical(msg, extra=self._log_extra)
+                logging.critical(msg, extra=self.log_extra)
                 raise PocketMapperError(msg)
         return q_df, t_df
 
-    def _fetch_missing_structures(self, name, qt_df, out_dir):
+    def fetch_missing_structures(self, name, qt_df, out_dir):
         """
         Download the reference structures a side's records need.
 
@@ -648,11 +648,11 @@ class PocketMapper:
             PocketMapperError: If no structure for this side could be fetched.
         """
         # Downloading structures
-        self._log_extra.update({"stage": "Fetching Missing Structures"})
-        logging.info("Starting", extra=self._log_extra)
+        self.log_extra.update({"stage": "Fetching Missing Structures"})
+        logging.info("Starting", extra=self.log_extra)
         structure_fetcher = StructureFetcher()
 
-        logging.debug(f"{name.capitalize()} data before fetching structures: \n{qt_df.head()}", extra=self._log_extra)
+        logging.debug(f"{name.capitalize()} data before fetching structures: \n{qt_df.head()}", extra=self.log_extra)
 
         # Get list of unique structures to fetch based on struct_info and struct_type
         unique_records = qt_df.drop_duplicates(subset="struct_info").to_dict(orient="records")
@@ -661,7 +661,7 @@ class PocketMapper:
         structure_fetcher.set_output_directory(out_dir)
         structure_fetcher.update_cache()
         results = structure_fetcher.fetch_structures(unique_records)
-        logging.debug(f"Structure fetcher results: {results}", extra=self._log_extra)
+        logging.debug(f"Structure fetcher results: {results}", extra=self.log_extra)
 
         # Update the dataframe with success/failure information
         qt_df["success"] = qt_df["struct_info"].map(results).fillna(False)
@@ -670,21 +670,21 @@ class PocketMapper:
         # Logging results of structure fetching and updating query and target data with success/failure info
         logging.info(
             f"{sum(results.values())}/{len(results)} {name} required structures available",
-            extra=self._log_extra,
+            extra=self.log_extra,
         )
         if len(qt_df.query("success == False")) > 0:
             logging.warning(
                 f"Missing structures for {name}(s): {', '.join(qt_df.loc[~qt_df['success'], 'pocket_id'].unique().tolist())}",
-                extra=self._log_extra,
+                extra=self.log_extra,
             )
 
         # Verifying sufficient structures were found to continue
         if qt_df["success"].sum() < 1:
-            logging.critical(f"Insufficient {name} structures after fetching", extra=self._log_extra)
+            logging.critical(f"Insufficient {name} structures after fetching", extra=self.log_extra)
             raise PocketMapperError(f"Insufficient {name} structures after fetching. No valid {name} entries remain.")
         return qt_df
 
-    def _fetch_missing_fsdb(self, qt_df, tmp_dir):
+    def fetch_missing_fsdb(self, qt_df, tmp_dir):
         """
         Download a bundled Foldseek database if it is not already on disk.
 
@@ -698,24 +698,24 @@ class PocketMapper:
         Raises:
             PocketMapperError: If the download fails.
         """
-        self._log_extra.update({"stage": "Fetching Missing Foldseek Database"})
+        self.log_extra.update({"stage": "Fetching Missing Foldseek Database"})
         fsdb_name = qt_df.loc[0, "struct_info"].upper()
         fsdb_path = qt_df.loc[0, "struct_path"]
         if not os.path.exists(fsdb_path):
-            logging.info(f"Fetching bundled Foldseek database '{fsdb_name}' to {fsdb_path}", extra=self._log_extra)
+            logging.info(f"Fetching bundled Foldseek database '{fsdb_name}' to {fsdb_path}", extra=self.log_extra)
             try:
                 os.makedirs(os.path.dirname(fsdb_path), exist_ok=True)
                 cmd = ["foldseek", "databases", fsdb_name, fsdb_path, tmp_dir]
-                logging.debug(f"Running command: {' '.join([str(x) for x in cmd])}", extra=self._log_extra)
+                logging.debug(f"Running command: {' '.join([str(x) for x in cmd])}", extra=self.log_extra)
                 subprocess.run(cmd, check=True)
-                logging.info(f"Successfully fetched Foldseek database '{fsdb_name}'", extra=self._log_extra)
+                logging.info(f"Successfully fetched Foldseek database '{fsdb_name}'", extra=self.log_extra)
             except Exception as e:
                 logging.critical(
-                    f"Failed to fetch Foldseek database '{fsdb_name}' to {fsdb_path}: {e}", extra=self._log_extra
+                    f"Failed to fetch Foldseek database '{fsdb_name}' to {fsdb_path}: {e}", extra=self.log_extra
                 )
                 raise PocketMapperError(f"Failed to fetch Foldseek database '{fsdb_name}' to {fsdb_path}: {e}") from e
 
-    def _alignment(self):
+    def alignment(self):
         """
         Coordinate structural alignment routes bridging query and target proteins.
 
@@ -727,16 +727,16 @@ class PocketMapper:
             None
         """
         log_extra = {"stage": "Alignment"}
-        if self._settings.foldseek:
+        if self.settings.foldseek:
             logging.info("Preprocessing structures for Foldseek...", extra=log_extra)
-            self._foldseek_preprocessing()
+            self.foldseek_preprocessing()
             logging.info("Running Foldseek easy-search...", extra=log_extra)
-            self._foldseek_alignment()
+            self.foldseek_alignment()
         else:
             logging.info("Running local pairwise aligner...", extra=log_extra)
-            self._local_alignment()
+            self.local_alignment()
 
-    def _foldseek_preprocessing(self):
+    def foldseek_preprocessing(self):
         """
         Split complex PDB structures into single chain mmCIF files for Foldseek processing.
         Copies structure to the query/target directories, ensuring that the Foldseek preprocessed structure directory is populated.
@@ -750,15 +750,15 @@ class PocketMapper:
         stage = {"stage": "Preprocessing Structures"}
 
         structure_preprocessor = StructurePreprocessor()
-        qtdf_dir_iter = [(self._query_df, self._settings.query_dir)]
+        qtdf_dir_iter = [(self.query_df, self.settings.query_dir)]
         if not self.fsdb_target:
-            qtdf_dir_iter.append((self._target_df, self._settings.target_dir))
+            qtdf_dir_iter.append((self.target_df, self.settings.target_dir))
 
         for df, search_dir in qtdf_dir_iter:
             records = df.drop_duplicates(subset=["preprocess_name", "chain_info"]).to_dict(orient="records")
             logging.debug(f"Records to preprocess: {json.dumps(records, indent=4)}", extra=stage)
 
-            structure_preprocessor.set_output_directory(self._settings.foldseek_preprocessed_structure_dir)
+            structure_preprocessor.set_output_directory(self.settings.foldseek_preprocessed_structure_dir)
             structure_preprocessor.update_cache()
             results = structure_preprocessor.preprocess_records(records=records, search_dir=search_dir)
             logging.debug(f"Preprocessing results: {json.dumps(results, indent=4)}", extra=stage)
@@ -772,10 +772,10 @@ class PocketMapper:
             df.reset_index(inplace=True)
 
         logging.info("Finished preprocessing structures", extra=stage)
-        logging.debug(f"Query data after preprocessing: \n{self._query_df.head()}", extra=stage)
-        logging.debug(f"Target data after preprocessing: \n{self._target_df.head()}", extra=stage)
+        logging.debug(f"Query data after preprocessing: \n{self.query_df.head()}", extra=stage)
+        logging.debug(f"Target data after preprocessing: \n{self.target_df.head()}", extra=stage)
 
-    def _foldseek_alignment(self):
+    def foldseek_alignment(self):
         """
         Execute foldseek sub-commands via bash interfacing.
 
@@ -789,11 +789,11 @@ class PocketMapper:
         logging.info("Running Foldseek alignment...", extra=stage)
 
         # Setting up paths for foldseek databases
-        self._query_db_path = os.path.join(self._settings.query_dir, "query_db")
+        self._query_db_path = os.path.join(self.settings.query_dir, "query_db")
         query_db_cmd = [
             "foldseek",
             "createdb",
-            self._settings.query_dir,
+            self.settings.query_dir,
             self._query_db_path,
         ]
         logging.debug(
@@ -802,14 +802,14 @@ class PocketMapper:
         subprocess.run(query_db_cmd, check=True)
 
         if self.fsdb_target:
-            self._target_db_path = self._target_df.loc[0, "struct_path"]
+            self._target_db_path = self.target_df.loc[0, "struct_path"]
             logging.debug(f"Targeting bundled human_domains Foldseek DB at {self._target_db_path}", extra=stage)
         else:
-            self._target_db_path = os.path.join(self._settings.target_dir, "target_db")
+            self._target_db_path = os.path.join(self.settings.target_dir, "target_db")
             target_db_cmd = [
                 "foldseek",
                 "createdb",
-                self._settings.target_dir,
+                self.settings.target_dir,
                 self._target_db_path,
             ]
             logging.debug(
@@ -823,8 +823,8 @@ class PocketMapper:
             "easy-search",
             self._query_db_path,
             self._target_db_path,
-            self._settings.alignment_path,
-            self._settings.foldseek_tmp_dir,
+            self.settings.alignment_path,
+            self.settings.foldseek_tmp_dir,
             "--format-output",
             FOLDSEEK_FORMAT_OUTPUT,
             "--format-mode",
@@ -837,7 +837,7 @@ class PocketMapper:
             "5000",
             "-v",  # verbosity
             str(
-                min(3, self._settings.verbosity)
+                min(3, self.settings.verbosity)
             ),  # cap foldseek verbosity at 3 (info level) since it can be very verbose at higher levels and we already have our own logging verbosity control
         ]
         logging.debug(
@@ -846,7 +846,7 @@ class PocketMapper:
         subprocess.run(query_target_align_cmd, check=True)
         logging.debug("Foldseek alignment completed successfully", extra=stage)
 
-    def _local_alignment(self):
+    def local_alignment(self):
         """
         Execute traditional sequence-level alignment across inputs.
 
@@ -862,18 +862,18 @@ class PocketMapper:
         # Run the sequence aligner on the same preprocessed structures as foldseek uses
         aligner = SequenceAligner()
         query_records = (
-            self._query_df.query("success").drop_duplicates(subset="preprocess_name").to_dict(orient="records")
+            self.query_df.query("success").drop_duplicates(subset="preprocess_name").to_dict(orient="records")
         )
         target_records = (
-            self._target_df.query("success").drop_duplicates(subset="preprocess_name").to_dict(orient="records")
+            self.target_df.query("success").drop_duplicates(subset="preprocess_name").to_dict(orient="records")
         )
         alignment = aligner.align_records(
             query_records,
             target_records,
         )
-        alignment.to_csv(self._settings.alignment_path, index=False, sep="\t")
+        alignment.to_csv(self.settings.alignment_path, index=False, sep="\t")
 
-    def _dump_pockets(self, pockets, filename, indent=None):
+    def dump_pockets(self, pockets, filename, indent=None):
         """
         Write a pocket collection to the pocket cache directory as JSON, for inspection only.
 
@@ -894,10 +894,10 @@ class PocketMapper:
             None: Writes a file.
         """
         serialisable = {pid: asdict(pocket) if pocket is not None else None for pid, pocket in pockets.items()}
-        with open(os.path.join(self._settings.pocket_dir, filename), "w") as f:
+        with open(os.path.join(self.settings.pocket_dir, filename), "w") as f:
             json.dump(serialisable, f, indent=indent)
 
-    def _get_pockets(self):
+    def get_pockets(self):
         """
         Build every pocket in the run, dispatching each record to its pocket method.
 
@@ -914,18 +914,18 @@ class PocketMapper:
 
         # Turns PDB Foldseek-database hits into ordinary pisa target records, so the retrieval below
         # picks them up like any other pisa entry. No-op for every other kind of target.
-        self._expand_fsdb_pdb_targets()
+        self.expand_fsdb_pdb_targets()
 
-        pisa_pockets = self._retrieve_pisa_pockets()
-        passthrough_pockets = self._retrieve_passthrough_pockets()
-        vdw_pockets = self._retrieve_vdw_pockets()
-        whole_chain_pockets = self._retrieve_whole_chain_pockets()
+        pisa_pockets = self.retrieve_pisa_pockets()
+        passthrough_pockets = self.retrieve_passthrough_pockets()
+        vdw_pockets = self.retrieve_vdw_pockets()
+        whole_chain_pockets = self.retrieve_whole_chain_pockets()
 
         pockets = pisa_pockets | passthrough_pockets | vdw_pockets | whole_chain_pockets
         logging.debug(f"Combined pockets: {pockets}", extra=stage)
         return pockets
 
-    def _expand_fsdb_pdb_targets(self):
+    def expand_fsdb_pdb_targets(self):
         """
         Turn the hits of a PDB Foldseek-database search into ordinary PISA target records.
 
@@ -952,7 +952,7 @@ class PocketMapper:
 
         stage = {"stage": "Expanding Foldseek DB Targets"}
 
-        alignment_df = pd.read_csv(self._settings.alignment_path, sep="\t", engine="c")
+        alignment_df = pd.read_csv(self.settings.alignment_path, sep="\t", engine="c")
         hits = {}  # foldseek entry name -> (pdb_id, chain_id)
         for hit_name in alignment_df["target"].unique().tolist():
             resolved = parse_foldseek_pdb_entry_name(hit_name)
@@ -964,7 +964,7 @@ class PocketMapper:
                 extra=stage,
             )
             return
-        self._fsdb_pdb_target = True
+        self.fsdb_pdb_target = True
 
         pdb_list = sorted({pdb_id for pdb_id, _ in hits.values()})
         logging.info(
@@ -974,7 +974,7 @@ class PocketMapper:
 
         # Same directories _retrieve_pisa_pockets uses, so the two share one cache and its own call is a
         # no-op for everything downloaded here.
-        pisa_response_dir = os.path.join(self._settings.pocket_dir, "pisa_responses")
+        pisa_response_dir = os.path.join(self.settings.pocket_dir, "pisa_responses")
         interface_dir = os.path.join(pisa_response_dir, "interfaces")
         downloader = PisaDownloader()
         downloader.get_interfaces(
@@ -987,9 +987,9 @@ class PocketMapper:
         # Building one record per interface the hit chain takes part in
         parser = PisaParser()
         qtprocessor = QTProcessor(
-            structure_dir=self._settings.structure_dir,
-            foldseek_preprocessed_structure_dir=self._settings.foldseek_preprocessed_structure_dir,
-            fsdb_dir=self._settings.fsdb_dir,
+            structure_dir=self.settings.structure_dir,
+            foldseek_preprocessed_structure_dir=self.settings.foldseek_preprocessed_structure_dir,
+            fsdb_dir=self.settings.fsdb_dir,
         )
         records = []
         for hit_name, (pdb_id, chain_id) in hits.items():
@@ -1011,7 +1011,7 @@ class PocketMapper:
         # Hits whose structure can't be fetched come back marked success=False and are dropped here;
         # _fetch_missing_structures raises only if not one of them could be fetched, which would leave
         # nothing to compare against at all.
-        target_df = self._fetch_missing_structures("foldseek hit", pd.DataFrame(records), self._settings.structure_dir)
+        target_df = self.fetch_missing_structures("foldseek hit", pd.DataFrame(records), self.settings.structure_dir)
         target_df = target_df.query("success")
 
         logging.info(
@@ -1019,9 +1019,9 @@ class PocketMapper:
             extra=stage,
         )
         # Row 0 stays the database record itself -- _foldseek_alignment and _align_structs read its struct_path.
-        self._target_df = pd.concat([self._target_df, target_df], ignore_index=True)
+        self.target_df = pd.concat([self.target_df, target_df], ignore_index=True)
 
-    def _retrieve_pisa_pockets(self):
+    def retrieve_pisa_pockets(self):
         """
         Request, parse, and translate remote pocket mapping endpoints through the PDBe PISA service.
 
@@ -1036,7 +1036,7 @@ class PocketMapper:
 
         # Selecting relevant records from quert and taget dataframes
         pisa_df = (
-            pd.concat([self._query_df, self._target_df], ignore_index=True)
+            pd.concat([self.query_df, self.target_df], ignore_index=True)
             .query("success and pocket_method == 'pisa'")
             .drop_duplicates(subset=["struct_info", "chain_info"])
         )
@@ -1046,9 +1046,9 @@ class PocketMapper:
         else:
             logging.info(f"{len(pisa_df)} PISA pockets to retrieve", extra=stage)
 
-        pisa_response_dir = os.path.join(self._settings.pocket_dir, "pisa_responses")
+        pisa_response_dir = os.path.join(self.settings.pocket_dir, "pisa_responses")
         pisa_pdb_list = pisa_df["struct_info"].unique().tolist()
-        logging.debug(f"PDBs for which to retrieve PISA pockets: {pisa_pdb_list}", extra=self._log_extra)
+        logging.debug(f"PDBs for which to retrieve PISA pockets: {pisa_pdb_list}", extra=self.log_extra)
         downloader = PisaDownloader()
         downloader.get_interfaces(
             pdb_list=pisa_pdb_list,
@@ -1062,7 +1062,7 @@ class PocketMapper:
             records=pisa_df.to_dict(orient="records"),
             in_dir=os.path.join(pisa_response_dir, "interfaces"),
         )
-        logging.debug(f"Extracted PISA pockets: {pisa_pockets}", extra=self._log_extra)
+        logging.debug(f"Extracted PISA pockets: {pisa_pockets}", extra=self.log_extra)
 
         for _, row in pisa_df.iterrows():
             if row["pocket_id"] in pisa_pockets:
@@ -1072,13 +1072,13 @@ class PocketMapper:
                     pocket_residues=[int(x) for x in pisa_pockets[row["pocket_id"]].res_auth_ids],
                     pocket=pisa_pockets[row["pocket_id"]],
                 )
-        logging.debug(f"Extracted PISA pockets with coords: {pisa_pockets}", extra=self._log_extra)
+        logging.debug(f"Extracted PISA pockets with coords: {pisa_pockets}", extra=self.log_extra)
 
-        self._dump_pockets(pisa_pockets, "pisa_pockets.json")
+        self.dump_pockets(pisa_pockets, "pisa_pockets.json")
 
         return pisa_pockets
 
-    def _retrieve_passthrough_pockets(self):
+    def retrieve_passthrough_pockets(self):
         """
         Convert manually defined list-based user parameters directly into atomic coordinate graphs.
 
@@ -1091,7 +1091,7 @@ class PocketMapper:
         stage = {"stage": "Passthrough Pocket Calculation"}
         logging.info("Checking for passthrough pockets...", extra=stage)
 
-        pt_df = pd.concat([self._query_df, self._target_df], ignore_index=True).query(
+        pt_df = pd.concat([self.query_df, self.target_df], ignore_index=True).query(
             "success and pocket_method == 'passthrough'"
         )
         if len(pt_df) == 0:
@@ -1110,12 +1110,12 @@ class PocketMapper:
                 pocket_residues=pocket_residues,
             )
             passthrough_pockets[row["pocket_id"]] = pocket
-        self._dump_pockets(passthrough_pockets, "passthrough_pockets.json", indent=4)
-        logging.debug(f"Extracted passthrough pockets: {passthrough_pockets}", extra=self._log_extra)
+        self.dump_pockets(passthrough_pockets, "passthrough_pockets.json", indent=4)
+        logging.debug(f"Extracted passthrough pockets: {passthrough_pockets}", extra=self.log_extra)
 
         return passthrough_pockets
 
-    def _retrieve_whole_chain_pockets(self):
+    def retrieve_whole_chain_pockets(self):
         """
         Build the "pocket" for an open search: every CA-bearing residue of the chain.
 
@@ -1130,7 +1130,7 @@ class PocketMapper:
         stage = {"stage": "Whole Chain Pocket Calculation"}
         logging.info("Checking for whole chain pockets...", extra=stage)
 
-        wc_df = pd.concat([self._query_df, self._target_df], ignore_index=True).query(
+        wc_df = pd.concat([self.query_df, self.target_df], ignore_index=True).query(
             "success and pocket_method == 'whole_chain'"
         )
         if len(wc_df) == 0:
@@ -1157,12 +1157,12 @@ class PocketMapper:
                 )
                 continue
             whole_chain_pockets[row["pocket_id"]] = pocket
-        self._dump_pockets(whole_chain_pockets, "whole_chain_pockets.json", indent=4)
-        logging.debug(f"Extracted whole chain pockets: {whole_chain_pockets}", extra=self._log_extra)
+        self.dump_pockets(whole_chain_pockets, "whole_chain_pockets.json", indent=4)
+        logging.debug(f"Extracted whole chain pockets: {whole_chain_pockets}", extra=self.log_extra)
 
         return whole_chain_pockets
 
-    def _retrieve_vdw_pockets(self):
+    def retrieve_vdw_pockets(self):
         """
         Evaluate pocket clusters structurally using Van-der-Waals (VDW) interaction overlapping metrics.
 
@@ -1174,7 +1174,7 @@ class PocketMapper:
         """
         stage = {"stage": "VDW Pocket Calculation"}
         logging.info("Checking for VDW pockets...", extra=stage)
-        vdw_df = pd.concat([self._query_df, self._target_df], ignore_index=True).query(
+        vdw_df = pd.concat([self.query_df, self.target_df], ignore_index=True).query(
             "success and pocket_method == 'vdw'"
         )
         if len(vdw_df) == 0:
@@ -1193,12 +1193,12 @@ class PocketMapper:
                 motif_chain=row["chain_info"].split("_")[1],
             )
             vdw_pockets[row["pocket_id"]] = pocket
-        self._dump_pockets(vdw_pockets, "vdw_pockets.json", indent=4)
-        logging.debug(f"Extracted VDW pockets: {vdw_pockets}", extra=self._log_extra)
+        self.dump_pockets(vdw_pockets, "vdw_pockets.json", indent=4)
+        logging.debug(f"Extracted VDW pockets: {vdw_pockets}", extra=self.log_extra)
 
         return vdw_pockets
 
-    def _compare_pockets_based_on_alignment(self, pockets):
+    def compare_pockets_based_on_alignment(self, pockets):
         """
         Merge sequence or fold structure alignments traversing spatial pocket metrics internally to evaluate correlations.
 
@@ -1214,14 +1214,14 @@ class PocketMapper:
         stage = {"stage": "Comparing Pockets Based on Alignment"}
 
         logging.info("Reading alignment results...", extra=stage)
-        alignment_df = pd.read_csv(self._settings.alignment_path, sep="\t", engine="c")
+        alignment_df = pd.read_csv(self.settings.alignment_path, sep="\t", engine="c")
         blosum_path = os.path.join(os.path.dirname(__file__), "blosum62.bla")
 
         logging.info(f"{len(alignment_df)} alignment pairs to compare", extra=stage)
         logging.debug(f"Alignment pairs: \n{alignment_df.head()}", extra=stage)
 
         preproc_to_ids = {}
-        for _, row in pd.concat([self._query_df, self._target_df], ignore_index=True).iterrows():
+        for _, row in pd.concat([self.query_df, self.target_df], ignore_index=True).iterrows():
             # Keyed by preprocess_name: one chain can carry several pockets (several pocket_ids), so
             # membership must be tested on the key, not on the pocket_id, or each chain keeps only its last.
             if row["preprocess_name"] in preproc_to_ids:
@@ -1233,14 +1233,14 @@ class PocketMapper:
 
         # A PDB Foldseek database has real PISA pockets for its hits (see _expand_fsdb_pdb_targets);
         # every other database has no target records at all, so its pockets must be synthesised.
-        synthesise_target_pockets = self.fsdb_target and not self._fsdb_pdb_target
+        synthesise_target_pockets = self.fsdb_target and not self.fsdb_pdb_target
 
         # Read from _target_df rather than _target_db_path so this does not depend on a step-4 side
         # effect. Row 0 is still the single database record here: _expand_fsdb_pdb_targets only rewrites
         # _target_df on the PDB path, which synthesise_target_pockets excludes.
         offset_table_path = None
         if synthesise_target_pockets:
-            offset_table_path = bundled_human_domains_offset_table(self._target_df.loc[0, "struct_path"])
+            offset_table_path = bundled_human_domains_offset_table(self.target_df.loc[0, "struct_path"])
             if offset_table_path is None:
                 logging.info(
                     "Foldseek database ships no offset table; target residue ids will be positions "
@@ -1270,24 +1270,24 @@ class PocketMapper:
 
         # Logging cases where a residue was given a single cahr name unfamiliar to pocketmapper
         if len(unknown_alias) > 0:
-            unknown_alias_path = os.path.join(self._settings.results_dir, "unknown_ids.json")
+            unknown_alias_path = os.path.join(self.settings.results_dir, "unknown_ids.json")
             logging.warning("Unknown Foldseek Alias, see unknown_alias.json in results directory", extra=stage)
             with open(unknown_alias_path, "w") as f:
                 json.dump(jsonify_dict(dict(unknown_alias)), f)
 
         # logging cases where foldseek mapping had low sequence identity to the parsed structure
         if len(incorrect_mapping) > 0:
-            incorrect_mapping_path = os.path.join(self._settings.results_dir, "incorrect_mapping.json")
+            incorrect_mapping_path = os.path.join(self.settings.results_dir, "incorrect_mapping.json")
             logging.warning("Foldseek mapping with low sequence identity to parsed structure", extra=stage)
             with open(incorrect_mapping_path, "w") as f:
                 json.dump(jsonify_dict(dict(incorrect_mapping)), f)
 
         # Writing pocket comparison results to output file
-        output_path = self._settings.pocket_comparison_path
+        output_path = self.settings.pocket_comparison_path
         pockets_df.to_csv(output_path, index=False, sep="\t")
         logging.info(f"Pocket comparison results saved to {output_path}", extra=stage)
 
-    def _align_structs(self):
+    def align_structs(self):
         """
         Perform structural superposition of target structures against the query reference frame.
 
@@ -1299,21 +1299,21 @@ class PocketMapper:
             None
         """
         stage = {"stage": "Structural Alignment"}
-        if self._settings.align_count <= 0:
+        if self.settings.align_count <= 0:
             logging.info("No Aligned Structures to Process", extra=stage)
             return
 
-        method = self._settings.align_struct_method  # already "pocket" or "foldseek"
+        method = self.settings.align_struct_method  # already "pocket" or "foldseek"
         logging.info(f"Performing structural alignment of target structures on the {method}...", extra=stage)
 
         # Pre-loading
         aligner = StructureAligner()
-        pocket_comparison_df = pd.read_csv(self._settings.pocket_comparison_path, sep="\t", engine="c")
+        pocket_comparison_df = pd.read_csv(self.settings.pocket_comparison_path, sep="\t", engine="c")
         alignment_df = None
         pocket_transform_df = None
         if method == "foldseek":
             alignment_df = pd.read_csv(
-                self._settings.alignment_path,
+                self.settings.alignment_path,
                 sep="\t",
                 engine="c",
                 index_col=["query", "target"],
@@ -1327,7 +1327,7 @@ class PocketMapper:
         # For each query structure, align the top N target structures
         qt_id_map = {}
         unique_target_ids = set()
-        for record in self._query_df.to_dict(orient="records"):
+        for record in self.query_df.to_dict(orient="records"):
             query_id = record["pocket_id"]
             logging.debug(f"Processing query {query_id} for structural alignment", extra=stage)
 
@@ -1347,7 +1347,7 @@ class PocketMapper:
 
             target_ids = (
                 candidates.sort_values(by=["jaccard_index", "min_overlap_similarity"], ascending=False)
-                .head(self._settings.align_count)
+                .head(self.settings.align_count)
                 .loc[:, "pocket_2"]
                 .to_list()
             )
@@ -1372,20 +1372,20 @@ class PocketMapper:
             logging.info("No query/target pair shares pocket residues, nothing to superpose", extra=stage)
             return
 
-        self._query_df = self._query_df.set_index("pocket_id")
+        self.query_df = self.query_df.set_index("pocket_id")
         if self.fsdb_target is False:
-            target_record_df = self._target_df.set_index("pocket_id")
+            target_record_df = self.target_df.set_index("pocket_id")
         else:  # If the target is a Foldseek database we need to make pdb structures from required entries
-            source_db_path = self._target_df.loc[0, "struct_path"]
+            source_db_path = self.target_df.loc[0, "struct_path"]
             logging.debug(f"Using Foldseek database at {source_db_path} for structural alignment", extra=stage)
 
             # With a PDB database the target IDs are pocket IDs ("4Q5J:B_F"), not database entry names, so
             # map them back through the records built by _expand_fsdb_pdb_targets. One pocket ID can come
             # from more than one entry (the same chain in two assemblies) -- keep the first, or the lookup
             # below returns duplicate rows and the structure gets superposed twice.
-            if self._fsdb_pdb_target:
+            if self.fsdb_pdb_target:
                 id_to_entry = (
-                    self._target_df.dropna(subset=["preprocess_name"])
+                    self.target_df.dropna(subset=["preprocess_name"])
                     .drop_duplicates(subset="pocket_id", keep="first")
                     .set_index("pocket_id")["preprocess_name"]
                 )
@@ -1402,7 +1402,7 @@ class PocketMapper:
             chain_ids = source_db_lookup_df.loc[list(target_entry_names.values()), "chain_id"].tolist()
 
             # Make directory for subdb
-            subdb_dir = os.path.join(self._settings.aligned_structure_dir, "fsdb")
+            subdb_dir = os.path.join(self.settings.aligned_structure_dir, "fsdb")
             os.makedirs(subdb_dir, exist_ok=True)
 
             # Create a file listing the required chain IDs for the subdb creation
@@ -1423,7 +1423,7 @@ class PocketMapper:
             subprocess.run(subdb_command, check=True)
 
             # Create a directory for extracted structures
-            subdb_struct_dir = os.path.join(self._settings.aligned_structure_dir, "fsdb_structures")
+            subdb_struct_dir = os.path.join(self.settings.aligned_structure_dir, "fsdb_structures")
             os.makedirs(subdb_struct_dir, exist_ok=True)
 
             # Convert the subdb to PDB format using foldseek's convert2pdb command
@@ -1452,7 +1452,7 @@ class PocketMapper:
         for query_id, target_ids in qt_id_map.items():
             # pocket_id is the index of _query_df, so it is not in the row dict -- put it back, since
             # foldseek_transform reads it for the COMPND metadata.
-            query_record = self._query_df.loc[query_id].to_dict()
+            query_record = self.query_df.loc[query_id].to_dict()
             query_record["pocket_id"] = query_id
             logging.debug(f"Query record for '{query_id}': {json.dumps(query_record, indent=4)}", extra=stage)
             # Fetch the corresponding target records. A pocket_2 need not be a target: when a query and a
@@ -1474,7 +1474,7 @@ class PocketMapper:
             # The query is the reference frame every target is superposed onto, so it must lead the list.
             aln_records = [query_record] + top_target_records
             if len(aln_records) > 1:
-                out_path = os.path.join(self._settings.aligned_structure_dir, f"{safe_filename(query_id)}.pdb")
+                out_path = os.path.join(self.settings.aligned_structure_dir, f"{safe_filename(query_id)}.pdb")
                 if method == "foldseek":
                     aligner.foldseek_transform(
                         aln_records=aln_records,
@@ -1498,7 +1498,7 @@ class PocketMapper:
                         transforms.append(parse_pocket_transform(row["p2_to_p1_u"], row["p2_to_p1_t"]))
                     aligner.transform(aln_records=aln_records, transforms=transforms, out_path=out_path)
 
-    def _delete_tmp(self):
+    def delete_tmp(self):
         """
         Delete this run's scratch directories, unless `delete_tmp` says otherwise.
 
@@ -1510,30 +1510,30 @@ class PocketMapper:
         Returns:
             None
         """
-        self._log_extra.update({"stage": "Cleaning Up"})
+        self.log_extra.update({"stage": "Cleaning Up"})
 
         tmp_dirs = [
             "query_dir",
             "target_dir",
         ]
-        if self._settings.foldseek:
+        if self.settings.foldseek:
             tmp_dirs.append("foldseek_tmp_dir")
 
         # Named rather than counted: which directories survive depends on the aligner, so a run kept
         # for inspection should say where its inputs actually are.
-        if not self._settings.delete_tmp:
-            kept = ", ".join(getattr(self._settings, dir_key) for dir_key in tmp_dirs)
-            logging.info(f"delete_tmp is False; keeping {kept}", extra=self._log_extra)
+        if not self.settings.delete_tmp:
+            kept = ", ".join(getattr(self.settings, dir_key) for dir_key in tmp_dirs)
+            logging.info(f"delete_tmp is False; keeping {kept}", extra=self.log_extra)
             return
 
-        roots = [self._settings.cache_dir, self._settings.results_dir]
+        roots = [self.settings.cache_dir, self.settings.results_dir]
         for dir_key in tmp_dirs:
-            path = getattr(self._settings, dir_key)
+            path = getattr(self.settings, dir_key)
             if not is_within(path, roots):
                 logging.warning(
                     f"Not deleting {dir_key} {path}: it is outside cache_dir and results_dir. "
                     "Remove it yourself if that was intended.",
-                    extra=self._log_extra,
+                    extra=self.log_extra,
                 )
                 continue
             shutil.rmtree(path)
