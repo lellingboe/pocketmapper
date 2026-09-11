@@ -24,15 +24,16 @@ recommended:
 
 ### Install with pip
 ```
-# Setup conda environment for pocketmapper
-conda create --name=pocketmapper python=3.12
-conda activate pocketmapper
-
 # Pip installation of PocketMapper
 pip install pocketmapper
 
 # Optional - Conda installation of Foldseek
 conda install -c conda-forge -c bioconda foldseek
+
+# Optional - Homebrew installation of foldseek
+brew tap brewsci/bio
+brew trust brewsci/bio
+brew install foldseek
 ```
 Foldseek also has precompiled binaries available at https://dev.mmseqs.com/foldseek/
 
