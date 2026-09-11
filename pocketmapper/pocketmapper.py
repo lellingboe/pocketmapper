@@ -890,11 +890,12 @@ class PocketMapper:
         """
         pisa_response_dir = os.path.join(self.settings.pocket_dir, "pisa_responses")
         interface_dir = os.path.join(pisa_response_dir, "interfaces")
-        PisaDownloader().get_interfaces(
+        PisaDownloader().download_missing_interfaces(
             pdb_list=pdb_list,
             summary_dir=os.path.join(pisa_response_dir, "summaries"),
             asm_dir=os.path.join(pisa_response_dir, "assemblies"),
             interface_dir=interface_dir,
+            error_path=os.path.join(pisa_response_dir, "errors.json"),
         )
         return interface_dir
 
