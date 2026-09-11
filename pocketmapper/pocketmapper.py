@@ -80,8 +80,8 @@ class Settings:
     results_dir: str = field(default_factory=lambda: f"pocketmapper_results_{datetime.now().strftime('%y%m%d_%H%M%S')}")
     query_pocket_method: str | None = None
     target_pocket_method: str | None = None
-    # Tri-state: None (the default) means "auto" -- use Foldseek when the binary is on PATH and
-    # fall back to the local aligner when it is not. resolve_foldseek() turns this into a concrete
+    # Tri-state: None (the default) means "auto" -- use Foldseek when the binary runs and fall
+    # back to the local aligner when it does not. resolve_foldseek() turns this into a concrete
     # bool before anything else reads it, so the rest of the pipeline only ever sees True/False.
     foldseek: bool | None = None
     align_count: int = 10
@@ -274,9 +274,9 @@ class PocketMapper:
             threads (int, optional): Cap on the cores Foldseek uses, and the basis for the width of
                 the structure download pool. Defaults to one per available core.
             foldseek (bool, optional): Use foldseek for structure alignment instead of local sequence
-                alignment. Left unset, foldseek is used when the binary is on PATH and the local
-                aligner is used with a warning when it is not. True makes foldseek a hard
-                requirement -- a missing binary is an error; False always uses the local aligner.
+                alignment. Left unset, foldseek is used when the binary runs and the local aligner
+                is used with a warning when it does not. True makes foldseek a hard requirement -- an
+                unrunnable binary is an error; False always uses the local aligner.
             align_count (int, optional): Number of top targets to superpose onto each query.
             align_struct_method (str, optional): Which transform superposes a target onto its query --
                 'foldseek' for Foldseek's whole-chain fit, 'pocket' for the fit of the two pockets
@@ -465,9 +465,10 @@ class PocketMapper:
         Turn the tri-state `foldseek` setting into a concrete bool.
 
         Foldseek is an optional external binary, so the default (None, "auto") is resolved against
-        what is actually installed: foldseek when it is on PATH, the local BLOSUM62 aligner with a
-        warning when it is not. An explicit True is a hard requirement and errors instead of falling
-        back; an explicit False always means the local aligner and never probes for the binary.
+        what is actually installed: foldseek when `check_foldseek` can run it, the local BLOSUM62
+        aligner with a warning when it cannot. An explicit True is a hard requirement and errors
+        instead of falling back; an explicit False always means the local aligner and never probes
+        for the binary.
 
         Called before any structure is fetched, so an unmet requirement fails without wasted
         downloads rather than partway through the run at the first `run_foldseek` call.
@@ -492,15 +493,16 @@ class PocketMapper:
 
         if settings.foldseek is True:
             msg = (
-                "Foldseek alignment was requested but 'foldseek' was not found on PATH. "
-                f"{FOLDSEEK_INSTALL_HINT} Alternatively, set --foldseek False to use the local "
-                "BLOSUM62 sequence aligner."
+                "Foldseek alignment was requested but 'foldseek' could not be run; it is either "
+                f"not on PATH or not executable (run with --verbosity 4 for the reason). {FOLDSEEK_INSTALL_HINT} "
+                "Alternatively, set --foldseek False to use the local BLOSUM62 sequence aligner."
             )
             logging.critical(msg, extra=log_extra)
             raise PocketMapperError(msg)
 
         logging.warning(
-            "'foldseek' not found on PATH; falling back to the local BLOSUM62 sequence aligner. "
+            "'foldseek' could not be run -- it is either not on PATH or not executable (run with "
+            "--verbosity 4 for the reason); falling back to the local BLOSUM62 sequence aligner. "
             "The local aligner produces no whole-chain transform, so aligned_structures/*.pdb are "
             f"superposed on the pocket instead (see --align_struct_method). {FOLDSEEK_INSTALL_HINT}",
             extra=log_extra,
@@ -666,11 +668,12 @@ class PocketMapper:
                     raise PocketMapperError(msg)
             else:
                 # foldseek is already resolved to a concrete bool here, so False means either the
-                # binary is missing or the user turned it off -- say which, since the fixes differ.
+                # binary is unrunnable or the user turned it off -- say which, since the fixes differ.
                 if not self.foldseek_available:
                     msg = (
                         "A Foldseek database was specified as the target, which requires the "
-                        f"'foldseek' binary, but it was not found on PATH. {FOLDSEEK_INSTALL_HINT}"
+                        "'foldseek' binary, but it could not be run; it is either not on PATH or "
+                        f"not executable (run with --verbosity 4 for the reason). {FOLDSEEK_INSTALL_HINT}"
                     )
                 else:
                     msg = (

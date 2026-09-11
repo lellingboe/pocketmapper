@@ -16,8 +16,8 @@ gemmi) are installed by pip.
 [Foldseek](https://github.com/steineggerlab/foldseek) is an optional external binary, but installing it is
 recommended:
 
-- PocketMapper uses Foldseek by default whenever it is on `PATH`, and falls back to the built-in BLOSUM62
-  sequence aligner — with a warning — when it is not.
+- PocketMapper uses Foldseek by default whenever the binary is on `PATH` and runnable, and falls back to
+  the built-in BLOSUM62 sequence aligner — with a warning — when it is not.
 - Foldseek is **required** to search a Foldseek database target (`human_domains`, `pdb`).
 - Structural superposition works either way: with Foldseek it can use the whole-chain fit, and the local
   aligner superposes on the pocket instead (see [Advanced options](#advanced-options)).
@@ -315,10 +315,11 @@ per-run inputs the aligner and the pocket parser were actually given, which is w
 returns nothing and you need to see why.
 
 **`--foldseek` is three-valued.** Left unset it means *auto*: Foldseek is used when its binary is on
-`PATH`, and the local BLOSUM62 aligner is used with a warning when it is not. `True` makes Foldseek a hard
-requirement, so a missing binary is an error rather than a silent change of method — worth setting in a
-pipeline where the two aligners are not interchangeable. `False` always uses the local aligner. A Foldseek
-database target needs the binary whatever this is set to.
+`PATH` and runnable (checked by running `foldseek -h`), and the local BLOSUM62 aligner is used with a
+warning when it is not. `True` makes Foldseek a hard requirement, so an unrunnable binary is an error
+rather than a silent change of method — worth setting in a pipeline where the two aligners are not
+interchangeable. `False` always uses the local aligner. A Foldseek database target needs the binary
+whatever this is set to.
 
 **`--align_struct_method` picks the transform used to write `aligned_structures/`.**
 

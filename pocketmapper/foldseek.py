@@ -2,13 +2,13 @@
 Everything PocketMapper does with the Foldseek binary and its bundled databases.
 
 Foldseek is an optional external dependency. `run_foldseek` is the single point at which the package
-shells out to it, so the binary name, the debug log and the failure convention are written once.
-Callers build their own argument lists: the subcommands share no shape worth abstracting over.
+runs a subcommand, so the binary name, the debug log and the failure convention are written once
+(`check_foldseek`'s probe is the one other invocation, and reports rather than raises). Callers build
+their own argument lists: the subcommands share no shape worth abstracting over.
 """
 
 import logging
 import os
-import shutil
 import subprocess
 from importlib.resources import files
 
@@ -20,12 +20,27 @@ FOLDSEEK_BINARY = "foldseek"
 
 def check_foldseek():
     """
-    Report whether the Foldseek binary is on PATH.
+    Report whether the Foldseek binary is installed and runnable.
+
+    Probes by actually running `foldseek -h`, which exits 0 without touching any input, rather than
+    only resolving the name off PATH: a binary that is present but not executable, built for another
+    architecture, or on a noexec mount resolves fine and then fails at the first real subcommand.
+    Foldseek's output is discarded and nothing is raised; the reason for a False is logged at debug.
 
     Returns:
-        bool: True if `foldseek` is callable.
+        bool: True if `foldseek -h` ran and exited 0.
     """
-    return shutil.which(FOLDSEEK_BINARY) is not None
+    try:
+        subprocess.run(
+            [FOLDSEEK_BINARY, "-h"],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError) as e:
+        logging.debug(f"'{FOLDSEEK_BINARY}' is not runnable: {e}")
+        return False
+    return True
 
 
 def run_foldseek(args, log_extra=None):
@@ -51,7 +66,8 @@ def run_foldseek(args, log_extra=None):
     logging.debug(f"Running Foldseek with command: {cmd_str}", extra=log_extra)
     try:
         subprocess.run(cmd, check=True)
-    except FileNotFoundError as e:
+    except OSError as e:
+        # Missing, not executable, or otherwise unable to exec -- all the same failure to the caller.
         msg = f"Foldseek is not callable, so '{cmd_str}' could not be run: {e}"
         logging.critical(msg, extra=log_extra)
         raise PocketMapperError(msg) from e
