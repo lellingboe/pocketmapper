@@ -28,7 +28,7 @@ def check_foldseek():
     return shutil.which(FOLDSEEK_BINARY) is not None
 
 
-def run_foldseek(args, stage):
+def run_foldseek(args, log_extra=None):
     """
     Run one Foldseek subcommand, logging the command first and raising on failure.
 
@@ -37,8 +37,8 @@ def run_foldseek(args, stage):
 
     Args:
         args (list): The subcommand and its arguments, without the binary name; it is prepended here.
-        stage (dict): Logging `extra`, e.g. `{"stage": "Foldseek Alignment"}`. Required, because the
-            root log format interpolates a `stage` key and a record without one fails to format.
+        log_extra (dict, optional): Logging `extra`, e.g. `{"stage": "Foldseek Alignment"}`. Defaults
+            to None, which logs these records under this function's own name.
 
     Returns:
         None
@@ -48,16 +48,16 @@ def run_foldseek(args, stage):
     """
     cmd = [FOLDSEEK_BINARY] + list(args)
     cmd_str = " ".join([str(x) for x in cmd])
-    logging.debug(f"Running Foldseek with command: {cmd_str}", extra=stage)
+    logging.debug(f"Running Foldseek with command: {cmd_str}", extra=log_extra)
     try:
         subprocess.run(cmd, check=True)
     except FileNotFoundError as e:
         msg = f"Foldseek is not callable, so '{cmd_str}' could not be run: {e}"
-        logging.critical(msg, extra=stage)
+        logging.critical(msg, extra=log_extra)
         raise PocketMapperError(msg) from e
     except subprocess.CalledProcessError as e:
         msg = f"Foldseek exited with code {e.returncode} running '{cmd_str}'"
-        logging.critical(msg, extra=stage)
+        logging.critical(msg, extra=log_extra)
         raise PocketMapperError(msg) from e
 
 

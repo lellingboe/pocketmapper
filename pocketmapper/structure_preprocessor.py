@@ -32,9 +32,8 @@ class StructurePreprocessor:
         """
         Initialise with no output directory; `set_output_directory` supplies it later.
         """
-        self.logger = logging.getLogger(__name__)
-        self.log_extra = {"stage": "Structure Preprocessor"}
-        self.logger.debug("Initialized", extra=self.log_extra)
+        self.log_extra = {"stage": "Preprocessing Structures"}
+        logging.debug("Initialized")
 
         self.out_dir = None
         self.cache = None
@@ -78,7 +77,6 @@ class StructurePreprocessor:
             dict: pocket_id -> whether preprocessing succeeded.
         """
         status_dict = {}
-        stage = {"stage": "Dividing structures"}
 
         for record in tqdm(records):
             if record["struct_type"] == "foldseek_db":
@@ -112,7 +110,7 @@ class StructurePreprocessor:
                     msg = f"Preprocessing: {struct_info} does not contain chain '{chain}' specified in chain_info '{chain_info}'"
                     logging.warning(
                         msg,
-                        extra=stage,
+                        extra=self.log_extra,
                     )
                     status_dict[record["pocket_id"]] = False
                     # Bail out here. Falling through would delete every chain (none match), write an

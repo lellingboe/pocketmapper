@@ -36,21 +36,21 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
     Returns:
         Pocket: The pocket, or None if the file is missing or the chain is not in the structure.
     """
-    stage = {"stage": "Parsing Pocket from Structure"}
+    log_extra = {"stage": "Parsing Pocket from Structure"}
 
     # Ensure st is a gemmi.Structure object
     if isinstance(struct, gemmi.Structure):
         st = struct
     else:
         if not os.path.exists(struct):
-            logging.warning(f"Structure file {struct} does not exist.", extra=stage)
+            logging.warning(f"Structure file {struct} does not exist.", extra=log_extra)
             return None
         st = gemmi.read_structure(struct)
 
     # Verify the specified chain exists and get it
     chain = st[0].find_chain(chain_id)  # Assuming we are interested in the first model
     if not isinstance(chain, gemmi.Chain):
-        logging.critical(f"Chain {chain_id} not found in structure {struct}.", extra=stage)
+        logging.critical(f"Chain {chain_id} not found in structure {struct}.", extra=log_extra)
         return None
 
     seq_pos = (
@@ -72,7 +72,7 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
             if res_id in pocket_residues:
                 logging.warning(
                     f"{st.name}:{chain_id}:{res_id} ({res.name}) does not have CA coords and will be excluded from the comparison",
-                    extra=stage,
+                    extra=log_extra,
                 )
                 if str(res_id) in pocket.residues:
                     # -1 falls outside every aligned region, so the residue is ignored in the later

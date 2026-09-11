@@ -35,6 +35,13 @@ SINGLE_AA_CODE = {
     "MSE": "M",  # selenomethionine
 }
 
+# The root log format, shared by the CRITICAL-only handler PocketMapper installs at construction
+# and by the dictConfig configure_logging replaces it with. `stage` is not a stock LogRecord
+# attribute: lib.StageFilter supplies it from the emitting function's name for any record that does
+# not carry one, and both handlers must run that filter or an outside record fails to format.
+LOG_FORMAT = "%(levelname)s: %(stage)s - %(msg)s"
+
+
 # Appended to every error/warning about a missing foldseek binary, so the install line is
 # written once. Foldseek is an optional external dependency and is never bundled.
 FOLDSEEK_INSTALL_HINT = (

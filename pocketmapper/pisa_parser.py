@@ -21,12 +21,6 @@ class PisaParser:
     Turns cached PISA interfaces into Pockets.
     """
 
-    def __init__(self):
-        """
-        Initialise the parser. State lives in the cache directory, not on the instance.
-        """
-        logging.getLogger(__name__)
-
     def load_interfaces(self, pdb_id, in_dir):
         """
         Load the cached interface file for a PDB entry, or None if there isn't one.
@@ -66,10 +60,10 @@ class PisaParser:
             list[str]: Partner chain ids, in file order. Empty if there is no data for this entry
                 or the chain takes part in no interface.
         """
-        stage = {"stage": "Calculating Pockets"}
+        log_extra = {"stage": "Calculating Pockets"}
         pisa_data = self.load_interfaces(pdb_id, in_dir)
         if pisa_data is None:
-            logging.debug(f"Could not load PISA data for {pdb_id}", extra=stage)
+            logging.debug(f"Could not load PISA data for {pdb_id}", extra=log_extra)
             return []
 
         partners = []
@@ -80,7 +74,7 @@ class PisaParser:
             if partner and partner not in partners:
                 partners.append(partner)
         if not partners:
-            logging.debug(f"No PISA interface involving chain {chain_id} of {pdb_id}", extra=stage)
+            logging.debug(f"No PISA interface involving chain {chain_id} of {pdb_id}", extra=log_extra)
         return partners
 
     def get_pockets_from_records(self, records, in_dir):
@@ -103,7 +97,7 @@ class PisaParser:
                 Lacks the CA data `pocket_parser.parse_pocket_from_struct` adds later, so `ca_sequence`,
                 `has_coords` and every residue's `seq_pos`/`ca_coords` are still at their defaults.
         """
-        stage = {"stage": "Calculating Pockets"}
+        log_extra = {"stage": "Calculating Pockets"}
         bond_types = ["hydrogen_bonds", "salt_bridges", "disulfide_bonds", "covalent_bonds", "other_bonds"]
         pockets = {}
         for record in records:
@@ -112,7 +106,7 @@ class PisaParser:
             # Loading PISA pocket file
             pisa_data = self.load_interfaces(pdb_id, in_dir)
             if pisa_data is None:
-                logging.warning(f"Could not load PISA data for {pdb_id}", extra=stage)
+                logging.warning(f"Could not load PISA data for {pdb_id}", extra=log_extra)
                 continue
 
             # Extracting the relevant interface. A pisa entry always names two chains, but a forced
@@ -120,17 +114,19 @@ class PisaParser:
             # raise where every other malformed record here is skipped with a warning.
             domain_chain, motif_chain = split_chain_info(record["chain_info"])
             if motif_chain is None:
-                logging.warning(f"No partner chain in chain_info '{record['chain_info']}' for {pdb_id}", extra=stage)
+                logging.warning(
+                    f"No partner chain in chain_info '{record['chain_info']}' for {pdb_id}", extra=log_extra
+                )
                 continue
             interface_chains = "".join(sorted([domain_chain, motif_chain]))
             if interface_chains not in pisa_data:
-                logging.warning(f"No PISA data for {pdb_id} interface {interface_chains}", extra=stage)
+                logging.warning(f"No PISA data for {pdb_id} interface {interface_chains}", extra=log_extra)
                 continue
             pisa_data = pisa_data[interface_chains]
 
             # Checking the interfaces features 2 molecules
             if not len(pisa_data["molecules"]) == 2:
-                logging.warning(f"More than two molecules in {pdb_id} interface {interface_chains}", extra=stage)
+                logging.warning(f"More than two molecules in {pdb_id} interface {interface_chains}", extra=log_extra)
                 continue
 
             # Getting the molecule id for the domain chain
@@ -140,7 +136,9 @@ class PisaParser:
                     pocket_mol_id = mol["molecule_id"]
                     break
             if pocket_mol_id is None:
-                logging.warning(f"Could not find domain chain in {pdb_id} interface {interface_chains}", extra=stage)
+                logging.warning(
+                    f"Could not find domain chain in {pdb_id} interface {interface_chains}", extra=log_extra
+                )
                 continue
 
             # Making output pocket

@@ -42,14 +42,14 @@ class PocketCalculator:
             Pocket: One residue per contacting residue of the domain chain. None if the structure file
                 does not exist.
         """
-        stage = {"stage": "VdW pocket calculation"}
+        log_extra = {"stage": "VdW Pocket Calculation"}
 
         # Ensure st is a gemmi.Structure object
         if isinstance(structure, gemmi.Structure):
             pass
         else:
             if not os.path.exists(structure):
-                logging.warning(f"Structure file {structure} does not exist.", extra=stage)
+                logging.warning(f"Structure file {structure} does not exist.", extra=log_extra)
                 return None
             structure = gemmi.read_structure(structure)
         structure.setup_entities()

@@ -263,20 +263,21 @@ def uniprot_res_ids(aln, offsets):
         PocketMapperError: The entry is absent from the table, its spec is malformed, or it is shorter
             than the alignment reaches. All three mean the table and the database have drifted apart.
     """
+    log_extra = {"stage": "Pocket Comparison"}
     domain = offsets.get(aln.target)
     if domain is None:
         msg = (
             f"Foldseek database entry {aln.target} is missing from the offset table shipped with the "
             "database; the two have drifted apart. Refresh the offset table alongside the database."
         )
-        logging.critical(msg, extra={"stage": "Pocket Comparison"})
+        logging.critical(msg, extra=log_extra)
         raise PocketMapperError(msg)
 
     try:
         uniprot_map = seq_to_uniprot_map(domain)
     except ValueError as error:
         msg = f"Malformed offset table entry for {aln.target}: {domain!r} ({error})"
-        logging.critical(msg, extra={"stage": "Pocket Comparison"})
+        logging.critical(msg, extra=log_extra)
         raise PocketMapperError(msg)
 
     # Only the short direction is detectable from an alignment row: tlen is not in ALIGNMENT_COLUMNS,
@@ -287,7 +288,7 @@ def uniprot_res_ids(aln, offsets):
             f"Offset table entry for {aln.target} spans {len(uniprot_map)} residues but the alignment "
             f"reaches position {aln.tend}; the table and the database have drifted apart."
         )
-        logging.critical(msg, extra={"stage": "Pocket Comparison"})
+        logging.critical(msg, extra=log_extra)
         raise PocketMapperError(msg)
 
     return [str(uniprot_map[k]) for k in range(aln.tend)]
@@ -606,6 +607,7 @@ def compare_pockets(
         offsets=read_offset_table(offset_table_path) if offset_table_path else {},
     )
 
+    log_extra = {"stage": "Pocket Comparison"}
     unknown_ids = defaultdict(lambda: defaultdict(set))  # for saving tri-code ids which are unknown
     incorrect_mapping = defaultdict(dict)  # for saving cases where foldseek mapping doesn't match pocketmapper sequence
 
@@ -682,7 +684,7 @@ def compare_pockets(
         except Exception:
             logging.exception(
                 f"Uncontrolled error calculating {aln.query} and {aln.target}",
-                extra={"stage": "Pocket Comparison"},
+                extra=log_extra,
             )
             raise
 
@@ -693,7 +695,7 @@ def compare_pockets(
     if undeclared:
         logging.warning(
             f"Pocket comparison produced undeclared column(s) {undeclared}; add them to POCKET_COMPARISON_COLUMNS",
-            extra={"stage": "Pocket Comparison"},
+            extra=log_extra,
         )
     pockets_df = pockets_df.reindex(columns=POCKET_COMPARISON_COLUMNS + undeclared)
 

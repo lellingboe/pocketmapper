@@ -8,11 +8,37 @@ plain values and returns plain values. Workflow logic belongs in the component m
 
 import gzip
 import hashlib
+import logging
 import os
 import re
 import shutil
 
 UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]")
+
+
+class StageFilter(logging.Filter):
+    """
+    Supply a missing `stage` attribute from the name of the function that logged the record.
+
+    The root format interpolates `%(stage)s`, which is not a stock LogRecord attribute, so a
+    record reaching a handler without one fails to format. Attach this to the handlers rather
+    than to a logger: a handler filter also sees records propagating up from third-party
+    loggers, which never pass an `extra`.
+    """
+
+    def filter(self, record):
+        """
+        Default `record.stage` to `record.funcName` and keep the record.
+
+        Args:
+            record (logging.LogRecord): The record about to be emitted; modified in place.
+
+        Returns:
+            bool: Always True -- nothing is filtered out.
+        """
+        if not hasattr(record, "stage"):
+            record.stage = record.funcName
+        return True
 
 
 def jsonify_dict(item):

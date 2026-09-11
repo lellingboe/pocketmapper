@@ -34,7 +34,7 @@ class StructureDownloader:
         self.max_retries = max_retries
         self.base_delay = base_delay
         self.max_delay = max_delay
-        self.log_extra = {"stage": "StructureFetcher"}
+        self.log_extra = {"stage": "Downloading Structures"}
 
     def download_missing_structures(self, records):
         """

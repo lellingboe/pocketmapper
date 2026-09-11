@@ -130,7 +130,8 @@ def write_through_part(url, out_fpath, transform, log_extra):
         out_fpath (str): Final path for the file.
         transform (callable): Called as `transform(src_fpath, dst_fpath)` to convert the response
             before it is placed, or None to place it unchanged.
-        log_extra (dict): `extra` mapping for the log records.
+        log_extra (dict or None): `extra` mapping for the log records, or None to log them under
+            this function's own name.
 
     Returns:
         None
@@ -170,25 +171,24 @@ def download_file(url, out_fpath, transform=None, max_retries=5, base_delay=0.25
         max_retries (int): Attempts allowed before giving up. Defaults to 5.
         base_delay (float): Seconds to wait after the first failed attempt. Defaults to 0.25.
         max_delay (float): Ceiling on the doubling delay. Defaults to 30.0.
-        log_extra (dict, optional): `extra` mapping for the log records, which must carry a
-            "stage" key. Defaults to None, which logs under a generic download stage.
+        log_extra (dict, optional): `extra` mapping for the log records. Defaults to None, which
+            logs them under this function's own name.
 
     Returns:
         bool: True once the file is in place, False if every attempt failed.
     """
-    extra = log_extra or {"stage": "Downloading"}
     delay = base_delay
     for attempt in range(1, max_retries + 1):
         try:
-            write_through_part(url, out_fpath, transform, extra)
+            write_through_part(url, out_fpath, transform, log_extra)
             return True
         except Exception as e:
             if attempt == max_retries or not is_transient_error(e):
-                logging.warning(f"Giving up on {url} after {attempt} attempt(s): {e}", extra=extra)
+                logging.warning(f"Giving up on {url} after {attempt} attempt(s): {e}", extra=log_extra)
                 return False
             logging.debug(
                 f"Attempt {attempt}/{max_retries} failed for {url} ({e}); retrying in {delay:.2f}s",
-                extra=extra,
+                extra=log_extra,
             )
             sleep(delay)
             delay = min(delay * 2, max_delay)
@@ -211,26 +211,25 @@ def download_api(url, out_fpath, max_retries=5, base_delay=0.25, max_delay=30.0,
         max_retries (int): Attempts allowed before giving up. Defaults to 5.
         base_delay (float): Delay recorded for a host not seen before. Defaults to 0.25.
         max_delay (float): Ceiling on the host's delay. Defaults to 30.0.
-        log_extra (dict, optional): `extra` mapping for the log records, which must carry a
-            "stage" key. Defaults to None, which logs under a generic download stage.
+        log_extra (dict, optional): `extra` mapping for the log records. Defaults to None, which
+            logs them under this function's own name.
 
     Returns:
         bool: True once the response is in place, False if every attempt failed.
     """
-    extra = log_extra or {"stage": "Downloading"}
     for attempt in range(1, max_retries + 1):
         sleep(get_host_delay(url, base_delay))
         try:
-            write_through_part(url, out_fpath, None, extra)
+            write_through_part(url, out_fpath, None, log_extra)
             return True
         except Exception as e:
             if attempt == max_retries or not is_transient_error(e):
-                logging.warning(f"Giving up on {url} after {attempt} attempt(s): {e}", extra=extra)
+                logging.warning(f"Giving up on {url} after {attempt} attempt(s): {e}", extra=log_extra)
                 return False
             delay = escalate_host_delay(url, max_delay)
             logging.debug(
                 f"Attempt {attempt}/{max_retries} failed for {url} ({e}); "
                 f"pacing {urlparse(url).netloc} at {delay:.2f}s",
-                extra=extra,
+                extra=log_extra,
             )
     return False

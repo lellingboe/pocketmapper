@@ -29,11 +29,10 @@ class StructureAligner:
 
     def __init__(self):
         """
-        Initialise the logger. The aligner holds no other state.
+        Initialise the logging stage. The aligner holds no other state.
         """
-        self.logger = logging.getLogger(__name__)
-        self.log_extra = {"stage": "StructureAligner"}
-        logging.debug("Initialized", extra=self.log_extra)
+        self.log_extra = {"stage": "Structural Alignment"}
+        logging.debug("Initialized")
 
     def char_gen(self):
         """
@@ -155,15 +154,15 @@ class StructureAligner:
 
             except Exception as e:
                 dropped.append(record["pocket_id"])
-                self.logger.error(f"Problem processing {record['pocket_id']}: {e}", extra={"stage": "StructureAligner"})
+                logging.error(f"Problem processing {record['pocket_id']}: {e}", extra=self.log_extra)
 
         if dropped:
-            self.logger.warning(
+            logging.warning(
                 f"Not superposing {dropped}; they are absent from {out_path}",
-                extra={"stage": "StructureAligner"},
+                extra=self.log_extra,
             )
         if not kept_records:
-            self.logger.error(f"No structure could be placed, not writing {out_path}", extra=self.log_extra)
+            logging.error(f"No structure could be placed, not writing {out_path}", extra=self.log_extra)
             return
 
         aligned_struct = self.apply_transformation(structs, domain_chains, motif_chains, us, ts)
@@ -239,8 +238,6 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
                 transforms.append((struct_u, struct_t))
             except Exception as e:
                 transforms.append(None)
-                self.logger.error(
-                    f"Problem processing {record['pocket_id']}: {e}", extra={"stage": "foldseek_transform"}
-                )
+                logging.error(f"Problem processing {record['pocket_id']}: {e}", extra=self.log_extra)
 
         self.transform(aln_records, transforms, out_path)

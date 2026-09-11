@@ -185,8 +185,39 @@ diff old output against new. Nothing else covers that path.
 
 ## Logging and errors
 
-Every log call must pass `extra={"stage": "..."}` or the record fails to format against the root formatter
-(`PocketMapper.__init__`). Every call currently does; nothing enforces it.
+The root format interpolates `%(stage)s` (`constants.LOG_FORMAT`), which is not a stock LogRecord
+attribute. `lib.StageFilter` supplies it from `record.funcName` for any record that arrives without one,
+so a missing `stage` degrades to the emitting function's name instead of failing to format. It is
+attached **to the handlers**, in both places a handler is built — `PocketMapper.__init__` and the
+`configure_logging` dictConfig. Handler-level rather than logger-level because a handler filter also
+sees records propagating up from third-party loggers, which never pass an `extra`; a root-logger filter
+would let those reach the formatter unprotected.
+
+Three consequences, none visible from one file:
+
+- **The `__init__` handler is load-bearing, not a placeholder.** `configure_workflow` can `logging.critical`
+  on a bad settings file *before* it calls `configure_logging`, so the root logger needs a formatting
+  handler from construction. It is built by hand rather than via `basicConfig(format=...)` precisely so
+  the filter can be attached to it.
+- **A declared stage and a defaulted one look different on purpose.** Declared stages are Title Case
+  phrases naming a pipeline step ("Foldseek Alignment"); a defaulted one is a function name
+  (`write_through_part`). The difference is the signal that nothing declared a stage there.
+- **Passing no `extra` is now a legitimate choice**, taken where the function name is already the best
+  label — the `"Initialized"`/`"Started"` debug lines in three constructors, and the optional
+  `log_extra` parameters of `foldseek.run_foldseek` and the two `downloads.lib_download` entry points.
+
+How the `extra` is built follows one rule, and there is exactly one spelling for it: **`log_extra`**.
+A class with a single coherent stage sets `self.log_extra` once in `__init__` and never mutates it
+(`StructureDownloader`, `PisaDownloader`, `StructureAligner`, `StructurePreprocessor`). Anything spanning
+several stages builds a local `log_extra` per function, or passes the dict inline when the function has
+only one call (`pocketmapper.py`, `pisa_parser`, `pocket_parser`, `pocket_comparison`, ...). `QTProcessor`
+is the one deliberate `.update()`: `process_qt_cmdline_input` names the side being processed and the
+`determine_*` helpers it drives all log under that name, which is call-scoped context rather than drift.
+`PocketMapper` itself holds no logging state — it used to, and the stage a step logged under then depended
+on which earlier step had last updated it.
+
+All logging is module-level `logging.debug(...)`. No module instantiates a logger; `getLogger` appears
+nowhere in the package.
 
 Errors are `logging.critical(...)` then `raise PocketMapperError(...)`; `main()` catches and exits 1.
 
