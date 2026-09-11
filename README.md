@@ -342,6 +342,30 @@ components (`qt_processor`, `downloads.structure_downloader`, `downloads.pisa_do
 Note that `search()` reconfigures the root logger and deletes its temporary directories on the way
 out.
 
+The last step is the one you can defer: run with `align_count=0` and no aligned structures are written,
+then hand `StructureAligner.align_structs` the run's own records and result files to produce them
+afterwards. It takes `query_ids` and `target_ids` to superpose only part of the run, and `overwrite=False`
+to leave alone what it has already written.
+
+```python
+from pocketmapper.pocketmapper import PocketMapper
+from pocketmapper.structure_aligner import StructureAligner
+
+pm = PocketMapper()
+pm.search("4Q5J:A_E", "4Q5J:B_F", align_count=0, results_dir="results")
+
+StructureAligner().align_structs(
+    query_records=pm.query_df.to_dict(orient="records"),
+    target_records=pm.target_df.to_dict(orient="records"),
+    pocket_comparison=pm.settings.pocket_comparison_path,
+    alignment=pm.settings.alignment_path,
+    out_dir=pm.settings.aligned_structure_dir,
+    method=pm.settings.align_struct_method,
+    align_count=10,
+    query_ids=["4Q5J:A_E"],
+)
+```
+
 ## Contact / Authors
 PocketMapper is developed by Lachlan Ellingboe (Lachlan.Ellingboe@icr.ac.uk).
 Source, issues and feature requests: https://github.com/lellingboe/pocketmapper

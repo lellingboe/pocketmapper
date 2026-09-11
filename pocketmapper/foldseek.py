@@ -12,6 +12,8 @@ import os
 import subprocess
 from importlib.resources import files
 
+import pandas as pd
+
 from pocketmapper.exceptions import PocketMapperError
 
 # The external binary, resolved off PATH. Optional, and never bundled.
@@ -75,6 +77,61 @@ def run_foldseek(args, log_extra=None):
         msg = f"Foldseek exited with code {e.returncode} running '{cmd_str}'"
         logging.critical(msg, extra=log_extra)
         raise PocketMapperError(msg) from e
+
+
+def extract_fsdb_structures(db_path, entry_names, out_dir, threads, log_extra=None):
+    """
+    Rebuild PDB files for named entries of a Foldseek database.
+
+    Carves the requested entries out into a sub-database and converts that to one PDB per entry, which
+    is the only way back to coordinates for a database target: the database stores structures in its own
+    encoding and the original files are not kept.
+
+    Writes two directories under `out_dir`: `fsdb/` for the sub-database and its input list, and
+    `fsdb_structures/` for the PDBs. Both are created if missing.
+
+    Args:
+        db_path (str): Path to the source Foldseek database. Its `.lookup` file must sit beside it.
+        entry_names (list): Database entry names to extract. Order is preserved; duplicates make
+            Foldseek write the same structure twice, so de-duplicate before calling.
+        out_dir (str): Directory to build the sub-database and the extracted structures under.
+        threads (int): Thread count for the conversion.
+        log_extra (dict, optional): Logging `extra`. Defaults to None, which logs under this
+            function's own name.
+
+    Returns:
+        dict: Entry name -> path of the PDB written for it.
+
+    Raises:
+        KeyError: If an entry name is absent from the database's `.lookup` file.
+        PocketMapperError: If either Foldseek subcommand fails.
+    """
+    logging.debug(f"Extracting {len(entry_names)} entries from Foldseek database {db_path}", extra=log_extra)
+
+    # Entries are addressed by their database key, which only the .lookup file relates to their names.
+    lookup_df = pd.read_csv(db_path + ".lookup", sep="\t", header=None, names=["chain_id", "name", "struct_id"])
+    chain_ids = lookup_df.set_index("name").loc[list(entry_names), "chain_id"].tolist()
+
+    subdb_dir = os.path.join(out_dir, "fsdb")
+    os.makedirs(subdb_dir, exist_ok=True)
+    subdb_chain_id_path = os.path.join(subdb_dir, "required_chain_ids.txt")
+    with open(subdb_chain_id_path, "w") as f:
+        for chain_id in chain_ids:
+            f.write(f"{chain_id}\n")
+
+    # createsubdb is the one subcommand here that takes no --threads; passing one makes foldseek
+    # exit non-zero.
+    subdb_path = os.path.join(subdb_dir, "subdb")
+    run_foldseek(["createsubdb", subdb_chain_id_path, db_path, subdb_path], log_extra)
+
+    struct_dir = os.path.join(out_dir, "fsdb_structures")
+    os.makedirs(struct_dir, exist_ok=True)
+    run_foldseek(
+        ["convert2pdb", "--pdb-output-mode", "1", subdb_path, struct_dir, "--threads", str(threads)],
+        log_extra,
+    )
+
+    return {entry_name: os.path.join(struct_dir, f"{entry_name}.pdb") for entry_name in entry_names}
 
 
 def bundled_human_domains_path(filename):

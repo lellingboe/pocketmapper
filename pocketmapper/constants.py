@@ -77,9 +77,11 @@ ALIGNMENT_COLUMNS = [
 
 FOLDSEEK_FORMAT_OUTPUT = ",".join(ALIGNMENT_COLUMNS)
 
-# The structural-alignment methods step 7 accepts. "auto" is resolved to one of the other two by
-# resolve_align_struct_method before anything downstream reads it.
-ALIGN_STRUCT_METHODS = ("auto", "pocket", "foldseek")
+# The transform sources step 7 can actually use, and the methods the setting accepts. "auto" is
+# resolved to one of the other two by resolve_align_struct_method before anything downstream reads it,
+# so StructureAligner.align_structs validates against the resolved pair rather than the whole set.
+RESOLVED_ALIGN_STRUCT_METHODS = ("pocket", "foldseek")
+ALIGN_STRUCT_METHODS = ("auto",) + RESOLVED_ALIGN_STRUCT_METHODS
 
 # The chain used when an entry names a structure but no chain at all ("4Q5J"). AlphaFold models are
 # always a single chain A, and it is the first chain of most PDB entries.

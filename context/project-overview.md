@@ -47,16 +47,24 @@ README's "Open searches" covers the output shape; `retrieve_whole_chain_pockets`
 
 A `pocket_2` value is not guaranteed to be a target. A query and target sharing a chain share a
 `preprocess_name`, so `compare_pockets` pairs every pocket on that chain with every other and some rows
-carry a query-only `pocket_id` in `pocket_2`. `align_structs` filters those out before its `.loc` lookup;
-without that it raises a bare pandas `KeyError`.
+carry a query-only `pocket_id` in `pocket_2`. `StructureAligner.align_structs` filters those out before
+looking a target record up; without that it raises a bare pandas `KeyError`.
 
 ### Foldseek-DB targets
 
 When the target is a bundled Foldseek DB, `self.fsdb_target` is set: no target structures are fetched or
-preprocessed, and `align_structs` reconstructs target PDBs via `foldseek createsubdb` + `convert2pdb`.
+preprocessed, and `foldseek.extract_fsdb_structures` reconstructs target PDBs via `createsubdb` +
+`convert2pdb` for whichever entries step 7 selected.
 Of the five Foldseek subcommands the package runs, **`createsubdb` is the only one that takes no
 `--threads`** — it accepts just `--subdb-mode`, `--id-mode` and `-v`, and passing the flag makes it exit
 non-zero. `run_foldseek` therefore adds no flags of its own; every caller builds its own argument list.
+
+`StructureAligner.align_structs` reaches that helper through one `fsdb_path` argument, and reads a
+selected target id two ways depending on whether it was given any target records at all — records mean
+the ids are `pocket_id`s to map through `preprocess_name` (the PDB DB), no records mean the ids are
+entry names themselves (any other DB). The choice is made once for the whole call rather than per id,
+so one run's `fsdb_structures/` can never mix entries resolved both ways.
+
 What the target "pocket" is depends on the DB — `expand_fsdb_pdb_targets` for a PDB DB, and
 `pocket_comparison.synthesise_target_pocket` for any other. On the PDB path, **hits with no usable PISA
 data are dropped**, not compared against a stand-in.
@@ -96,8 +104,8 @@ file states:
 **The bundled DB ships without its `.source` file**, and a refreshed one must be stripped the same way.
 Foldseek's `createdb` writes `.source` alongside `.lookup`, but it duplicates the same key-to-name mapping
 and nothing reads it: verified by running `easy-search`, `createsubdb` and `convert2pdb` against a copy with
-it removed. `.lookup` is the one that must survive — `align_structs` reads it to turn entry names into
-database keys. Dropping `.source` saves 1.7 MB in the repo and in both distributions.
+it removed. `.lookup` is the one that must survive — `extract_fsdb_structures` reads it to turn entry
+names into database keys. Dropping `.source` saves 1.7 MB in the repo and in both distributions.
 
 The DB is otherwise at its floor. `_ca` is 70 of its 98 MB, holding 11.2M residues at 6.33 bytes each, which
 is `foldseek createdb --coord-store-mode 2` (uint16 deltas), the default and the smallest of the three modes.
@@ -204,6 +212,10 @@ its code site; what follows is the map of where, plus the checks that live nowhe
 - **Two transform sources, chosen by `align_struct_method`** — `StructureAligner`'s class docstring names
   them; `pocket_comparison.parse_pocket_transform` is the only legitimate reader of the pocket transform
   and carries the measured evidence. Never hand a raw `p2_to_p1_*` cell to gemmi.
+- **Step 7 is `StructureAligner.align_structs`, not a pipeline method** — `PocketMapper.align_structs`
+  only unpacks the `Settings` and the two `fsdb_*` flags into it. Selection, transform lookup and
+  writing all live in the component, so a change to any of them belongs there and is reachable without
+  running a search.
 
 **Changing step 6 without changing behaviour**: capture `compare_pockets`' arguments from a real run and
 diff old output against new. Nothing else covers that path.
@@ -368,6 +380,13 @@ entry: `PocketMapper().search(...)` does the same work as the CLI, or drive a co
 `pisa_parser`, `sequence_aligner`, `structure_aligner`, `pocket_calculator`, `foldseek` are each
 separately usable.
 
+- **Step 7 is the one step that can be deferred.** `search(align_count=0)` writes everything but the
+  aligned structures, and `StructureAligner.align_structs` then produces them from the run's own outputs
+  — `pm.query_df` / `pm.target_df` as records, plus the two result paths off `pm.settings`. Verified: the
+  PDBs come out byte-identical to those of a normal run, on both the structure and the Foldseek-DB path.
+  It works because records point at `structure_dir`, which `delete_tmp` never touches, and it is why
+  `align_structs` takes `query_ids`, `target_ids` and `overwrite` — a deferred caller superposes a few
+  queries at a time rather than all of them.
 - **A component reaching into a `Settings` can't be used without building one, and hides which fields it
   depends on** — so no component takes one. The `Settings` is unpacked at each call site in
   `pocketmapper.py` into the values that component needs.

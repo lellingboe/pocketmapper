@@ -50,12 +50,10 @@ from pocketmapper.lib import StageFilter
 from pocketmapper.lib import is_within
 from pocketmapper.lib import jsonify_dict
 from pocketmapper.lib import parse_foldseek_pdb_entry_name
-from pocketmapper.lib import safe_filename
 from pocketmapper.lib import split_chain_info
 from pocketmapper.pisa_parser import PisaParser
 from pocketmapper.pocket_calculator import PocketCalculator
 from pocketmapper.pocket_comparison import compare_pockets
-from pocketmapper.pocket_comparison import parse_pocket_transform
 from pocketmapper.pocket_parser import parse_pocket_from_struct
 from pocketmapper.qt_processor import QTProcessor
 from pocketmapper.sequence_aligner import SequenceAligner
@@ -1371,210 +1369,35 @@ class PocketMapper:
         """
         Perform structural superposition of target structures against the query reference frame.
 
-        Takes the top N targets (as defined by `align_count`) from the pocket comparison results
-        and performs a structural alignment using the `StructureAligner` class.
-        The aligned structures will be saved to the target directory for downstream analysis.
+        Unpacks this run's settings and target shape for `StructureAligner.align_structs`, which takes
+        the top `align_count` targets of each query from the pocket comparison results and writes them
+        superposed onto it into `aligned_structure_dir`.
 
         Returns:
             None
         """
-        log_extra = {"stage": "Structural Alignment"}
-        if self.settings.align_count <= 0:
-            logging.info("No Aligned Structures to Process", extra=log_extra)
-            return
-
-        method = self.settings.align_struct_method  # already "pocket" or "foldseek"
-        logging.info(f"Performing structural alignment of target structures on the {method}...", extra=log_extra)
-
-        # Pre-loading
-        aligner = StructureAligner()
-        pocket_comparison_df = pd.read_csv(self.settings.pocket_comparison_path, sep="\t", engine="c")
-        alignment_df = None
-        pocket_transform_df = None
-        if method == "foldseek":
-            alignment_df = pd.read_csv(
-                self.settings.alignment_path,
-                sep="\t",
-                engine="c",
-                index_col=["query", "target"],
-            )
+        # A Foldseek-database target has no structures of its own, so the aligner rebuilds them from
+        # the database. Which records it gets says how to read a target id: the PDB database's hits
+        # were expanded into real pockets by expand_fsdb_pdb_targets, while for any other database the
+        # ids are database entry names and target_df holds only the database record itself.
+        fsdb_path = self.target_df.loc[0, "struct_path"] if self.fsdb_target else None
+        if self.fsdb_target and not self.fsdb_pdb_target:
+            target_records = []
         else:
-            # (pocket_1, pocket_2) is unique -- compare_pockets' existing_calcs scores each pair once.
-            pocket_transform_df = pocket_comparison_df.dropna(subset=["p2_to_p1_u", "p2_to_p1_t"]).set_index(
-                ["pocket_1", "pocket_2"]
-            )[["p2_to_p1_u", "p2_to_p1_t"]]
+            target_records = self.target_df.to_dict(orient="records")
 
-        # For each query structure, align the top N target structures
-        qt_id_map = {}
-        unique_target_ids = set()
-        for record in self.query_df.to_dict(orient="records"):
-            query_id = record["pocket_id"]
-            logging.debug(f"Processing query {query_id} for structural alignment", extra=log_extra)
-
-            # Select the top N target structures based on pocket comparison metrics. Targets sharing no
-            # pocket residues with the query are excluded: there is no common set of residues to superpose
-            # on, and their overlap metrics are empty so they would sort arbitrarily.
-            #
-            # A whole-chain target -- an open search, or a Foldseek-DB hit -- has no jaccard_index, so it
-            # sorts to the end and is ranked by the secondary key, min_overlap_similarity, instead.
-            candidates = pocket_comparison_df.query(f"pocket_1 == '{query_id}' and overlap_count > 0")
-            overlapping_count = len(candidates)
-            if method == "pocket":
-                # superpose fits nothing below three overlapping residues, so those targets have no
-                # transform. Drop them here rather than when writing, or they would eat align_count
-                # slots and the run would quietly produce fewer structures than asked for.
-                candidates = candidates.dropna(subset=["p2_to_p1_u", "p2_to_p1_t"])
-
-            target_ids = (
-                candidates.sort_values(by=["jaccard_index", "min_overlap_similarity"], ascending=False)
-                .head(self.settings.align_count)
-                .loc[:, "pocket_2"]
-                .to_list()
-            )
-            if not target_ids:
-                if overlapping_count:
-                    logging.info(
-                        f"No target overlaps the pocket of query {query_id} by the three residues a "
-                        "superposition needs; skipping its structural alignment",
-                        extra=log_extra,
-                    )
-                else:
-                    logging.info(
-                        f"No target overlaps the pocket of query {query_id}; skipping its structural alignment",
-                        extra=log_extra,
-                    )
-                continue
-            logging.debug(f"Top target IDs for query {query_id}: {target_ids}", extra=log_extra)
-            qt_id_map[query_id] = target_ids
-            unique_target_ids.update(target_ids)
-
-        if not unique_target_ids:
-            logging.info("No query/target pair shares pocket residues, nothing to superpose", extra=log_extra)
-            return
-
-        self.query_df = self.query_df.set_index("pocket_id")
-        if self.fsdb_target is False:
-            target_record_df = self.target_df.set_index("pocket_id")
-        else:  # If the target is a Foldseek database we need to make pdb structures from required entries
-            source_db_path = self.target_df.loc[0, "struct_path"]
-            logging.debug(f"Using Foldseek database at {source_db_path} for structural alignment", extra=log_extra)
-
-            # With a PDB database the target IDs are pocket IDs ("4Q5J:B_F"), not database entry names, so
-            # map them back through the records built by expand_fsdb_pdb_targets. One pocket ID can come
-            # from more than one entry (the same chain in two assemblies) -- keep the first, or the lookup
-            # below returns duplicate rows and the structure gets superposed twice.
-            if self.fsdb_pdb_target:
-                id_to_entry = (
-                    self.target_df.dropna(subset=["preprocess_name"])
-                    .drop_duplicates(subset="pocket_id", keep="first")
-                    .set_index("pocket_id")["preprocess_name"]
-                )
-                target_entry_names = {target_id: id_to_entry[target_id] for target_id in unique_target_ids}
-            else:
-                target_entry_names = {target_id: target_id for target_id in unique_target_ids}
-
-            # Get chain IDs corresponding to the required entries from the Foldseek database lookup file
-            source_db_lookup_path = source_db_path + ".lookup"
-            source_db_lookup_df = pd.read_csv(
-                source_db_lookup_path, sep="\t", header=None, names=["chain_id", "name", "struct_id"]
-            )
-            source_db_lookup_df = source_db_lookup_df.set_index("name")
-            chain_ids = source_db_lookup_df.loc[list(target_entry_names.values()), "chain_id"].tolist()
-
-            # Make directory for subdb
-            subdb_dir = os.path.join(self.settings.aligned_structure_dir, "fsdb")
-            os.makedirs(subdb_dir, exist_ok=True)
-
-            # Create a file listing the required chain IDs for the subdb creation
-            subdb_chain_id_path = os.path.join(subdb_dir, "required_chain_ids.txt")
-            with open(subdb_chain_id_path, "w") as f:
-                for target_id in chain_ids:
-                    f.write(f"{target_id}\n")
-
-            # Create the subdb using foldseek's createsubdb command. It is the one subcommand here
-            # that takes no --threads; passing one makes foldseek exit non-zero.
-            subdb_path = os.path.join(subdb_dir, "subdb")
-            run_foldseek(["createsubdb", subdb_chain_id_path, source_db_path, subdb_path], log_extra)
-
-            # Create a directory for extracted structures
-            subdb_struct_dir = os.path.join(self.settings.aligned_structure_dir, "fsdb_structures")
-            os.makedirs(subdb_struct_dir, exist_ok=True)
-
-            # Convert the subdb to PDB format using foldseek's convert2pdb command
-            run_foldseek(
-                [
-                    "convert2pdb",
-                    "--pdb-output-mode",
-                    "1",
-                    subdb_path,
-                    subdb_struct_dir,
-                    "--threads",
-                    str(self.settings.threads),
-                ],
-                log_extra,
-            )
-
-            # Make record df for the target records based on the unique target IDs and the subdb structure
-            # directory. chain_info stays None: each extracted structure holds exactly the one chain of its
-            # database entry, which foldseek_transform takes as the domain chain.
-            target_record_df = pd.DataFrame(
-                {"pocket_id": list(target_entry_names.keys()), "preprocess_name": list(target_entry_names.values())}
-            )
-            target_record_df["chain_info"] = None
-            target_record_df["struct_path"] = target_record_df["preprocess_name"].apply(
-                lambda x: os.path.join(subdb_struct_dir, f"{x}.pdb")
-            )
-            target_record_df = target_record_df.set_index("pocket_id")
-
-        for query_id, target_ids in qt_id_map.items():
-            # pocket_id is the index of query_df, so it is not in the row dict -- put it back, since
-            # foldseek_transform reads it for the COMPND metadata.
-            query_record = self.query_df.loc[query_id].to_dict()
-            query_record["pocket_id"] = query_id
-            logging.debug(f"Query record for '{query_id}': {json.dumps(query_record, indent=4)}", extra=log_extra)
-            # Fetch the corresponding target records. A pocket_2 need not be a target: when a query and a
-            # target share a chain they share a preprocess_name, so compare_pockets pairs every pocket on
-            # that chain with every other and some rows come back with a query-only pocket_id in pocket_2.
-            # Those have no target structure to superpose, so drop them rather than let .loc raise.
-            known_target_ids = [target_id for target_id in target_ids if target_id in target_record_df.index]
-            missing_target_ids = [target_id for target_id in target_ids if target_id not in target_record_df.index]
-            if missing_target_ids:
-                logging.debug(
-                    f"Skipping non-target pocket(s) {missing_target_ids} when superposing onto '{query_id}'",
-                    extra=log_extra,
-                )
-            top_target_records = target_record_df.loc[known_target_ids].reset_index().to_dict(orient="records")
-            logging.debug(
-                f"Top target records for query '{query_id}': {json.dumps(top_target_records, indent=4)}",
-                extra=log_extra,
-            )
-
-            # The query is the reference frame every target is superposed onto, so it must lead the list.
-            aln_records = [query_record] + top_target_records
-            if len(aln_records) > 1:
-                out_path = os.path.join(self.settings.aligned_structure_dir, f"{safe_filename(query_id)}.pdb")
-                if method == "foldseek":
-                    aligner.foldseek_transform(
-                        aln_records=aln_records,
-                        alignment_df=alignment_df,
-                        out_path=out_path,
-                    )
-                else:
-                    # transforms is positional, not keyed by pocket_id: a self-comparison gives the
-                    # query and a target the same pocket_id, so a dict would collide.
-                    transforms = [None]  # the query is the reference frame, placed untransformed
-                    for record in top_target_records:
-                        try:
-                            row = pocket_transform_df.loc[(query_id, record["pocket_id"])]
-                        except KeyError:
-                            transforms.append(None)
-                            logging.warning(
-                                f"No pocket superposition for {query_id} against {record['pocket_id']}",
-                                extra=log_extra,
-                            )
-                            continue
-                        transforms.append(parse_pocket_transform(row["p2_to_p1_u"], row["p2_to_p1_t"]))
-                    aligner.transform(aln_records=aln_records, transforms=transforms, out_path=out_path)
+        aligner = StructureAligner()
+        aligner.align_structs(
+            query_records=self.query_df.to_dict(orient="records"),
+            target_records=target_records,
+            pocket_comparison=self.settings.pocket_comparison_path,
+            out_dir=self.settings.aligned_structure_dir,
+            method=self.settings.align_struct_method,  # already "pocket" or "foldseek"
+            align_count=self.settings.align_count,
+            alignment=self.settings.alignment_path,
+            threads=self.settings.threads,
+            fsdb_path=fsdb_path,
+        )
 
     def delete_tmp(self):
         """
