@@ -1161,7 +1161,10 @@ class PocketMapper:
         Build a Pocket from the residue ids the entry names outright.
 
         A passthrough entry carries its own residue list ("P24941:A:160,161"), so there is nothing to
-        compute: the ids are read from `residue_info` and looked up in the structure.
+        compute: the ids are read from `residue_info` and looked up in the structure. They are sorted
+        numerically rather than kept in the order they were typed -- `res_auth_ids` is the order the
+        comparison pairs residues against the other pocket in, and every other pocket method produces
+        it ascending.
 
         Args:
             pt_df (pandas.DataFrame): Records with `pocket_method == "passthrough"`, as returned by
@@ -1176,7 +1179,7 @@ class PocketMapper:
             passthrough_pockets[row["pocket_id"]] = parse_pocket_from_struct(
                 struct=row["struct_path"],
                 chain_id=domain_chain,
-                pocket_residues=[int(x) for x in row["residue_info"].split(",")],
+                pocket_residues=sorted(int(x) for x in row["residue_info"].split(",")),
             )
         return passthrough_pockets
 

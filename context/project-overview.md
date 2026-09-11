@@ -33,6 +33,13 @@ One thing the class states that no producer would: `res_auth_ids` is not `list(r
 ordered residue list the comparison walks, and on the PISA path it is seeded from the interface while
 `residues` is filled in chain order.
 
+**Every producer must emit it in ascending residue order**, and nothing checks that. `overlap_ids`
+returns each side's ids in its own `res_auth_ids` order and `superpose` pairs the two lists position
+for position, so a pocket ordered any other way is superposed against the wrong residues -- wrong
+`rmsd`, `ca_dists` and transforms, with `overlap_count` and every identity column still correct,
+and no warning. Only the passthrough method takes its order from user input; the rest walk the chain
+(`pocket_calculator`, the whole-chain path) or sort (`pisa_parser`, `retrieve_passthrough_pockets`).
+
 ### Open searches
 
 README's "Open searches" covers the output shape; `retrieve_whole_chain_pockets` and
