@@ -99,7 +99,7 @@ test_invalid_6|core|fail|Forced pisa on an AlphaFold entry rejected|P24941:A_B 4
 test_invalid_7|core|fail|Forced vdw with no partner chain rejected|4Q5J:A 4Q5J:B_F --foldseek False --query_pocket_method vdw
 test_invalid_8|core|rows|Forced method skips only the entries that cannot use it|forced_pisa_mixed.txt 4Q5J:B_F --foldseek False --query_pocket_method pisa
 
-test_settings_1|core settings|rows|Path options set on the command line|4Q5J:A_E 4Q5J:B_F --foldseek False --structure_dir @CACHE@/ref_structures --pocket_dir @CACHE@/pockets --alignment_path @OUT@/custom_alignment.tsv --aligned_structure_dir @OUT@/custom_aligned --job_settings_path @OUT@/custom_settings.json --log_path @OUT@/custom.log
+test_settings_1|core settings|rows|Path options set on the command line|4Q5J:A_E 4Q5J:B_F --foldseek False --structure_dir @CACHE@/ref_structures --pocket_dir @CACHE@/pockets --alignment_path @OUT@/custom_alignment.tsv --aligned_structure_dir @OUT@/custom_aligned --job_settings_path @OUT@/custom_settings.json --log_path @OUT@/custom.log --temp_dir @OUT@/custom_temp
 test_settings_2|core settings|rows|CLI arguments override a settings file|--settings settings_paths.json 4Q5J:A_E 4Q5J:B_F --foldseek False
 test_settings_3|core settings|rows|Temp directories kept with --delete_tmp False|4Q5J:A_E 4Q5J:B_F --foldseek False --delete_tmp False
 test_settings_4|core settings|rows|Explicit --threads accepted and honoured|4Q5J:A_E 4Q5J:B_F --foldseek False --threads 2

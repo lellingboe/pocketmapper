@@ -311,13 +311,22 @@ Options are grouped by lifetime in both places a human reads them — argparse's
 option count, so leaving them ungrouped would bury `--foldseek` and `--query_pocket_method` among
 them. The four groups are `aligned structure options`, `cache options` (what survives a run),
 `out options` (what the run produces) and `temp options` (what `delete_tmp` removes at the end);
-`--cache_dir` and `--results_dir` head the group whose defaults derive from them. Adding a path
-setting means picking one of those groups in both places.
+`--cache_dir`, `--results_dir` and `--temp_dir` head the group whose defaults derive from them. Adding
+a path setting means picking one of those groups in both places.
 
-Lifetime wins over where the default comes from, and `--foldseek_tmp_dir` is the one place the two
-disagree: it defaults under `cache_dir` but a Foldseek run deletes it, so it sits in `temp options`
-rather than with the caches. Moving it back to `cache options` on the strength of its default would
-put a directory that does not survive the run under a heading that promises it does.
+**`temp_dir` has exactly one option and three directories.** `query_structures/`, `target_structures/`
+and `foldseek_tmp/` are computed in `configure_temp_dir` and held on the `PocketMapper` instance, not
+declared on `Settings` — a `Settings` field has to be reachable from the command line (above), and
+placing these individually is what `--temp_dir` replaced. Only the first two are created: Foldseek
+makes its own. `temp_dir` is emptied there rather than merely created, so a rerun into the same
+`results_dir` cannot hand `createdb` the previous run's structures; the emptying is guarded by
+`lib.is_within` and the creation deliberately is not, since a run pointed outside both roots still
+needs somewhere to work. That step sits after `configure_logging` for the same reason 4b/4c do —
+the skip warning would otherwise be swallowed by the CRITICAL-only root logger.
+
+`results_dir` is in `configure_workflow`'s `dirs_to_create` in its own right, and has to stay there.
+Every other path in that list is settable away from `results_dir`, so without it `configure_logging`'s
+file handler is one `--aligned_structure_dir` away from opening a log in a directory nothing made.
 
 `search --help` *is* generated, from the parser's `help=` strings; `constants.CLI_SEARCH_EPILOG`
 carries only the examples, which is all argparse cannot produce. It hangs off the `search` subparser
@@ -421,11 +430,10 @@ separately usable.
 - **Always call `Settings(...).resolve_paths()`** if you build one yourself — the failure mode is in that
   method's docstring. `search()` does this for you.
 - **`search()` has global side effects**: `logging.config.dictConfig` reconfigures the *root* logger and
-  stomps on a host app's logging setup, and `delete_tmp` `shutil.rmtree`s
-  `query_dir`/`target_dir`/`foldseek_tmp_dir` at the end unless `delete_tmp=False`, which keeps all
-  three. The rmtree is guarded rather than unconditional: all three are settable, so `lib.is_within`
-  skips (with a warning) any that does not resolve under `cache_dir` or `results_dir`. The guard
-  bounds the damage from a mistyped path; it is not a reason to point those settings at a directory
-  you care about.
+  stomps on a host app's logging setup, and `delete_tmp` `shutil.rmtree`s `temp_dir` at the end unless
+  `delete_tmp=False`, which keeps it. `configure_workflow` also empties `temp_dir` on the way in. Both
+  rmtrees are guarded rather than unconditional: `temp_dir` is settable, so `lib.is_within` skips (with
+  a warning) a path that does not resolve under `cache_dir` or `results_dir`. The guard bounds the
+  damage from a mistyped path; it is not a reason to point the setting at a directory you care about.
 - Results come back through files — `search()` returns `None`, so read `pocket_comparison.tsv` /
   `alignment.tsv` from `results_dir` (paths available on `Settings`).

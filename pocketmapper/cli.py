@@ -239,34 +239,19 @@ def build_parser():
         "temp options",
     )
     temp_paths.add_argument(
+        "--temp_dir",
+        default=None,
+        metavar="DIR",
+        help="Per-run scratch, emptied before use and deleted at the end. (default: <results_dir>/tmp)",
+    )
+    temp_paths.add_argument(
         "--delete_tmp",
         nargs="?",
         const=True,
         type=bool_arg,
         default=None,
         metavar="BOOL",
-        help="Delete the directories below at the end of the run; False keeps them. (default: True)",
-    )
-    temp_paths.add_argument(
-        "--query_dir",
-        default=None,
-        metavar="DIR",
-        help="Per-run query structures, deleted at the end of the run. (default: <results_dir>/query_structures)",
-    )
-    temp_paths.add_argument(
-        "--target_dir",
-        default=None,
-        metavar="DIR",
-        help="Per-run target structures, deleted at the end of the run. (default: <results_dir>/target_structures)",
-    )
-    # Grouped by lifetime, not by where its default comes from: it is scratch that a Foldseek run
-    # deletes, so it belongs here rather than under the caches that survive the run -- and it is the
-    # one option in this group whose default hangs off --cache_dir.
-    temp_paths.add_argument(
-        "--foldseek_tmp_dir",
-        default=None,
-        metavar="DIR",
-        help="Foldseek's scratch directory, deleted after a Foldseek run. (default: <cache_dir>/foldseek_tmp)",
+        help="Delete --temp_dir at the end of the run; False keeps it. (default: True)",
     )
 
     return parser
@@ -312,10 +297,8 @@ def main(argv=None):
             delete_tmp=args.delete_tmp,
             structure_dir=args.structure_dir,
             pocket_dir=args.pocket_dir,
-            foldseek_tmp_dir=args.foldseek_tmp_dir,
             foldseek_preprocessed_structure_dir=args.foldseek_preprocessed_structure_dir,
-            query_dir=args.query_dir,
-            target_dir=args.target_dir,
+            temp_dir=args.temp_dir,
             aligned_structure_dir=args.aligned_structure_dir,
             alignment_path=args.alignment_path,
             pocket_comparison_path=args.pocket_comparison_path,

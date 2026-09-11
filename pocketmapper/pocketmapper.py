@@ -91,20 +91,17 @@ class Settings:
     # None (the default) means one per available core. resolve_threads() turns it into a concrete
     # int before anything reads it, so the pipeline and job_settings.json only ever see a number.
     threads: int | None = None
-    # query_dir, target_dir and foldseek_tmp_dir hold the per-run inputs actually handed to the
-    # aligner and the pocket parser, and delete_tmp removes them on the way out. False keeps them:
-    # a run that produced no rows is diagnosed from what it was given, which is gone by the time
-    # anyone looks.
+    # temp_dir holds the per-run inputs actually handed to the aligner, and delete_tmp removes it
+    # on the way out. False keeps it: a run that produced no rows is diagnosed from what it was
+    # given, which is gone by the time anyone looks.
     delete_tmp: bool = True
 
     # Derived paths -- left unset (None) until resolve_paths() fills them in, unless explicitly
     # provided via the settings file or the matching command-line option.
     structure_dir: str | None = None
     pocket_dir: str | None = None
-    foldseek_tmp_dir: str | None = None
     foldseek_preprocessed_structure_dir: str | None = None
-    query_dir: str | None = None
-    target_dir: str | None = None
+    temp_dir: str | None = None
     aligned_structure_dir: str | None = None
     alignment_path: str | None = None
     pocket_comparison_path: str | None = None
@@ -127,10 +124,8 @@ class Settings:
         derived = {
             "structure_dir": os.path.join(self.cache_dir, "ref_structures"),
             "pocket_dir": os.path.join(self.cache_dir, "pockets"),
-            "foldseek_tmp_dir": os.path.join(self.cache_dir, "foldseek_tmp"),
             "foldseek_preprocessed_structure_dir": os.path.join(self.cache_dir, "foldseek_preprocessed_structures"),
-            "query_dir": os.path.join(self.results_dir, "query_structures"),
-            "target_dir": os.path.join(self.results_dir, "target_structures"),
+            "temp_dir": os.path.join(self.results_dir, "tmp"),
             "aligned_structure_dir": os.path.join(self.results_dir, "aligned_structures"),
             "alignment_path": os.path.join(self.results_dir, "alignment.tsv"),
             "pocket_comparison_path": os.path.join(self.results_dir, "pocket_comparison.tsv"),
@@ -248,10 +243,8 @@ class PocketMapper:
         delete_tmp=None,
         structure_dir=None,
         pocket_dir=None,
-        foldseek_tmp_dir=None,
         foldseek_preprocessed_structure_dir=None,
-        query_dir=None,
-        target_dir=None,
+        temp_dir=None,
         aligned_structure_dir=None,
         alignment_path=None,
         pocket_comparison_path=None,
@@ -284,20 +277,15 @@ class PocketMapper:
                 'pisa', 'passthrough', 'vdw', 'whole_chain' or 'foldseek_db'. Left unset, it is
                 inferred per entry from the input string.
             target_pocket_method (str, optional): As `query_pocket_method`, for the target side.
-            delete_tmp (bool, optional): Delete query_dir, target_dir and -- when Foldseek did the
-                aligning -- foldseek_tmp_dir at the end of the run. Defaults to True; False keeps
-                them for inspection.
+            delete_tmp (bool, optional): Delete temp_dir at the end of the run. Defaults to True;
+                False keeps it for inspection.
             structure_dir (str, optional): Cache of fetched reference structures.
                 Defaults to <cache_dir>/ref_structures.
             pocket_dir (str, optional): Cache of parsed pockets. Defaults to <cache_dir>/pockets.
-            foldseek_tmp_dir (str, optional): Foldseek's scratch directory, deleted after a Foldseek
-                run. Defaults to <cache_dir>/foldseek_tmp.
             foldseek_preprocessed_structure_dir (str, optional): Cache of the single-chain structures
                 Foldseek is given. Defaults to <cache_dir>/foldseek_preprocessed_structures.
-            query_dir (str, optional): Per-run query structures, deleted at the end of the run.
-                Defaults to <results_dir>/query_structures.
-            target_dir (str, optional): Per-run target structures, deleted at the end of the run.
-                Defaults to <results_dir>/target_structures.
+            temp_dir (str, optional): Per-run scratch, wiped before use and deleted at the end of the
+                run. Defaults to <results_dir>/tmp.
             aligned_structure_dir (str, optional): Where the superposed structures for the top hits
                 are written. Defaults to <results_dir>/aligned_structures.
             alignment_path (str, optional): Where the alignment table is written.
@@ -334,10 +322,8 @@ class PocketMapper:
             "delete_tmp": delete_tmp,
             "structure_dir": structure_dir,
             "pocket_dir": pocket_dir,
-            "foldseek_tmp_dir": foldseek_tmp_dir,
             "foldseek_preprocessed_structure_dir": foldseek_preprocessed_structure_dir,
-            "query_dir": query_dir,
-            "target_dir": target_dir,
+            "temp_dir": temp_dir,
             "aligned_structure_dir": aligned_structure_dir,
             "alignment_path": alignment_path,
             "pocket_comparison_path": pocket_comparison_path,
@@ -353,9 +339,7 @@ class PocketMapper:
 
         self.query_df = self.fetch_missing_structures("query", self.query_df)
         if self.fsdb_target:
-            self.fetch_missing_fsdb(
-                self.target_df, self.settings.foldseek_tmp_dir
-            )  # Fetch any missing foldseek databases
+            self.fetch_missing_fsdb(self.target_df, self.foldseek_tmp_dir)  # Fetch any missing foldseek databases
         else:
             self.target_df = self.fetch_missing_structures("target", self.target_df)  # Fetch any missing structures
 
@@ -414,11 +398,12 @@ class PocketMapper:
         # 4. Computed paths (only fills in paths not already set by the settings file or an argument)
         settings = settings.resolve_paths()
 
-        # Ensure all necessary directories exist before proceeding, creating them if needed
+        # Ensure all necessary directories exist before proceeding, creating them if needed.
+        # results_dir is listed in its own right: configure_logging opens a file handler under it
+        # immediately below, and every other path here is settable away from it.
         dirs_to_create = [
+            "results_dir",
             "structure_dir",
-            "query_dir",
-            "target_dir",
             "pocket_dir",
             "foldseek_preprocessed_structure_dir",
             "aligned_structure_dir",
@@ -432,6 +417,11 @@ class PocketMapper:
                 raise PocketMapperError(f"Error creating directory {path}") from e
 
         self.configure_logging(settings.verbosity, settings.log_path)
+
+        # 4a. Lay out this run's scratch space. Must come after configure_logging: the root logger is
+        # still at CRITICAL before it, so the warning for a temp_dir that cannot be wiped would be
+        # swallowed. Nothing reads the scratch directories until step 4 of the pipeline.
+        self.configure_temp_dir(settings)
 
         # 4b. Resolve the tri-state foldseek setting into a concrete bool. Must come after
         # configure_logging (the root logger is still at CRITICAL before it, so the fallback
@@ -457,6 +447,50 @@ class PocketMapper:
         except Exception as e:
             logging.error(f"Failed to dump settings to {settings.job_settings_path}: {e}", extra=log_extra)
         return settings
+
+    def configure_temp_dir(self, settings):
+        """
+        Empty this run's scratch directory and lay out the subdirectories under it.
+
+        The wipe is guarded by `is_within` and the creation is not: `temp_dir` is settable by both the
+        settings file and the command line, so a mistyped one costs a stray directory rather than its
+        contents, but the run still needs somewhere to put its scratch. Foldseek's own scratch
+        subdirectory is not created here -- Foldseek creates it itself.
+
+        Args:
+            settings (Settings): Settings with `temp_dir`, `cache_dir` and `results_dir` resolved.
+
+        Returns:
+            None: Sets `query_tmp_dir`, `target_tmp_dir` and `foldseek_tmp_dir` on the instance.
+
+        Raises:
+            PocketMapperError: If a scratch directory cannot be created.
+        """
+        log_extra = {"stage": "Configuring Workflow"}
+
+        # Subdirectories rather than Settings fields: every Settings field is reachable from the
+        # command line, and these are placed by --temp_dir alone.
+        self.query_tmp_dir = os.path.join(settings.temp_dir, "query_structures")
+        self.target_tmp_dir = os.path.join(settings.temp_dir, "target_structures")
+        self.foldseek_tmp_dir = os.path.join(settings.temp_dir, "foldseek_tmp")
+
+        # A rerun into the same results_dir would otherwise hand Foldseek's createdb whatever the
+        # previous run left behind.
+        if is_within(settings.temp_dir, [settings.cache_dir, settings.results_dir]):
+            shutil.rmtree(settings.temp_dir, ignore_errors=True)
+        else:
+            logging.warning(
+                f"Reusing temp_dir {settings.temp_dir} without emptying it: it is outside cache_dir "
+                "and results_dir. Empty it yourself if a previous run left anything there.",
+                extra=log_extra,
+            )
+
+        for path in (settings.temp_dir, self.query_tmp_dir, self.target_tmp_dir):
+            try:
+                os.makedirs(path, exist_ok=True)
+            except OSError as e:
+                logging.critical(f"Error creating directory {path}", extra=log_extra)
+                raise PocketMapperError(f"Error creating directory {path}") from e
 
     def resolve_foldseek(self, settings):
         """
@@ -798,9 +832,9 @@ class PocketMapper:
         log_extra = {"stage": "Preprocessing Structures"}
 
         structure_preprocessor = StructurePreprocessor()
-        qtdf_dir_iter = [(self.query_df, self.settings.query_dir)]
+        qtdf_dir_iter = [(self.query_df, self.query_tmp_dir)]
         if not self.fsdb_target:
-            qtdf_dir_iter.append((self.target_df, self.settings.target_dir))
+            qtdf_dir_iter.append((self.target_df, self.target_tmp_dir))
 
         for df, search_dir in qtdf_dir_iter:
             records = df.drop_duplicates(subset=["preprocess_name", "chain_info"]).to_dict(orient="records")
@@ -837,9 +871,9 @@ class PocketMapper:
         logging.info("Running Foldseek alignment...", extra=log_extra)
 
         # Setting up paths for foldseek databases
-        self.query_db_path = os.path.join(self.settings.query_dir, "query_db")
+        self.query_db_path = os.path.join(self.query_tmp_dir, "query_db")
         run_foldseek(
-            ["createdb", self.settings.query_dir, self.query_db_path, "--threads", str(self.settings.threads)],
+            ["createdb", self.query_tmp_dir, self.query_db_path, "--threads", str(self.settings.threads)],
             log_extra,
         )
 
@@ -847,9 +881,9 @@ class PocketMapper:
             self.target_db_path = self.target_df.loc[0, "struct_path"]
             logging.debug(f"Targeting bundled human_domains Foldseek DB at {self.target_db_path}", extra=log_extra)
         else:
-            self.target_db_path = os.path.join(self.settings.target_dir, "target_db")
+            self.target_db_path = os.path.join(self.target_tmp_dir, "target_db")
             run_foldseek(
-                ["createdb", self.settings.target_dir, self.target_db_path, "--threads", str(self.settings.threads)],
+                ["createdb", self.target_tmp_dir, self.target_db_path, "--threads", str(self.settings.threads)],
                 log_extra,
             )
 
@@ -858,7 +892,7 @@ class PocketMapper:
             self.query_db_path,
             self.target_db_path,
             self.settings.alignment_path,
-            self.settings.foldseek_tmp_dir,
+            self.foldseek_tmp_dir,
             "--format-output",
             FOLDSEEK_FORMAT_OUTPUT,
             "--format-mode",
@@ -1401,40 +1435,29 @@ class PocketMapper:
 
     def delete_tmp(self):
         """
-        Delete this run's scratch directories, unless `delete_tmp` says otherwise.
+        Delete this run's scratch directory, unless `delete_tmp` says otherwise.
 
-        Removes query_dir and target_dir, plus foldseek_tmp_dir when Foldseek did the aligning.
-        Anything resolving outside cache_dir and results_dir is left alone and warned about: these
-        three are settable by both the settings file and the command line, so a mistyped
-        `--query_dir` would otherwise hand an unrelated directory to `shutil.rmtree`.
+        A temp_dir resolving outside cache_dir and results_dir is left alone and warned about: it is
+        settable by both the settings file and the command line, so a mistyped `--temp_dir` would
+        otherwise hand an unrelated directory to `shutil.rmtree`.
 
         Returns:
             None
         """
         log_extra = {"stage": "Cleaning Up"}
 
-        tmp_dirs = [
-            "query_dir",
-            "target_dir",
-        ]
-        if self.settings.foldseek:
-            tmp_dirs.append("foldseek_tmp_dir")
+        path = self.settings.temp_dir
 
-        # Named rather than counted: which directories survive depends on the aligner, so a run kept
-        # for inspection should say where its inputs actually are.
+        # Named rather than announced: a run kept for inspection should say where its inputs are.
         if not self.settings.delete_tmp:
-            kept = ", ".join(getattr(self.settings, dir_key) for dir_key in tmp_dirs)
-            logging.info(f"delete_tmp is False; keeping {kept}", extra=log_extra)
+            logging.info(f"delete_tmp is False; keeping {path}", extra=log_extra)
             return
 
-        roots = [self.settings.cache_dir, self.settings.results_dir]
-        for dir_key in tmp_dirs:
-            path = getattr(self.settings, dir_key)
-            if not is_within(path, roots):
-                logging.warning(
-                    f"Not deleting {dir_key} {path}: it is outside cache_dir and results_dir. "
-                    "Remove it yourself if that was intended.",
-                    extra=log_extra,
-                )
-                continue
-            shutil.rmtree(path)
+        if not is_within(path, [self.settings.cache_dir, self.settings.results_dir]):
+            logging.warning(
+                f"Not deleting temp_dir {path}: it is outside cache_dir and results_dir. "
+                "Remove it yourself if that was intended.",
+                extra=log_extra,
+            )
+            return
+        shutil.rmtree(path)

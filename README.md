@@ -115,16 +115,14 @@ split a run's outputs across directories.
 
 #### Temp options
 
-Scratch space for a single run, deleted when it ends — set `--delete_tmp False` to keep all three for
-inspection. `--foldseek_tmp_dir` is the odd one out on defaults: it is grouped here because a Foldseek
-run deletes it, but it defaults under `--cache_dir` rather than `--results_dir`.
+Scratch space for a single run: emptied before the run uses it and deleted when it ends — set
+`--delete_tmp False` to keep it for inspection. The per-run query and target structures and Foldseek's
+own scratch all live inside it.
 
 | Option | Default | Summary |
 | --- | --- | --- |
-| `--delete_tmp` | `True` | Delete the directories below at the end of the run; `False` keeps them. |
-| `--query_dir` | `<results_dir>/query_structures` | Per-run query structures, deleted at the end of the run. |
-| `--target_dir` | `<results_dir>/target_structures` | Per-run target structures, deleted at the end of the run. |
-| `--foldseek_tmp_dir` | `<cache_dir>/foldseek_tmp` | Foldseek's scratch directory, deleted after a Foldseek run. |
+| `--temp_dir` | `<results_dir>/tmp` | Per-run scratch, emptied before use and deleted at the end of the run. |
+| `--delete_tmp` | `True` | Delete `--temp_dir` at the end of the run; `False` keeps it. |
 
 ### Input format
 Query and target entries are colon-separated:
@@ -325,12 +323,13 @@ unrecognised key is an error rather than being ignored. The query and target are
 other direction: they are positional arguments the CLI always supplies, so the `query` and `target`
 keys are only useful when calling `search()` as a library.
 
-`query_dir` and `target_dir` are deleted at the end of a run, as is `foldseek_tmp_dir` when Foldseek was
-used. Because all three are settable, a directory that does not resolve to somewhere under `--cache_dir`
-or `--results_dir` is left in place with a warning instead of being deleted — a mistyped `--query_dir`
-costs you a stray directory, not its contents. `--delete_tmp False` keeps all three: they hold the
-per-run inputs the aligner and the pocket parser were actually given, which is what you want when a run
-returns nothing and you need to see why.
+**`--temp_dir` is emptied on the way in and deleted on the way out.** It holds `query_structures/`,
+`target_structures/` and `foldseek_tmp/`, so a rerun into the same `--results_dir` never hands Foldseek
+what the previous run left behind. Both the emptying and the deletion are skipped with a warning when
+`temp_dir` does not resolve to somewhere under `--cache_dir` or `--results_dir` — a mistyped
+`--temp_dir` costs you a stray directory, not its contents. `--delete_tmp False` keeps it: it holds the
+per-run inputs the aligner was actually given, which is what you want when a run returns nothing and
+you need to see why.
 
 **`--foldseek` is three-valued.** Left unset it means *auto*: Foldseek is used when its binary is on
 `PATH` and runnable (checked by running `foldseek -h`), and the local BLOSUM62 aligner is used with a
