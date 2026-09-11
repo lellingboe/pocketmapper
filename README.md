@@ -153,6 +153,10 @@ resolves to `vdw`, not `pisa`. A passthrough entry needs an explicit residue lis
 is an open search instead. The inferred method can be overridden with `--query_pocket_method` /
 `--target_pocket_method`.
 
+A passthrough entry's residue ids are checked against the structure: an entry naming a residue the chain
+does not have, or has without a CA atom, is skipped with a warning rather than compared, and the rest of
+the run continues. A residue id listed more than once is collapsed to one, also with a warning.
+
 For batch runs, pass a path to a file containing one such entry per line instead of a single entry.
 Query and target files are read independently, and every query is compared against every target.
 

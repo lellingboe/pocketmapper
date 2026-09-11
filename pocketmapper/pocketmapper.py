@@ -1166,21 +1166,46 @@ class PocketMapper:
         comparison pairs residues against the other pocket in, and every other pocket method produces
         it ascending.
 
+        An entry naming a residue the chain cannot supply is skipped rather than compared, so every
+        pocket returned here has a `residues` entry for every id in its `res_auth_ids`.
+
         Args:
             pt_df (pandas.DataFrame): Records with `pocket_method == "passthrough"`, as returned by
                 `select_pocket_records`.
 
         Returns:
-            dict: pocket_id -> Pocket.
+            dict: pocket_id -> Pocket, possibly smaller than `pt_df`.
         """
+        log_extra = {"stage": "Retrieving passthrough Pockets"}
+
         passthrough_pockets = {}
         for _, row in pt_df.iterrows():
             domain_chain, _ = split_chain_info(row["chain_info"])
-            passthrough_pockets[row["pocket_id"]] = parse_pocket_from_struct(
+            pocket = parse_pocket_from_struct(
                 struct=row["struct_path"],
                 chain_id=domain_chain,
                 pocket_residues=sorted(int(x) for x in row["residue_info"].split(",")),
             )
+            # A missing structure or chain gives None back, which would fail later with an opaque
+            # TypeError inside compare_pockets.
+            if pocket is None:
+                logging.warning(
+                    f"Could not parse chain {domain_chain} of {row['struct_info']} for {row['pocket_id']}, "
+                    "skipping this entry",
+                    extra=log_extra,
+                )
+                continue
+            # residues holds exactly the requested ids the chain walk reached with CA coordinates, so
+            # anything else left in res_auth_ids is an id the comparison would raise a KeyError on.
+            unusable = [res_id for res_id in pocket.res_auth_ids if res_id not in pocket.residues]
+            if unusable:
+                logging.warning(
+                    f"Residue(s) {','.join(unusable)} of {row['pocket_id']} are not in chain {domain_chain} "
+                    "or have no CA atom, skipping this entry",
+                    extra=log_extra,
+                )
+                continue
+            passthrough_pockets[row["pocket_id"]] = pocket
         return passthrough_pockets
 
     def retrieve_vdw_pockets(self, vdw_df):

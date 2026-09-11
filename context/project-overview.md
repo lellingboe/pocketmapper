@@ -186,6 +186,14 @@ its code site; what follows is the map of where, plus the checks that live nowhe
   chain only while a chain id is one character. `QTProcessor`'s regexes guarantee that, but a forced
   `--query_pocket_method` / `--target_pocket_method` skips them entirely, so `4Q5J:AA_BB` silently became
   chain `A`. Never re-derive a domain or motif chain inline.
+- **A passthrough pocket's `res_auth_ids` are all keys of its `residues`** — enforced in
+  `retrieve_passthrough_pockets`, which skips the whole entry when they are not.
+  `map_pocket_into_alignment` and `describe_pocket` both index `residues` by every `res_auth_ids` id,
+  so an id the chain cannot supply used to surface as a `KeyError` out of `compare_pockets`' re-raise
+  -- one typo aborting the run. Syntax and repeats are caught earlier, in
+  `QTProcessor.parse_residue_info`, before anything is fetched. The repeat is the dangerous one: it
+  reached `res_auth_ids` twice and paired the two sides' overlap lists off by one, so `pocket_len`,
+  `jaccard_index`, `rmsd` and `ca_dists` all came out wrong with nothing in the row to show it.
 - **Two tables have declared schemas** — `constants.ALIGNMENT_COLUMNS` and
   `pocket_comparison.POCKET_COMPARISON_COLUMNS`. A new column goes into the constant, never into one
   producer alone; see the note above `ALIGNMENT_COLUMNS`.
@@ -315,6 +323,9 @@ range in one more place, as a matrix.
 Each module's own docstring states its remit. Not stated anywhere in the code:
 
 - There are no unit tests. `tests/e2e/` is the whole suite; the `pocketmapper-e2e` skill covers running it.
+- **`fixtures/invalid_residues.txt`'s second line is deliberately wrong.** `4Q5J:A:9999` names a
+  residue chain A does not have, and `test_invalid_1` expects the run to succeed anyway on the first
+  line -- so "correcting" the 9999 silently removes the only case covering the skip.
 - **`fixtures/settings_paths.json` is deliberately wrong, and JSON cannot say so.** It sets a `results_dir`
   that must never be used: `test_settings_2` relies on the runner appending its own `--results_dir` after
   the case args, so if CLI-over-file layering ever broke, `pocket_comparison.tsv` would land at the file's

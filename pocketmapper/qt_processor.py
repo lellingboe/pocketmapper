@@ -201,6 +201,14 @@ class QTProcessor:
             logging.warning(f"Could not determine pocket method for {qt}", extra=self.log_extra)
             return None
 
+        # The residue list IS the pocket on the passthrough path, so it is validated here rather than
+        # where the pocket is built -- before any structure is fetched, and covering a forced pocket
+        # method, which never went through the regexes above.
+        if resolved_pocket_method == "passthrough":
+            residue_info = self.parse_residue_info(qt, residue_info)
+            if residue_info is None:
+                return None
+
         record = QTRecord(
             pocket_id=qt,
             struct_info=struct_info,
@@ -217,6 +225,53 @@ class QTProcessor:
             f"Processed {qt} into structured data: {json.dumps(asdict(record), indent=4)}", extra=self.log_extra
         )
         return record
+
+    def parse_residue_info(self, qt, residue_info):
+        """
+        Normalise a passthrough entry's residue list.
+
+        Rejects a list that cannot name residues at all -- absent, or holding anything but positive
+        integers -- and collapses repeats. A repeat would otherwise reach `Pocket.res_auth_ids` twice
+        and pair the two sides of a comparison off by one, with no error.
+
+        Args:
+            qt (str): The whole input entry, named in the log messages.
+            residue_info (str | None): The entry's `residue_info` portion.
+
+        Returns:
+            str: The comma-joined residue ids, repeats dropped and the typed order kept, or None if
+                the list is unusable -- logged as a warning, so one bad entry does not abort a batch.
+        """
+        if not residue_info:
+            logging.warning(
+                f"No residue ids in {qt}, which the passthrough pocket method requires", extra=self.log_extra
+            )
+            return None
+
+        res_ids = []
+        duplicates = []
+        for res_id in residue_info.split(","):
+            # isdecimal rather than isdigit: int() accepts every decimal digit but not every digit,
+            # so isdigit would let a superscript through to a ValueError further down.
+            if not res_id.isdecimal() or int(res_id) < 1:
+                logging.warning(
+                    f"Residue id '{res_id}' in {qt} is not a positive integer; skipping this entry",
+                    extra=self.log_extra,
+                )
+                return None
+            res_id = str(int(res_id))  # Canonical, so "07" and "7" are recognised as the same residue
+            if res_id in res_ids:
+                if res_id not in duplicates:  # An id repeated three times is still one message
+                    duplicates.append(res_id)
+            else:
+                res_ids.append(res_id)
+
+        if duplicates:
+            logging.warning(
+                f"Residue id(s) {','.join(duplicates)} listed more than once in {qt}; using each one once",
+                extra=self.log_extra,
+            )
+        return ",".join(res_ids)
 
     def determine_struct_type(self, struct_str):
         """

@@ -71,7 +71,7 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
         if ca_atom is None:  # Foldseek only uses residues with CA atom coords
             if res_id in pocket_residues:
                 logging.warning(
-                    f"{st.name}:{chain_id}:{res_id} ({res.name}) does not have CA coords and will be excluded from the comparison",
+                    f"{st.name}:{chain_id}:{res_id} ({res.name}) does not have CA coords and cannot be compared",
                     extra=log_extra,
                 )
                 if str(res_id) in pocket.residues:
