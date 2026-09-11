@@ -109,9 +109,9 @@ unrelated to downloading.
 
 `lib_download` offers **two entry points, not one**, because the two things the package fetches differ
 in every operational respect. `download_file` is for bulk structure files: unpaced, stateless, and
-called from `fetch_structures`' 100 threads. `download_api` is for REST endpoints: it paces its
-requests and, on a transient failure, doubles that host's pacing and never lowers it again. Both write
-through a `.part` file and share one retry test.
+called from `download_missing_structures`' 100 threads. `download_api` is for REST endpoints: it
+paces its requests and, on a transient failure, doubles that host's pacing and never lowers it
+again. Both write through a `.part` file and share one retry test.
 
 Three consequences no single file states:
 
@@ -130,7 +130,7 @@ Three consequences no single file states:
 
 A leftover `.part` is inert in every cache directory: `download_missing_interfaces` globs `*.json`,
 which cannot match `x.json.part`, the other PISA stages check an exact path, and
-`StructureDownloader`'s cache tests a `.cif.gz` filename.
+`StructureDownloader` tests for an exact `.cif.gz` destination.
 
 **The PISA failure report is the caller's file, not the downloader's.** `download_missing_interfaces`
 returns what each stage could not handle and writes `error_path` only when there is something to write;
@@ -288,11 +288,18 @@ Each module's own docstring states its remit. Not stated anywhere in the code:
   `build/lib/pocketmapper/`.
 - **Structure parsing is gemmi throughout** (`.cif.gz` on disk). Biopython is used only for pairwise
   alignment (`sequence_aligner.py`) and SVD superposition (`pocket_comparison.py`).
-- `StructureDownloader` and `StructurePreprocessor` share a required call order that nothing enforces; both
-  classes' docstrings say so. Both cache on bare filenames and write through a `.part` file, for reasons
-  their `update_cache` docstrings give — `StructureDownloader` gets that from `downloads.lib_download`,
-  while `StructurePreprocessor` keeps its own, since it writes a file it computed rather than one it
-  fetched.
+- **The two cached-output classes no longer have the same shape.** `StructurePreprocessor` still has
+  the required `set_output_directory()` -> `update_cache()` -> `preprocess_records()` order that nothing
+  enforces, and caches on bare filenames; its class and `update_cache` docstrings say so.
+  `StructureDownloader` has none of that — every record carries its own `struct_path`, so it tests that
+  exact path and takes no output directory at all. Both still write through a `.part` file, but
+  `StructureDownloader` gets that from `downloads.lib_download` while `StructurePreprocessor` keeps its
+  own, since it writes a file it computed rather than one it fetched.
+- **Nothing creates a structure's parent directory.** `StructureDownloader` dropped the `makedirs` that
+  `set_output_directory` used to do, and `write_through_part` does not add one, so a missing directory
+  is a non-transient failure that surfaces as `structure_not_found` rather than an error. On the
+  pipeline path `configure_workflow` has already created `structure_dir`; a library caller driving the
+  component directly has to create it.
 
 ## As a library
 

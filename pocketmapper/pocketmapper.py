@@ -340,17 +340,13 @@ class PocketMapper:
             self.configure_query_target()
         )  # parses the query and target inputs to determine their types and sets up the relevant data structures for each entry
 
-        self.query_df = self.fetch_missing_structures(
-            "query", self.query_df, self.settings.structure_dir
-        )  # Fetch any missing structures
+        self.query_df = self.fetch_missing_structures("query", self.query_df)
         if self.fsdb_target:
             self.fetch_missing_fsdb(
                 self.target_df, self.settings.foldseek_tmp_dir
             )  # Fetch any missing foldseek databases
         else:
-            self.target_df = self.fetch_missing_structures(
-                "target", self.target_df, self.settings.structure_dir
-            )  # Fetch any missing structures
+            self.target_df = self.fetch_missing_structures("target", self.target_df)  # Fetch any missing structures
 
         self.alignment()  # Align the query and target structures using either local sequence alignment or foldseek based on the settings
         pockets = self.get_pockets()  # Adds seq_pos and ca-coords to the pocket info dict
@@ -630,17 +626,17 @@ class PocketMapper:
                 raise PocketMapperError(msg)
         return q_df, t_df
 
-    def fetch_missing_structures(self, name, qt_df, out_dir):
+    def fetch_missing_structures(self, name, qt_df):
         """
         Download the reference structures a side's records need.
 
-        Uses `StructureFetcher`; records whose fetch fails are flagged rather than dropped, so the reason
-        survives into the results. A side with nothing left is an error.
+        Uses `StructureDownloader`, which fetches each record to its own `struct_path`; records whose
+        fetch fails are flagged rather than dropped, so the reason survives into the results. A side
+        with nothing left is an error.
 
         Args:
             name (str): Which side this is, e.g. "query" or "target". Used in logging.
             qt_df (pandas.DataFrame): That side's records.
-            out_dir (str): Directory to fetch into.
 
         Returns:
             pandas.DataFrame: The records with `success` and `failure_reason` updated.
@@ -648,20 +644,10 @@ class PocketMapper:
         Raises:
             PocketMapperError: If no structure for this side could be fetched.
         """
-        # Downloading structures
-        self.log_extra.update({"stage": "Fetching Missing Structures"})
-        logging.info("Starting", extra=self.log_extra)
-        structure_fetcher = StructureDownloader()
-
         logging.debug(f"{name.capitalize()} data before fetching structures: \n{qt_df.head()}", extra=self.log_extra)
-
-        # Get list of unique structures to fetch based on struct_info and struct_type
+        structure_downloader = StructureDownloader()
         unique_records = qt_df.drop_duplicates(subset="struct_info").to_dict(orient="records")
-
-        # Update structure fetcher and fetch structures
-        structure_fetcher.set_output_directory(out_dir)
-        structure_fetcher.update_cache()
-        results = structure_fetcher.fetch_structures(unique_records)
+        results = structure_downloader.download_missing_structures(unique_records)
         logging.debug(f"Structure fetcher results: {results}", extra=self.log_extra)
 
         # Update the dataframe with success/failure information
@@ -1048,7 +1034,7 @@ class PocketMapper:
         # Hits whose structure can't be fetched come back marked success=False and are dropped here;
         # fetch_missing_structures raises only if not one of them could be fetched, which would leave
         # nothing to compare against at all.
-        target_df = self.fetch_missing_structures("foldseek hit", pd.DataFrame(records), self.settings.structure_dir)
+        target_df = self.fetch_missing_structures("foldseek hit", pd.DataFrame(records))
         target_df = target_df.query("success")
 
         logging.info(
