@@ -47,6 +47,9 @@ without that it raises a bare pandas `KeyError`.
 
 When the target is a bundled Foldseek DB, `self.fsdb_target` is set: no target structures are fetched or
 preprocessed, and `align_structs` reconstructs target PDBs via `foldseek createsubdb` + `convert2pdb`.
+Of the five Foldseek subcommands the package runs, **`createsubdb` is the only one that takes no
+`--threads`** — it accepts just `--subdb-mode`, `--id-mode` and `-v`, and passing the flag makes it exit
+non-zero. `run_foldseek` therefore adds no flags of its own; every caller builds its own argument list.
 What the target "pocket" is depends on the DB — `expand_fsdb_pdb_targets` for a PDB DB, and
 `pocket_comparison.synthesise_target_pocket` for any other. On the PDB path, **hits with no usable PISA
 data are dropped**, not compared against a stand-in.
@@ -109,12 +112,19 @@ unrelated to downloading.
 
 `lib_download` offers **two entry points, not one**, because the two things the package fetches differ
 in every operational respect. `download_file` is for bulk structure files: unpaced, stateless, and
-called from `download_missing_structures`' 100 threads. `download_api` is for REST endpoints: it
+called from `download_missing_structures`' pool. `download_api` is for REST endpoints: it
 paces its requests and, on a transient failure, doubles that host's pacing and never lowers it
 again. Both write through a `.part` file and share one retry test.
 
-Three consequences no single file states:
+Four consequences no single file states:
 
+- **The download pool is wider than `--threads`, on purpose.** `StructureDownloader`'s width is
+  `min(threads * DOWNLOAD_WORKERS_PER_THREAD, MAX_DOWNLOAD_WORKERS)`, computed in
+  `fetch_missing_structures` and passed in as a plain `max_workers`. A worker here waits on a socket
+  rather than on a core, so sizing it 1:1 with the thread count would throttle downloading for no CPU
+  saving; the multiplier is set so the default thread count reaches the cap -- the fixed width the
+  pool had before it was configurable -- on any machine with 7+ cores. The component itself knows
+  nothing about threads, and defaults to the cap when driven directly.
 - **The pacing delay and the backoff delay are the same number.** That is what "carry the backoff
   forward" means here: the escalation one retry needed becomes the pace of every later request to that
   host. It is also why `download_missing_summaries` and `download_missing_assemblies` no longer sleep

@@ -1,8 +1,8 @@
 """
 Retrieval of mmCIF structures from the wwPDB and AlphaFold.
 
-Downloads are concurrent and land as gzipped mmCIF at each record's `struct_path`, which doubles as
-the on-disk cache between runs.
+Downloads are concurrent -- the pool width is a constructor argument -- and land as gzipped mmCIF at
+each record's `struct_path`, which doubles as the on-disk cache between runs.
 """
 
 import logging
@@ -12,6 +12,14 @@ from concurrent.futures import ThreadPoolExecutor
 from pocketmapper.downloads.lib_download import download_file
 from pocketmapper.lib import gzip_file
 
+# Structure downloads are network-bound -- a worker spends its life waiting on a socket, not on a
+# core -- so sizing the pool 1:1 with a thread count would throttle it for no CPU saving. The cap is
+# the fixed width this pool had before it became configurable; the multiplier is set so that the
+# default thread count reaches it on any machine with 7 or more cores, leaving that common case
+# exactly as fast as it was. Fewer cores than that, or an explicit low --threads, narrows the pool.
+DOWNLOAD_WORKERS_PER_THREAD = 16
+MAX_DOWNLOAD_WORKERS = 100
+
 
 class StructureDownloader:
     """
@@ -20,17 +28,21 @@ class StructureDownloader:
     Each record carries its own destination, so there is no shared output directory and no call
     order to observe. A destination whose parent directory does not exist is reported as a failed
     download rather than created; the caller owns the directory.
+
+    How many downloads run at once is fixed at construction, in `max_workers`.
     """
 
-    def __init__(self, max_retries=5, base_delay=0.25, max_delay=30.0):
+    def __init__(self, max_workers=MAX_DOWNLOAD_WORKERS, max_retries=5, base_delay=0.25, max_delay=30.0):
         """
-        Store the retry budget shared by every download this instance makes.
+        Store the pool width and the retry budget shared by every download this instance makes.
 
         Args:
+            max_workers (int): Downloads to run concurrently. Defaults to MAX_DOWNLOAD_WORKERS.
             max_retries (int): Attempts per download before giving up. Defaults to 5.
             base_delay (float): Seconds to wait after the first failed attempt. Defaults to 0.25.
             max_delay (float): Ceiling on the doubling backoff delay. Defaults to 30.0.
         """
+        self.max_workers = max_workers
         self.max_retries = max_retries
         self.base_delay = base_delay
         self.max_delay = max_delay
@@ -50,7 +62,7 @@ class StructureDownloader:
             dict: A mapping of the structure identifier to a boolean status indicating
                   whether the fetch was successful (True) or not (False).
         """
-        with ThreadPoolExecutor(max_workers=100) as e:
+        with ThreadPoolExecutor(max_workers=self.max_workers) as e:
             results = e.map(self.download_missing_structure, records)
         collected_result = {query: result for query, result in results}
         return collected_result

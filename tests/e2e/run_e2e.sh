@@ -92,6 +92,7 @@ test_local_6|core local|fail|Unknown align_struct_method rejected|4Q5J:A_E 4Q5J:
 test_settings_1|core settings|rows|Path options set on the command line|4Q5J:A_E 4Q5J:B_F --foldseek False --structure_dir @CACHE@/ref_structures --pocket_dir @CACHE@/pockets --alignment_path @OUT@/custom_alignment.tsv --aligned_structure_dir @OUT@/custom_aligned --job_settings_path @OUT@/custom_settings.json --log_path @OUT@/custom.log
 test_settings_2|core settings|rows|CLI arguments override a settings file|--settings settings_paths.json 4Q5J:A_E 4Q5J:B_F --foldseek False
 test_settings_3|core settings|rows|Temp directories kept with --delete_tmp False|4Q5J:A_E 4Q5J:B_F --foldseek False --delete_tmp False
+test_settings_4|core settings|rows|Explicit --threads accepted and honoured|4Q5J:A_E 4Q5J:B_F --foldseek False --threads 2
 EOF
 
 # ---------------------------------------------------------------------------

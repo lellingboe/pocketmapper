@@ -39,6 +39,8 @@ from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT
 from pocketmapper.constants import FOLDSEEK_INSTALL_HINT
 from pocketmapper.constants import LOG_FORMAT
 from pocketmapper.downloads.pisa_downloader import PisaDownloader
+from pocketmapper.downloads.structure_downloader import DOWNLOAD_WORKERS_PER_THREAD
+from pocketmapper.downloads.structure_downloader import MAX_DOWNLOAD_WORKERS
 from pocketmapper.downloads.structure_downloader import StructureDownloader
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import bundled_foldseek_dbs
@@ -88,6 +90,9 @@ class Settings:
     # is collapsed to one of those by resolve_align_struct_method(), so nothing downstream sees it.
     align_struct_method: str = "auto"
     verbosity: int = 3
+    # None (the default) means one per available core. resolve_threads() turns it into a concrete
+    # int before anything reads it, so the pipeline and job_settings.json only ever see a number.
+    threads: int | None = None
     # query_dir, target_dir and foldseek_tmp_dir hold the per-run inputs actually handed to the
     # aligner and the pocket parser, and delete_tmp removes them on the way out. False keeps them:
     # a run that produced no rows is diagnosed from what it was given, which is gone by the time
@@ -236,6 +241,7 @@ class PocketMapper:
         cache_dir=None,
         results_dir=None,
         verbosity=None,
+        threads=None,
         foldseek=None,
         align_count=None,
         align_struct_method=None,
@@ -265,6 +271,8 @@ class PocketMapper:
             cache_dir (str, optional): Directory to cache intermediate structures.
             results_dir (str, optional): Directory to output results to.
             verbosity (int, optional): Control logging level.
+            threads (int, optional): Cap on the cores Foldseek uses, and the basis for the width of
+                the structure download pool. Defaults to one per available core.
             foldseek (bool, optional): Use foldseek for structure alignment instead of local sequence
                 alignment. Left unset, foldseek is used when the binary is on PATH and the local
                 aligner is used with a warning when it is not. True makes foldseek a hard
@@ -320,6 +328,7 @@ class PocketMapper:
             "results_dir": results_dir,
             "foldseek": foldseek,
             "verbosity": verbosity,
+            "threads": threads,
             "align_count": align_count,
             "align_struct_method": align_struct_method,
             "query_pocket_method": query_pocket_method,
@@ -434,6 +443,10 @@ class PocketMapper:
 
         # 4c. Same reasoning, and it reads the bool resolve_foldseek just settled, so it must follow it.
         settings = self.resolve_align_struct_method(settings)
+
+        # 4d. Same reasoning as 4b/4c: after configure_logging so the resolution is visible, and
+        # before the settings are logged and dumped, so job_settings.json records a concrete count.
+        settings = self.resolve_threads(settings)
 
         logging.info(f"Settings: {json.dumps(asdict(settings), indent=4)}", extra=log_extra)
 
@@ -552,6 +565,45 @@ class PocketMapper:
 
         return replace(settings, align_struct_method=method)
 
+    def resolve_threads(self, settings):
+        """
+        Turn an unset `threads` setting into a concrete core count.
+
+        Unset means one per available core, which is also what Foldseek does when given no
+        `--threads`, so the default changes nothing about how Foldseek runs. Resolving it here
+        rather than leaving it None means job_settings.json records the number the run used.
+
+        Called from configure_workflow after resolve_align_struct_method and before the settings are
+        logged and dumped.
+
+        Args:
+            settings (Settings): Settings whose `threads` may still be None.
+
+        Returns:
+            Settings: A copy with `threads` set to a positive int.
+
+        Raises:
+            PocketMapperError: If `threads` is not a positive integer.
+        """
+        log_extra = {"stage": "Configuring Settings"}
+
+        threads = settings.threads
+        if threads is None:
+            # os.cpu_count(), not os.process_cpu_count() (3.13+) or os.sched_getaffinity (Linux
+            # only): the floor is 3.10 and this has to work on macOS. None on an exotic platform.
+            threads = os.cpu_count() or 1
+            logging.info(f"threads unset, using one per available core ({threads})", extra=log_extra)
+            return replace(settings, threads=threads)
+
+        # argparse guarantees an int, but a settings file can hold anything at all -- and a bool is
+        # an int to isinstance, while --threads is not a flag.
+        if isinstance(threads, bool) or not isinstance(threads, int) or threads < 1:
+            msg = f"threads must be a positive integer, got {threads!r}."
+            logging.critical(msg, extra=log_extra)
+            raise PocketMapperError(msg)
+
+        return settings
+
     def configure_query_target(self):
         """
         Parse the query and target inputs into record DataFrames.
@@ -649,7 +701,10 @@ class PocketMapper:
         """
         log_extra = {"stage": "Downloading Structures"}
         logging.debug(f"{name.capitalize()} data before fetching structures: \n{qt_df.head()}", extra=log_extra)
-        structure_downloader = StructureDownloader()
+        # Downloads are network-bound, so the pool is wider than the thread count -- see the two
+        # constants for the reasoning behind the scaling and the cap.
+        workers = min(self.settings.threads * DOWNLOAD_WORKERS_PER_THREAD, MAX_DOWNLOAD_WORKERS)
+        structure_downloader = StructureDownloader(max_workers=workers)
         unique_records = qt_df.drop_duplicates(subset="struct_info").to_dict(orient="records")
         results = structure_downloader.download_missing_structures(unique_records)
         logging.debug(f"Structure fetcher results: {results}", extra=log_extra)
@@ -701,7 +756,10 @@ class PocketMapper:
                 msg = f"Failed to create the directory for Foldseek database '{fsdb_name}' at {fsdb_path}: {e}"
                 logging.critical(msg, extra=log_extra)
                 raise PocketMapperError(msg) from e
-            run_foldseek(["databases", fsdb_name, fsdb_path, tmp_dir], log_extra)
+            run_foldseek(
+                ["databases", fsdb_name, fsdb_path, tmp_dir, "--threads", str(self.settings.threads)],
+                log_extra,
+            )
             logging.info(f"Successfully fetched Foldseek database '{fsdb_name}'", extra=log_extra)
 
     def alignment(self):
@@ -779,14 +837,20 @@ class PocketMapper:
 
         # Setting up paths for foldseek databases
         self.query_db_path = os.path.join(self.settings.query_dir, "query_db")
-        run_foldseek(["createdb", self.settings.query_dir, self.query_db_path], log_extra)
+        run_foldseek(
+            ["createdb", self.settings.query_dir, self.query_db_path, "--threads", str(self.settings.threads)],
+            log_extra,
+        )
 
         if self.fsdb_target:
             self.target_db_path = self.target_df.loc[0, "struct_path"]
             logging.debug(f"Targeting bundled human_domains Foldseek DB at {self.target_db_path}", extra=log_extra)
         else:
             self.target_db_path = os.path.join(self.settings.target_dir, "target_db")
-            run_foldseek(["createdb", self.settings.target_dir, self.target_db_path], log_extra)
+            run_foldseek(
+                ["createdb", self.settings.target_dir, self.target_db_path, "--threads", str(self.settings.threads)],
+                log_extra,
+            )
 
         query_target_align_cmd = [
             "easy-search",
@@ -804,6 +868,8 @@ class PocketMapper:
             r".*\.cif\.gz",
             "--max-seqs",
             "5000",
+            "--threads",
+            str(self.settings.threads),
             "-v",  # verbosity
             str(
                 min(3, self.settings.verbosity)
@@ -1394,7 +1460,8 @@ class PocketMapper:
                 for target_id in chain_ids:
                     f.write(f"{target_id}\n")
 
-            # Create the subdb using foldseek's createsubdb command
+            # Create the subdb using foldseek's createsubdb command. It is the one subcommand here
+            # that takes no --threads; passing one makes foldseek exit non-zero.
             subdb_path = os.path.join(subdb_dir, "subdb")
             run_foldseek(["createsubdb", subdb_chain_id_path, source_db_path, subdb_path], log_extra)
 
@@ -1403,7 +1470,18 @@ class PocketMapper:
             os.makedirs(subdb_struct_dir, exist_ok=True)
 
             # Convert the subdb to PDB format using foldseek's convert2pdb command
-            run_foldseek(["convert2pdb", "--pdb-output-mode", "1", subdb_path, subdb_struct_dir], log_extra)
+            run_foldseek(
+                [
+                    "convert2pdb",
+                    "--pdb-output-mode",
+                    "1",
+                    subdb_path,
+                    subdb_struct_dir,
+                    "--threads",
+                    str(self.settings.threads),
+                ],
+                log_extra,
+            )
 
             # Make record df for the target records based on the unique target IDs and the subdb structure
             # directory. chain_info stays None: each extracted structure holds exactly the one chain of its

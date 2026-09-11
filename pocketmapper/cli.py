@@ -131,6 +131,14 @@ def build_parser():
         metavar="STR",
         help="As --query_pocket_method, for targets; also accepts foldseek_db. (default: unset)",
     )
+    search.add_argument(
+        "--threads",
+        type=int,
+        default=None,
+        metavar="INT",
+        help="Cap on the cores Foldseek uses, and the basis for the width of the structure "
+        "download pool. (default: one per available core)",
+    )
 
     # Grouped by lifetime rather than by kind: the twelve path options roughly double the option
     # count, and leaving them in one list would bury --foldseek and --query_pocket_method among
@@ -295,6 +303,7 @@ def main(argv=None):
             cache_dir=args.cache_dir,
             results_dir=args.results_dir,
             verbosity=args.verbosity,
+            threads=args.threads,
             foldseek=args.foldseek,
             align_count=args.align_count,
             align_struct_method=args.align_struct_method,

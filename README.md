@@ -76,6 +76,7 @@ spelling.
 | `--foldseek` | bool | unset (auto) | Require the Foldseek aligner (`True`) or forbid it (`False`); unset auto-detects the binary. |
 | `--query_pocket_method` | str | unset | Force the query pocket method instead of inferring it: `pisa`, `passthrough`, `vdw`, `whole_chain`. |
 | `--target_pocket_method` | str | unset | As `--query_pocket_method`, for targets; also accepts `foldseek_db`. |
+| `--threads` | int | one per core | Cap on the cores Foldseek uses, and the basis for the width of the structure download pool. |
 | `--help` | flag | — | Show the help message and exit. |
 
 #### Aligned structure options
