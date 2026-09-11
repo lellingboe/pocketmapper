@@ -117,8 +117,8 @@ Three consequences no single file states:
 
 - **The pacing delay and the backoff delay are the same number.** That is what "carry the backoff
   forward" means here: the escalation one retry needed becomes the pace of every later request to that
-  host. It is also why `get_summaries` and `get_assemblies` no longer sleep themselves — the helper owns
-  pacing, and a caller-side sleep would double it.
+  host. It is also why `download_missing_summaries` and `download_missing_assemblies` no longer sleep
+  themselves — the helper owns pacing, and a caller-side sleep would double it.
 - **The delay registry is module-level and never decays**, so it outlives any one `PisaDownloader` —
   which matters, because `download_pisa_interfaces` builds a fresh one on each of its two calls per run.
   It equally outlives a whole `search()`, so a library caller running several in one process carries an
@@ -128,10 +128,27 @@ Three consequences no single file states:
   `Exception`, so every entry PISA lacked cost 5 requests and ~3.75s of sleeping — on the full-PDB path
   that is thousands of entries.
 
-A leftover `.part` is inert in every cache directory: `get_interfaces` globs `*.json`, which cannot
-match `x.json.part`, the other PISA stages check an exact path, and `StructureFetcher`'s cache tests a
-`.cif.gz` filename.
+A leftover `.part` is inert in every cache directory: `download_missing_interfaces` globs `*.json`,
+which cannot match `x.json.part`, the other PISA stages check an exact path, and
+`StructureDownloader`'s cache tests a `.cif.gz` filename.
 
+**The PISA failure report is the caller's file, not the downloader's.** `download_missing_interfaces`
+returns what each stage could not handle and writes `error_path` only when there is something to write;
+`download_pisa_interfaces` hands both of its two calls per run the same
+`pocket_dir/pisa_responses/errors.json`. So a second call with failures replaces the first call's
+report, and a clean second call leaves the first's file in place. Date it by its mtime, not by its
+existence.
+
+Two things that file does not say about itself:
+
+- **Most of what it lists under `assembly_parsing` is routine, not broken.** An interface is skipped
+  for a multi-character chain id, and those dominate: over a 13,063-assembly cache, 25,733 of 50,333
+  interfaces have one, while none had a molecule count other than two. The entries are
+  distinguishable only by shape — `<pdb_code>_<assembly_id>_<interface_id>` for a skip,
+  `<pdb_code>_<assembly_id>` or a `_parse_error` suffix for a genuine failure.
+- **An entry whose interfaces are all skipped gets no `<pdb_code>.json`.** It therefore never enters
+  the interface cache and is reparsed on every later run — from cached assemblies, so at no request
+  cost, but it is also why such an entry reappears in every report.
 
 ## Invariants
 
@@ -229,7 +246,7 @@ beside it, `[tool.black] target-version`, and the README's Installation line. Th
 range in one more place, as a matrix.
 
 - **The floor is 3.10 and going lower buys nothing.** Three `match` statements (`qt_processor.py` x2,
-  `downloads/structure_fetcher.py`) and the PEP 604 `str | None` field annotations on `Pocket`, `PocketResidue`,
+  `downloads/structure_downloader.py`) and the PEP 604 `str | None` field annotations on `Pocket`, `PocketResidue`,
   `QTRecord` and `Settings` all require it. No module carries `from __future__ import annotations`, so those
   annotations are evaluated at import rather than deferred. Rewriting all of that for 3.9 would still fail:
   biopython requires >=3.10.
@@ -271,9 +288,9 @@ Each module's own docstring states its remit. Not stated anywhere in the code:
   `build/lib/pocketmapper/`.
 - **Structure parsing is gemmi throughout** (`.cif.gz` on disk). Biopython is used only for pairwise
   alignment (`sequence_aligner.py`) and SVD superposition (`pocket_comparison.py`).
-- `StructureFetcher` and `StructurePreprocessor` share a required call order that nothing enforces; both
+- `StructureDownloader` and `StructurePreprocessor` share a required call order that nothing enforces; both
   classes' docstrings say so. Both cache on bare filenames and write through a `.part` file, for reasons
-  their `update_cache` docstrings give — `StructureFetcher` gets that from `downloads.lib_download`,
+  their `update_cache` docstrings give — `StructureDownloader` gets that from `downloads.lib_download`,
   while `StructurePreprocessor` keeps its own, since it writes a file it computed rather than one it
   fetched.
 
@@ -281,7 +298,7 @@ Each module's own docstring states its remit. Not stated anywhere in the code:
 
 The CLI is confined to `cli.py`, so nothing else here needs a terminal. Two levels of
 entry: `PocketMapper().search(...)` does the same work as the CLI, or drive a component directly —
-`qt_processor`, `downloads.structure_fetcher`, `structure_preprocessor`, `downloads.pisa_downloader`,
+`qt_processor`, `downloads.structure_downloader`, `structure_preprocessor`, `downloads.pisa_downloader`,
 `pisa_parser`, `sequence_aligner`, `structure_aligner`, `pocket_calculator`, `foldseek` are each
 separately usable.
 
