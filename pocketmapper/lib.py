@@ -280,9 +280,10 @@ def split_chain_info(chain_info):
     chain_info is the middle field of an input entry ("4Q5J:B_F"): either a lone chain, or a pair joined
     by an underscore where the first chain carries the pocket and the second is its binding partner.
     Callers used to derive the domain chain by indexing the string ("A_B"[0]), which truncates any chain
-    id longer than one character. The input regexes in `QTProcessor.__init__` spell a chain as a single
-    character so the two agree for an inferred entry, but a forced --query_pocket_method skips those
-    regexes entirely, and "4Q5J:AA_BB" then resolved to chain "A" without complaint.
+    id longer than one character. The input patterns in `QTProcessor.__init__` spell a chain as a single
+    character, and `QTProcessor.validate_pocket_method` now holds a forced --query_pocket_method to them
+    too, so "4Q5J:AA_BB" is rejected rather than silently resolving to chain "A". This splits on the
+    separator regardless, so a caller building records itself gets "AA" rather than a truncation.
 
     Args:
         chain_info (str): The chain field, "A" or "A_B". Not optional -- the one caller that can see a

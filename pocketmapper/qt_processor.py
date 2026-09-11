@@ -4,7 +4,9 @@ Parsing of query and target input strings into structured records.
 Input grammar is `struct_info[:chain_info[:residue_info]]`, and either side may instead be a file
 holding one such string per line -- README's "Input format" table documents the forms.
 `determine_struct_type` and `determine_pocket_method` implement them, against the regexes defined
-in `QTProcessor.__init__`.
+in `QTProcessor.__init__`. A caller may force a pocket method instead of having it inferred;
+`validate_pocket_method` holds a forced one to the same patterns, so no record leaves here without
+the chains and residues its method reads.
 
 The original input string is kept verbatim as `pocket_id`, which is the identifier used throughout
 the results. Orchestration lives in `pocketmapper.py`; this module only parses.
@@ -80,20 +82,50 @@ class QTProcessor:
         self.structure_dir = structure_dir
         self.foldseek_preprocessed_structure_dir = foldseek_preprocessed_structure_dir
 
-        # TODO regexes for validating output when pocket_method is specified
         # Structure type regex patterns
         self.pdb_regex = r"^[a-zA-Z0-9]{4}$"
         self.uniprot_regex = r"^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})$"  # https://www.uniprot.org/help/accession_numbers
 
-        # Pocket method regex patterns.
-        # whole_chain is checked before the others: a bare chain also matches the passthrough and vdw
-        # patterns, so it has to win or an open entry would be read as an empty pocket.
-        self.whole_chain_regex = r"^[A-Za-z0-9]?\:?$"  # pattern like "A", "A:", or nothing at all
-        self.pisa_regex = r"^[A-Za-z0-9]_[A-Za-z0-9]$"  # pattern like "A_B"
-        self.passthrough_regex = r"^[A-Za-z0-9]\:(\d+\,?)+$"  # pattern like "A:1,2,3"
-        self.vdw_regex = r"^[A-Za-z0-9](_[A-Za-z0-9])?(\:(\d+\,?)*)?$"  # pattern like "A_B:1,2,3"
+        # Pocket method -> (the pocket-info pattern that spells it, what an entry must carry to use
+        # it). Every pattern spells a chain as a single character, which is what lib.split_chain_info
+        # relies on. One table for both directions: determine_pocket_method picks the first method
+        # whose pattern the entry matches, and validate_pocket_method checks an entry against the
+        # pattern of the method it was given, so an inferred method and a forced one cannot disagree.
+        self.pocket_methods = {
+            "whole_chain": (r"^[A-Za-z0-9]?\:?$", "a single chain and no residue list, e.g. '4Q5J:B'"),
+            "pisa": (r"^[A-Za-z0-9]_[A-Za-z0-9]$", "a chain pair, e.g. '4Q5J:B_F'"),
+            "passthrough": (r"^[A-Za-z0-9]\:(\d+\,?)+$", "a chain and a residue list, e.g. '4Q5J:A:10,11,12'"),
+            # The partner chain is required, though vdw is tried last and a bare chain would be
+            # claimed by whole_chain long before reaching it. That made the pattern's optional
+            # partner unreachable when inferring, and wrong when validating: a forced vdw on "4Q5J:A"
+            # matched, then reached gemmi as chain None. A trailing residue list still matches and is
+            # still ignored -- the contacts are what define the pocket.
+            "vdw": (r"^[A-Za-z0-9]_[A-Za-z0-9](\:(\d+\,?)*)?$", "a chain pair, e.g. '4Q5J:A_B'"),
+        }
+
+        # struct_type -> the pocket methods it supports, in the order they are tried. whole_chain is
+        # first everywhere: a bare chain also matches the passthrough and vdw patterns, so it has to
+        # win or an open entry would be read as an empty pocket. PISA is PDB-only, and an AlphaFold
+        # model is a single chain, so neither reaches a method that needs a partner chain.
+        self.struct_type_pocket_methods = {
+            "alphafold": ("whole_chain", "passthrough"),
+            "pdb": ("whole_chain", "pisa", "passthrough", "vdw"),
+            "local_file": ("whole_chain", "passthrough", "vdw"),
+        }
 
         self.bundled_foldseek_dbs = bundled_foldseek_dbs(fsdb_dir)
+
+    def forced_pocket_methods(self):
+        """
+        The pocket methods a caller may force, in the order they are reported.
+
+        Wider than the keys of `pocket_methods` by "foldseek_db", which names a whole database rather
+        than a way of deriving a pocket from a structure and so has no pocket-info pattern of its own.
+
+        Returns:
+            tuple: The accepted `pocket_method` values.
+        """
+        return tuple(self.pocket_methods) + ("foldseek_db",)
 
     def process_qt_cmdline_input(self, qt_input, name, pocket_method=None):
         """
@@ -119,6 +151,16 @@ class QTProcessor:
         if isinstance(qt_input, type(None)):
             logging.critical(f"{name} input is required. Exiting.", extra=self.log_extra)
             raise PocketMapperError(f"{name} input is required.")
+
+        # A forced method applies to every entry, so an unrecognised one is a setting to correct
+        # rather than an entry to skip -- raise once, before anything is parsed or fetched.
+        if pocket_method is not None and pocket_method not in self.forced_pocket_methods():
+            msg = (
+                f"Unknown {name} pocket method {pocket_method!r}. "
+                f"Choose one of: {', '.join(self.forced_pocket_methods())}."
+            )
+            logging.critical(msg, extra=self.log_extra)
+            raise PocketMapperError(msg)
 
         records = []
         if pocket_method != "foldseek_db" and os.path.isfile(
@@ -201,9 +243,15 @@ class QTProcessor:
             logging.warning(f"Could not determine pocket method for {qt}", extra=self.log_extra)
             return None
 
-        # The residue list IS the pocket on the passthrough path, so it is validated here rather than
-        # where the pocket is built -- before any structure is fetched, and covering a forced pocket
-        # method, which never went through the regexes above.
+        # Run unconditionally rather than only for a forced method: for an inferred one it is a
+        # tautology, since the method was chosen by the pattern it is checked against, and running it
+        # either way makes "a record carries what its pocket method needs" hold for every record.
+        if not self.validate_pocket_method(qt, resolved_pocket_method, struct_type):
+            return None
+
+        # The residue list IS the pocket on the passthrough path, so it is normalised here rather than
+        # where the pocket is built -- before any structure is fetched. The pattern above has already
+        # established that there is a list; what is left is the ids it holds.
         if resolved_pocket_method == "passthrough":
             residue_info = self.parse_residue_info(qt, residue_info)
             if residue_info is None:
@@ -232,7 +280,10 @@ class QTProcessor:
 
         Rejects a list that cannot name residues at all -- absent, or holding anything but positive
         integers -- and collapses repeats. A repeat would otherwise reach `Pocket.res_auth_ids` twice
-        and pair the two sides of a comparison off by one, with no error.
+        and pair the two sides of a comparison off by one, with no error. Both checks still earn their
+        place next to the passthrough pattern, which requires a list of digits: the absent case because
+        this method is usable on its own, and the integer case because "0" is digits and is not a
+        residue id.
 
         Args:
             qt (str): The whole input entry, named in the log messages.
@@ -327,6 +378,19 @@ class QTProcessor:
                 )
                 raise PocketMapperError(f"Unknown structure type {struct_type} for struct_info {struct_info}")
 
+    def pocket_info(self, qt_str):
+        """
+        The pocket portion of an input entry -- everything after the first ":".
+
+        Args:
+            qt_str (str): One input entry, "struct_info:chain_info:residue_info".
+
+        Returns:
+            str: The chain and residue fields as typed, or "" for a bare structure ("4Q5J"), which
+                names no pocket at all.
+        """
+        return qt_str.split(":", 1)[1] if ":" in qt_str else ""
+
     def determine_pocket_method(self, qt_str, struct_type):
         """
         Determine the pocket method from the entry's pocket info and structure type.
@@ -334,8 +398,9 @@ class QTProcessor:
         An entry that names no pocket -- a bare chain, or no chain at all -- is an open search:
         "whole_chain", meaning every CA-bearing residue of the chain is treated as the pocket.
 
-        Which methods are reachable depends on the structure type: PISA is PDB-only, so a local file or
-        AlphaFold model with a chain pair resolves to "vdw" instead.
+        Which methods are reachable depends on the structure type, as `struct_type_pocket_methods`
+        lays out: PISA is PDB-only, so a local file with a chain pair resolves to "vdw" instead, and
+        an AlphaFold model, being a single chain, reaches neither "pisa" nor "vdw".
 
         Args:
             qt_str (str): The full input entry; everything after the first ":" is the pocket info.
@@ -344,36 +409,46 @@ class QTProcessor:
         Returns:
             str: One of "whole_chain", "pisa", "passthrough", "vdw", or None if no pattern matched.
         """
-        # An entry may be a bare structure ("4Q5J"), in which case there is no pocket info at all.
-        pocket_info_str = qt_str.split(":", 1)[1] if ":" in qt_str else ""
+        pocket_info_str = self.pocket_info(qt_str)
         logging.debug(f"Determining pocket method for {pocket_info_str} using regex patterns", extra=self.log_extra)
-        match struct_type:
-            case "alphafold":
-                if re.match(self.whole_chain_regex, pocket_info_str):
-                    return "whole_chain"
-                elif re.match(self.passthrough_regex, pocket_info_str):
-                    return "passthrough"
-                else:
-                    return None
-            case "pdb":
-                if re.match(self.whole_chain_regex, pocket_info_str):
-                    return "whole_chain"
-                elif re.match(self.pisa_regex, pocket_info_str):
-                    return "pisa"
-                elif re.match(self.passthrough_regex, pocket_info_str):
-                    return "passthrough"
-                elif re.match(self.vdw_regex, pocket_info_str):
-                    return "vdw"
-                else:
-                    return None
-            case "local_file":
-                if re.match(self.whole_chain_regex, pocket_info_str):
-                    return "whole_chain"
-                elif re.match(self.passthrough_regex, pocket_info_str):
-                    return "passthrough"
-                elif re.match(self.vdw_regex, pocket_info_str):
-                    return "vdw"
-                else:
-                    return None
-            case _:
-                return None
+        for method in self.struct_type_pocket_methods.get(struct_type, ()):
+            if re.match(self.pocket_methods[method][0], pocket_info_str):
+                return method
+        return None
+
+    def validate_pocket_method(self, qt_str, pocket_method, struct_type):
+        """
+        Check that an entry can supply what its pocket method needs.
+
+        Two ways it cannot: the method is unavailable for this kind of structure -- PISA needs the
+        PDB's interface data, and a chain pair means nothing on a single-chain AlphaFold model -- or
+        the entry does not spell the chains and residues the method reads.
+
+        Args:
+            qt_str (str): The full input entry, named in the log messages.
+            pocket_method (str): The method resolved for it, inferred or forced.
+            struct_type (str): As returned by `determine_struct_type`.
+
+        Returns:
+            bool: True if the entry is usable, False if it is not -- logged as a warning, so one bad
+                entry does not abort a batch.
+        """
+        supported = self.struct_type_pocket_methods.get(struct_type, ())
+        if pocket_method not in supported:
+            logging.warning(
+                f"The {pocket_method} pocket method is not available for the {struct_type} entry {qt_str}; "
+                f"{struct_type} entries support: {', '.join(supported)}. Skipping this entry",
+                extra=self.log_extra,
+            )
+            return False
+
+        pattern, needs = self.pocket_methods[pocket_method]
+        pocket_info_str = self.pocket_info(qt_str)
+        if not re.match(pattern, pocket_info_str):
+            logging.warning(
+                f"'{pocket_info_str}' in {qt_str} is not what the {pocket_method} pocket method reads; "
+                f"it needs {needs}. Skipping this entry",
+                extra=self.log_extra,
+            )
+            return False
+        return True

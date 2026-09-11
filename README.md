@@ -75,7 +75,7 @@ spelling.
 | `--settings` | path | none | JSON file of `{"option": value}`; explicit CLI arguments override it. |
 | `--verbosity` | int | `3` | Log level: 4=DEBUG, 3=INFO, 2=WARNING, anything else=ERROR. |
 | `--foldseek` | bool | unset (auto) | Require the Foldseek aligner (`True`) or forbid it (`False`); unset auto-detects the binary. |
-| `--query_pocket_method` | str | unset | Force the query pocket method instead of inferring it: `pisa`, `passthrough`, `vdw`, `whole_chain`. |
+| `--query_pocket_method` | str | unset | Force the query pocket method instead of inferring it: `pisa`, `passthrough`, `vdw`, `whole_chain`. Each entry is still checked against the method — see [Input format](#input-format). |
 | `--target_pocket_method` | str | unset | As `--query_pocket_method`, for targets; also accepts `foldseek_db`. |
 | `--threads` | int | one per core | Cap on the cores Foldseek uses, and the basis for the width of the structure download pool. |
 | `--help` | flag | — | Show the help message and exit. |
@@ -147,11 +147,25 @@ How the pocket residues are derived is inferred from the shape of the entry:
 | `4Q5J` | whole_chain | Open search over the default chain, `A` |
 | `human_domains` | — | Bundled Foldseek database (valid as a target only) |
 
-PISA is only available for PDB entries, and AlphaFold/local-file entries only support `passthrough`,
-`vdw` and `whole_chain`. A local file with an interface-style chain spec (`4Q5J.cif.gz:B_F`) therefore
-resolves to `vdw`, not `pisa`. A passthrough entry needs an explicit residue list — without one the entry
-is an open search instead. The inferred method can be overridden with `--query_pocket_method` /
-`--target_pocket_method`.
+Which methods an entry can reach depends on its structure type:
+
+| Structure type | Methods available |
+| --- | --- |
+| PDB entry | `pisa`, `passthrough`, `vdw`, `whole_chain` |
+| Local file | `passthrough`, `vdw`, `whole_chain` |
+| AlphaFold accession | `passthrough`, `whole_chain` |
+
+PISA is only available for PDB entries, so a local file with an interface-style chain spec
+(`4Q5J.cif.gz:B_F`) resolves to `vdw`, not `pisa`. An AlphaFold model is a single chain, so the
+methods that need a binding partner are not offered for one at all. A passthrough entry needs an
+explicit residue list — without one the entry is an open search instead.
+
+The inferred method can be overridden with `--query_pocket_method` / `--target_pocket_method`, which
+does not relax any of the above: the entry must still spell what the method reads, and the method
+must be available for that structure type. An entry that cannot satisfy both is skipped with a
+warning naming what was missing, before anything is downloaded, and the run fails only if it leaves a
+side with no usable entries — so one bad line in a batch file does not stop the rest. An unrecognised
+method name is rejected outright.
 
 A passthrough entry's residue ids are checked against the structure: an entry naming a residue the chain
 does not have, or has without a CA atom, is skipped with a warning rather than compared, and the rest of

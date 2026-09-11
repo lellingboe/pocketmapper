@@ -109,9 +109,10 @@ class PisaParser:
                 logging.warning(f"Could not load PISA data for {pdb_id}", extra=log_extra)
                 continue
 
-            # Extracting the relevant interface. A pisa entry always names two chains, but a forced
-            # --query_pocket_method skips the regex that guarantees it, and sorting a None below would
-            # raise where every other malformed record here is skipped with a warning.
+            # Extracting the relevant interface. A pisa entry always names two chains, and QTProcessor
+            # now rejects one that does not -- but this parser is usable on records a caller built
+            # itself, and sorting a None below would raise where every other malformed record here is
+            # skipped with a warning.
             domain_chain, motif_chain = split_chain_info(record["chain_info"])
             if motif_chain is None:
                 logging.warning(

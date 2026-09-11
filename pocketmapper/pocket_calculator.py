@@ -3,7 +3,8 @@ Van der Waals contact pockets, computed directly from coordinates.
 
 This is the `vdw` pocket method: rather than reading a precomputed interface, it walks two chains
 atom by atom and keeps the residues whose van der Waals radii approach within 0.4 A. That makes it
-the only method available for structures with no PISA data -- AlphaFold models and local files.
+the only interface method available for a local file, which has no PISA data. It needs two chains,
+so it is not offered for an AlphaFold model, which is always a single chain.
 """
 
 import logging

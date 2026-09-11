@@ -93,6 +93,11 @@ test_local_6|core local|fail|Unknown align_struct_method rejected|4Q5J:A_E 4Q5J:
 test_invalid_1|core|rows|Passthrough residue id absent from the chain is skipped|invalid_residues.txt 4Q5J:B_F --foldseek False
 test_invalid_2|core|rows|Duplicated passthrough residue ids collapsed|4Q5J:A:1101,1101,1104 4Q5J:B_F --foldseek False
 test_invalid_3|core|fail|Forced passthrough with no residue list rejected|4Q5J:A 4Q5J:B_F --foldseek False --query_pocket_method passthrough
+test_invalid_4|core|fail|Unknown forced pocket method rejected|4Q5J:A_E 4Q5J:B_F --foldseek False --query_pocket_method psia
+test_invalid_5|core|fail|Forced pisa with no partner chain rejected|4Q5J:A 4Q5J:B_F --foldseek False --query_pocket_method pisa
+test_invalid_6|core|fail|Forced pisa on an AlphaFold entry rejected|P24941:A_B 4Q5J:B_F --foldseek False --query_pocket_method pisa
+test_invalid_7|core|fail|Forced vdw with no partner chain rejected|4Q5J:A 4Q5J:B_F --foldseek False --query_pocket_method vdw
+test_invalid_8|core|rows|Forced method skips only the entries that cannot use it|forced_pisa_mixed.txt 4Q5J:B_F --foldseek False --query_pocket_method pisa
 
 test_settings_1|core settings|rows|Path options set on the command line|4Q5J:A_E 4Q5J:B_F --foldseek False --structure_dir @CACHE@/ref_structures --pocket_dir @CACHE@/pockets --alignment_path @OUT@/custom_alignment.tsv --aligned_structure_dir @OUT@/custom_aligned --job_settings_path @OUT@/custom_settings.json --log_path @OUT@/custom.log
 test_settings_2|core settings|rows|CLI arguments override a settings file|--settings settings_paths.json 4Q5J:A_E 4Q5J:B_F --foldseek False

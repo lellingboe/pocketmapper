@@ -23,6 +23,26 @@ One consequence neither states: a local-file entry like `4Q5J.cif.gz:B_F` resolv
 `B_F` matches the vdw regex and PISA is PDB-only. That is how the mixed-input e2e fixtures reach the vdw
 code.
 
+**Two tables in `QTProcessor.__init__` are the whole grammar**, and both directions read them:
+`pocket_methods` maps a method to its pocket-info pattern and to the phrase a warning uses, and
+`struct_type_pocket_methods` maps a structure type to the methods it supports, in the order they are tried.
+`determine_pocket_method` takes the first method whose pattern matches; `validate_pocket_method` checks an
+entry against the pattern of the method it was *given*. That second direction is what a forced
+`--query_pocket_method` / `--target_pocket_method` goes through, so a forced method is now constrained
+exactly as an inferred one is and the two cannot drift. It runs for inferred methods too, where it is a
+tautology, so the invariant holds for every record rather than for the forced ones alone.
+
+Two things that follow:
+
+- **The vdw pattern's partner chain is required, and was not always.** It used to be optional, which
+  inference could never exercise — `whole_chain` is tried first and claims any bare chain — but which made
+  a forced `vdw` on `4Q5J:A` validate and then reach gemmi as chain `None`. Tightening it is inference-neutral;
+  verified by replaying the old per-struct_type ladder against the new loop over 400 generated entries.
+- **A rejected entry is skipped, not fatal.** `validate_pocket_method` warns and returns False, the record
+  is dropped, and `configure_query_target` raises only when a side ends up empty — so one bad line in a
+  batch file does not stop the rest. The exception is an unrecognised method *name*, which is a whole-run
+  setting rather than one entry: `process_qt_cmdline_input` raises on it before parsing anything.
+
 ### Pocket shape
 
 Every pocket method returns a `pocket.Pocket` — the dataclass declares which fields exist, which are
@@ -191,9 +211,10 @@ its code site; what follows is the map of where, plus the checks that live nowhe
   `preproc_to_ids` to bridge them.
 - **`chain_info` is split in exactly one place** — `lib.split_chain_info`, which nine call sites across
   seven modules now share. Four of them used to index the string (`chain_info[0]`), which is the domain
-  chain only while a chain id is one character. `QTProcessor`'s regexes guarantee that, but a forced
-  `--query_pocket_method` / `--target_pocket_method` skips them entirely, so `4Q5J:AA_BB` silently became
-  chain `A`. Never re-derive a domain or motif chain inline.
+  chain only while a chain id is one character. `QTProcessor`'s patterns guarantee that on both the
+  inferred and the forced path now (see "Input grammar"), so `4Q5J:AA_BB` is rejected rather than silently
+  becoming chain `A` — but the split stays in one place regardless, because a library caller can build a
+  record itself and reach the same call sites. Never re-derive a domain or motif chain inline.
 - **A passthrough pocket's `res_auth_ids` are all keys of its `residues`** — enforced in
   `retrieve_passthrough_pockets`, which skips the whole entry when they are not.
   `map_pocket_into_alignment` and `describe_pocket` both index `residues` by every `res_auth_ids` id,
@@ -338,6 +359,10 @@ Each module's own docstring states its remit. Not stated anywhere in the code:
 - **`fixtures/invalid_residues.txt`'s second line is deliberately wrong.** `4Q5J:A:9999` names a
   residue chain A does not have, and `test_invalid_1` expects the run to succeed anyway on the first
   line -- so "correcting" the 9999 silently removes the only case covering the skip.
+- **`fixtures/forced_pisa_mixed.txt`'s second line is deliberately wrong too.** `4Q5J:A` names no partner
+  chain, so it is the entry `--query_pocket_method pisa` must reject; the other two lines are what
+  `test_invalid_8` asserts still produce rows. Give the middle line a partner and the case stops proving
+  that a forced method skips entries rather than aborting the run.
 - **`fixtures/settings_paths.json` is deliberately wrong, and JSON cannot say so.** It sets a `results_dir`
   that must never be used: `test_settings_2` relies on the runner appending its own `--results_dir` after
   the case args, so if CLI-over-file layering ever broke, `pocket_comparison.tsv` would land at the file's
