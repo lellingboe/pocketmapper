@@ -14,3 +14,9 @@ AI agent guidelines.
 - `project-overview`: Primarily AI managed.
 - `coding-standards`: Human managed - suggesting edits is allowed.
 - `current-feature`: Human managed.
+
+## Commands
+```
+# Dev environment
+conda activate pocketmapper_dev
+```
