@@ -153,13 +153,10 @@ again. Both write through a `.part` file and share one retry test.
 
 Four consequences no single file states:
 
-- **The download pool is wider than `--threads`, on purpose.** `StructureDownloader`'s width is
-  `min(threads * DOWNLOAD_WORKERS_PER_THREAD, MAX_DOWNLOAD_WORKERS)`, computed in
-  `fetch_missing_structures` and passed in as a plain `max_workers`. A worker here waits on a socket
-  rather than on a core, so sizing it 1:1 with the thread count would throttle downloading for no CPU
-  saving; the multiplier is set so the default thread count reaches the cap -- the fixed width the
-  pool had before it was configurable -- on any machine with 7+ cores. The component itself knows
-  nothing about threads, and defaults to the cap when driven directly.
+- **The download pool ignores `--threads`, on purpose.** `fetch_missing_structures` builds
+  `StructureDownloader` with its default width, `DOWNLOAD_WORKERS` (8), so `--threads` governs Foldseek
+  alone. A worker here waits on a socket rather than on a core, so a thread count says nothing useful
+  about how wide the pool should be. A library caller can still pass its own `max_workers`.
 - **The pacing delay and the backoff delay are the same number.** That is what "carry the backoff
   forward" means here: the escalation one retry needed becomes the pace of every later request to that
   host. It is also why `download_missing_summaries` and `download_missing_assemblies` no longer sleep

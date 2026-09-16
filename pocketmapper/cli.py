@@ -136,8 +136,7 @@ def build_parser():
         type=int,
         default=None,
         metavar="INT",
-        help="Cap on the cores Foldseek uses, and the basis for the width of the structure "
-        "download pool. (default: one per available core)",
+        help="Cap on the cores Foldseek uses. (default: one per available core)",
     )
 
     # Grouped by lifetime rather than by kind: the twelve path options roughly double the option

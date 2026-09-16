@@ -39,8 +39,6 @@ from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT
 from pocketmapper.constants import FOLDSEEK_INSTALL_HINT
 from pocketmapper.constants import LOG_FORMAT
 from pocketmapper.downloads.pisa_downloader import PisaDownloader
-from pocketmapper.downloads.structure_downloader import DOWNLOAD_WORKERS_PER_THREAD
-from pocketmapper.downloads.structure_downloader import MAX_DOWNLOAD_WORKERS
 from pocketmapper.downloads.structure_downloader import StructureDownloader
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import bundled_foldseek_dbs
@@ -262,8 +260,7 @@ class PocketMapper:
             cache_dir (str, optional): Directory to cache intermediate structures.
             results_dir (str, optional): Directory to output results to.
             verbosity (int, optional): Control logging level.
-            threads (int, optional): Cap on the cores Foldseek uses, and the basis for the width of
-                the structure download pool. Defaults to one per available core.
+            threads (int, optional): Cap on the cores Foldseek uses. Defaults to one per available core.
             foldseek (bool, optional): Use foldseek for structure alignment instead of local sequence
                 alignment. Left unset, foldseek is used when the binary runs and the local aligner
                 is used with a warning when it does not. True makes foldseek a hard requirement -- an
@@ -738,10 +735,7 @@ class PocketMapper:
         """
         log_extra = {"stage": "Downloading Structures"}
         logging.debug(f"{name.capitalize()} data before fetching structures: \n{qt_df.head()}", extra=log_extra)
-        # Downloads are network-bound, so the pool is wider than the thread count -- see the two
-        # constants for the reasoning behind the scaling and the cap.
-        workers = min(self.settings.threads * DOWNLOAD_WORKERS_PER_THREAD, MAX_DOWNLOAD_WORKERS)
-        structure_downloader = StructureDownloader(max_workers=workers)
+        structure_downloader = StructureDownloader()
         unique_records = qt_df.drop_duplicates(subset="struct_info").to_dict(orient="records")
         results = structure_downloader.download_missing_structures(unique_records)
         logging.debug(f"Structure fetcher results: {results}", extra=log_extra)

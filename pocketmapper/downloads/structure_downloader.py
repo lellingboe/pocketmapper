@@ -12,13 +12,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pocketmapper.downloads.lib_download import download_file
 from pocketmapper.lib import gzip_file
 
-# Structure downloads are network-bound -- a worker spends its life waiting on a socket, not on a
-# core -- so sizing the pool 1:1 with a thread count would throttle it for no CPU saving. The cap is
-# the fixed width this pool had before it became configurable; the multiplier is set so that the
-# default thread count reaches it on any machine with 7 or more cores, leaving that common case
-# exactly as fast as it was. Fewer cores than that, or an explicit low --threads, narrows the pool.
-DOWNLOAD_WORKERS_PER_THREAD = 16
-MAX_DOWNLOAD_WORKERS = 100
+# Default pool width. Fixed rather than tied to a thread count: a worker waits on a socket, not on a core.
+DOWNLOAD_WORKERS = 8
 
 
 class StructureDownloader:
@@ -32,12 +27,12 @@ class StructureDownloader:
     How many downloads run at once is fixed at construction, in `max_workers`.
     """
 
-    def __init__(self, max_workers=MAX_DOWNLOAD_WORKERS, max_retries=5, base_delay=0.25, max_delay=30.0):
+    def __init__(self, max_workers=DOWNLOAD_WORKERS, max_retries=5, base_delay=0.25, max_delay=30.0):
         """
         Store the pool width and the retry budget shared by every download this instance makes.
 
         Args:
-            max_workers (int): Downloads to run concurrently. Defaults to MAX_DOWNLOAD_WORKERS.
+            max_workers (int): Downloads to run concurrently. Defaults to DOWNLOAD_WORKERS.
             max_retries (int): Attempts per download before giving up. Defaults to 5.
             base_delay (float): Seconds to wait after the first failed attempt. Defaults to 0.25.
             max_delay (float): Ceiling on the doubling backoff delay. Defaults to 30.0.
