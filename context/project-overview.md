@@ -424,9 +424,11 @@ separately usable.
 - **A component reaching into a `Settings` can't be used without building one, and hides which fields it
   depends on** — so no component takes one. The `Settings` is unpacked at each call site in
   `pocketmapper.py` into the values that component needs.
-- **`pocketmapper/__init__.py` only exports `main` and `__version__`**, now from `pocketmapper.cli`.
-  Submodules are reachable as `pocketmapper.lib` etc. only as a side effect of that import chain — always
-  use explicit `from pocketmapper.<module> import <name>`.
+- **`pocketmapper/__init__.py` only exports `PocketMapper` and `__version__`.** The console script
+  loads `main` from `pocketmapper.cli` directly, so the package does not re-export it. Submodules are
+  reachable as `pocketmapper.lib` etc. only as a side effect of its importing
+  `pocketmapper.pocketmapper` — for anything else, always use explicit
+  `from pocketmapper.<module> import <name>`.
 - **Always call `Settings(...).resolve_paths()`** if you build one yourself — the failure mode is in that
   method's docstring. `search()` does this for you.
 - **`search()` has global side effects**: `logging.config.dictConfig` reconfigures the *root* logger and

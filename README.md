@@ -361,7 +361,7 @@ afterwards. It takes `query_ids` and `target_ids` to superpose only part of the 
 to leave alone what it has already written.
 
 ```python
-from pocketmapper.pocketmapper import PocketMapper
+from pocketmapper import PocketMapper
 from pocketmapper.structure_aligner import StructureAligner
 
 pm = PocketMapper()
