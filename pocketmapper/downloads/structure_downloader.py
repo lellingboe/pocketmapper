@@ -8,6 +8,9 @@ each record's `struct_path`, which doubles as the on-disk cache between runs.
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed
+
+from tqdm import tqdm
 
 from pocketmapper.downloads.lib_download import download_file
 from pocketmapper.lib import gzip_file
@@ -58,9 +61,9 @@ class StructureDownloader:
                   whether the fetch was successful (True) or not (False).
         """
         with ThreadPoolExecutor(max_workers=self.max_workers) as e:
-            results = e.map(self.download_missing_structure, records)
-        collected_result = {query: result for query, result in results}
-        return collected_result
+            futures = [e.submit(self.download_missing_structure, record) for record in records]
+            results = [f.result() for f in tqdm(as_completed(futures), total=len(futures))]
+        return dict(results)
 
     def download_missing_structure(self, record):
         """
