@@ -76,8 +76,8 @@ left off the command line.
 | `--job_file` | path | none | JSON file of `{"option": value}`, query and target included; it overrides CLI arguments. |
 | `--verbosity` | int | `3` | Log level: 4=DEBUG, 3=INFO, 2=WARNING, anything else=ERROR. |
 | `--aligner` | str | `foldseek` | Chain aligner: `foldseek` (needs the binary) or `seq` (built-in BLOSUM62 sequence aligner). |
-| `--query_pocket_method` | str | unset | Force the query pocket method instead of inferring it: `pisa`, `passthrough`, `vdw`, `whole_chain`. Each entry is still checked against the method — see [Input format](#input-format). |
-| `--target_pocket_method` | str | unset | As `--query_pocket_method`, for targets; also accepts `foldseek_db`. |
+| `--query_pocket_method` | str | `auto` | Query pocket method: `auto` infers it from each entry; `pisa`, `passthrough`, `vdw`, `whole_chain` force it. Each entry is still checked against the method — see [Input format](#input-format). |
+| `--target_pocket_method` | str | `auto` | As `--query_pocket_method`, for targets; also accepts `foldseek_db`. |
 | `--threads` | int | one per core | Cap on the cores Foldseek uses. |
 | `--help` | flag | — | Show the help message and exit. |
 
@@ -160,7 +160,7 @@ PISA is only available for PDB entries, so a local file with an interface-style 
 methods that need a binding partner are not offered for one at all. A passthrough entry needs an
 explicit residue list — without one the entry is an open search instead.
 
-The inferred method can be overridden with `--query_pocket_method` / `--target_pocket_method`, which
+The inferred method (`auto`, the default) can be overridden with `--query_pocket_method` / `--target_pocket_method`, which
 does not relax any of the above: the entry must still spell what the method reads, and the method
 must be available for that structure type. An entry that cannot satisfy both is skipped with a
 warning naming what was missing, before anything is downloaded, and the run fails only if it leaves a

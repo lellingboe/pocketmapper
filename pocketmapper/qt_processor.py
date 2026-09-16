@@ -4,7 +4,7 @@ Parsing of query and target input strings into structured records.
 Input grammar is `struct_info[:chain_info[:residue_info]]`, and either side may instead be a file
 holding one such string per line -- README's "Input format" table documents the forms.
 `determine_struct_type` and `determine_pocket_method` implement them, against the regexes defined
-in `QTProcessor.__init__`. A caller may force a pocket method instead of having it inferred;
+in `QTProcessor.__init__`. A caller may force a pocket method instead of the default "auto";
 `validate_pocket_method` holds a forced one to the same patterns, so no record leaves here without
 the chains and residues its method reads.
 
@@ -25,6 +25,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from pocketmapper.constants import DEFAULT_CHAIN
+from pocketmapper.constants import DEFAULT_POCKET_METHOD
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import bundled_foldseek_dbs
 from pocketmapper.lib import split_chain_info
@@ -118,19 +119,20 @@ class QTProcessor:
 
         self.bundled_foldseek_dbs = bundled_foldseek_dbs(fsdb_dir)
 
-    def forced_pocket_methods(self):
+    def accepted_pocket_methods(self):
         """
-        The pocket methods a caller may force, in the order they are reported.
+        The pocket method values a caller may pass, in the order they are reported.
 
-        Wider than the keys of `pocket_methods` by "foldseek_db", which names a whole database rather
-        than a way of deriving a pocket from a structure and so has no pocket-info pattern of its own.
+        Wider than the keys of `pocket_methods` by "auto", which infers the method from each entry,
+        and by "foldseek_db", which names a whole database rather than a way of deriving a pocket from
+        a structure. Neither has a pocket-info pattern of its own.
 
         Returns:
             tuple: The accepted `pocket_method` values.
         """
-        return tuple(self.pocket_methods) + ("foldseek_db",)
+        return ("auto",) + tuple(self.pocket_methods) + ("foldseek_db",)
 
-    def process_qt_cmdline_input(self, qt_input, name, pocket_method=None):
+    def process_qt_cmdline_input(self, qt_input, name, pocket_method=DEFAULT_POCKET_METHOD):
         """
         Parse one side of the comparison -- a query or a target -- into a DataFrame of `QTRecord`s.
 
@@ -141,8 +143,12 @@ class QTProcessor:
                 path to a file holding one such string per line.
             name (str): Which side this input is, e.g. "query" or "target". Used in logging and
                 error messages.
-            pocket_method (str | None): Pocket method to force for every entry, or None to infer
-                it from each input string.
+            pocket_method (str, optional): Pocket method to force for every entry, or "auto" to
+                infer it from each input string. Defaults to DEFAULT_POCKET_METHOD.
+
+        Raises:
+            PocketMapperError: If `qt_input` is None, `pocket_method` is not one of
+                `accepted_pocket_methods`, or the input file cannot be read.
 
         Returns:
             pandas.DataFrame: the parsed records for this side.
@@ -155,12 +161,12 @@ class QTProcessor:
             logging.critical(f"{name} input is required. Exiting.", extra=self.log_extra)
             raise PocketMapperError(f"{name} input is required.")
 
-        # A forced method applies to every entry, so an unrecognised one is a setting to correct
+        # The method applies to every entry, so an unrecognised one is a setting to correct
         # rather than an entry to skip -- raise once, before anything is parsed or fetched.
-        if pocket_method is not None and pocket_method not in self.forced_pocket_methods():
+        if pocket_method not in self.accepted_pocket_methods():
             msg = (
                 f"Unknown {name} pocket method {pocket_method!r}. "
-                f"Choose one of: {', '.join(self.forced_pocket_methods())}."
+                f"Choose one of: {', '.join(self.accepted_pocket_methods())}."
             )
             logging.critical(msg, extra=self.log_extra)
             raise PocketMapperError(msg)
@@ -195,7 +201,7 @@ class QTProcessor:
         Args:
             qt (str): One input entry, "struct_info:chain_info:residue_info", or the name of a Foldseek
                 database.
-            pocket_method (str | None): Pocket method to force, or None to infer it from the string.
+            pocket_method (str): Pocket method to force, or "auto" to infer it from the string.
 
         Returns:
             QTRecord: The parsed record, or None if the structure type or pocket method could not be
@@ -240,7 +246,7 @@ class QTProcessor:
         preprocess_path_gz = preprocess_path + ".gz"
 
         resolved_pocket_method = (
-            pocket_method if pocket_method is not None else self.determine_pocket_method(qt, struct_type)
+            pocket_method if pocket_method != "auto" else self.determine_pocket_method(qt, struct_type)
         )
         if resolved_pocket_method is None:
             logging.warning(f"Could not determine pocket method for {qt}", extra=self.log_extra)

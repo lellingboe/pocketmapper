@@ -210,6 +210,8 @@ DEFAULT_CACHE_DIR = "pocketmapper_cache"
 DEFAULT_VERBOSITY = 3
 DEFAULT_ALIGN_COUNT = 10
 DEFAULT_ALIGN_STRUCT_METHOD = "auto"
+# "auto" infers the pocket method from each entry.
+DEFAULT_POCKET_METHOD = "auto"
 DEFAULT_ALIGNER = "foldseek"
 DEFAULT_DELETE_TMP = True
 

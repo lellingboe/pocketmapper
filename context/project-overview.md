@@ -296,7 +296,8 @@ the boundary and is meant to have one.
 CLI cannot. The file is a convenience for keeping a long invocation reproducible, never the only route
 to a setting. The layering is in `configure_workflow`: job file over `search()`'s arguments, then
 `resolve_paths` and the `resolve_*` methods. `Settings` has no defaults and is built once, from the
-finished values, so every field but the two pocket methods has a concrete type.
+finished values, so every field has a concrete type. The two pocket methods keep `"auto"` there,
+unlike `align_struct_method`, because they are inferred per entry rather than once per run.
 
 **A reused `job_settings.json` pins everything.** It is a valid job file, but it names every field, so
 no command-line option changes anything in it.

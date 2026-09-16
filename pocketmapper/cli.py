@@ -28,6 +28,7 @@ from pocketmapper.constants import DEFAULT_ALIGN_STRUCT_METHOD
 from pocketmapper.constants import DEFAULT_ALIGNER
 from pocketmapper.constants import DEFAULT_CACHE_DIR
 from pocketmapper.constants import DEFAULT_DELETE_TMP
+from pocketmapper.constants import DEFAULT_POCKET_METHOD
 from pocketmapper.constants import DEFAULT_VERBOSITY
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.pocketmapper import PocketMapper
@@ -125,16 +126,16 @@ def build_parser():
     )
     search.add_argument(
         "--query_pocket_method",
-        default=None,
+        default=DEFAULT_POCKET_METHOD,
         metavar="STR",
-        help="Force the query pocket method rather than inferring it from the entry: "
-        "pisa, passthrough, vdw or whole_chain. (default: unset)",
+        help="Query pocket method: auto (infer it from each entry), pisa, passthrough, vdw or whole_chain. "
+        f"(default: {DEFAULT_POCKET_METHOD})",
     )
     search.add_argument(
         "--target_pocket_method",
-        default=None,
+        default=DEFAULT_POCKET_METHOD,
         metavar="STR",
-        help="As --query_pocket_method, for targets; also accepts foldseek_db. (default: unset)",
+        help=f"As --query_pocket_method, for targets; also accepts foldseek_db. (default: {DEFAULT_POCKET_METHOD})",
     )
     search.add_argument(
         "--threads",

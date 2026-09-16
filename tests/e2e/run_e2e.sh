@@ -106,6 +106,7 @@ test_settings_3|core settings|rows|Temp directories kept with --delete_tmp False
 test_settings_4|core settings|rows|Explicit --threads accepted and honoured|4Q5J:A_E 4Q5J:B_F --aligner seq --threads 2
 test_settings_5|core settings|rows|Job file supplies query and target|--job_file job_file_qt.json --aligner seq
 test_settings_6|core settings|fail|Query given both positionally and in the job file|--job_file job_file_qt.json 4Q5J:A_E 4Q5J:B_F --aligner seq
+test_settings_7|core settings|rows|Explicit auto pocket method infers as the default does|4Q5J:A_E 4Q5J:B_F --aligner seq --query_pocket_method auto --target_pocket_method auto
 EOF
 
 # ---------------------------------------------------------------------------

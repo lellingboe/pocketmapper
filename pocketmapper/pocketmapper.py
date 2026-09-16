@@ -40,6 +40,7 @@ from pocketmapper.constants import DEFAULT_ALIGN_STRUCT_METHOD
 from pocketmapper.constants import DEFAULT_ALIGNER
 from pocketmapper.constants import DEFAULT_CACHE_DIR
 from pocketmapper.constants import DEFAULT_DELETE_TMP
+from pocketmapper.constants import DEFAULT_POCKET_METHOD
 from pocketmapper.constants import DEFAULT_VERBOSITY
 from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT
 from pocketmapper.constants import FOLDSEEK_INSTALL_HINT
@@ -72,16 +73,17 @@ class Settings:
 
     A record of what a run actually used, built once at the end of `configure_workflow` and dumped
     to job_settings.json. It has no defaults: each field arrives from the job file, the arguments to
-    `search()` or run-time resolution, in that priority order. The pocket methods are the only
-    optional fields, because None means "infer the method from each entry".
+    `search()` or run-time resolution, in that priority order. No field is optional.
     """
 
     query: str
     target: str
     cache_dir: str
     results_dir: str
-    query_pocket_method: str | None
-    target_pocket_method: str | None
+    # A forced pocket method, or "auto" to infer one per entry. Unlike align_struct_method, "auto"
+    # is kept here: it is resolved for each entry, not once for the run.
+    query_pocket_method: str
+    target_pocket_method: str
     # "foldseek" or "seq" (the local BLOSUM62 sequence aligner).
     aligner: str
     align_count: int
@@ -241,8 +243,8 @@ class PocketMapper:
         aligner=DEFAULT_ALIGNER,
         align_count=DEFAULT_ALIGN_COUNT,
         align_struct_method=DEFAULT_ALIGN_STRUCT_METHOD,
-        query_pocket_method=None,
-        target_pocket_method=None,
+        query_pocket_method=DEFAULT_POCKET_METHOD,
+        target_pocket_method=DEFAULT_POCKET_METHOD,
         delete_tmp=DEFAULT_DELETE_TMP,
         pdb_dir=None,
         alphafold_dir=None,
@@ -281,8 +283,8 @@ class PocketMapper:
                 on their overlapping residues, or 'auto' (the default) for 'foldseek' with
                 aligner 'foldseek' and 'pocket' with 'seq', which produces no chain transform at all.
             query_pocket_method (str, optional): Force a pocket method for every query entry --
-                'pisa', 'passthrough', 'vdw', 'whole_chain' or 'foldseek_db'. Left unset, it is
-                inferred per entry from the input string.
+                'pisa', 'passthrough', 'vdw', 'whole_chain' or 'foldseek_db' -- or 'auto' (the
+                default) to infer it per entry from the input string.
             target_pocket_method (str, optional): As `query_pocket_method`, for the target side.
             delete_tmp (bool, optional): Delete temp_dir at the end of the run. Defaults to
                 DEFAULT_DELETE_TMP; False keeps it for inspection.
