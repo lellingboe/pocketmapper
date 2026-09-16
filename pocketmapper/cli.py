@@ -257,7 +257,7 @@ def build_parser():
     return parser
 
 
-def main(argv=None):
+def cli(argv=None):
     """
     Console-script entry point.
 
@@ -309,7 +309,3 @@ def main(argv=None):
     except PocketMapperError:
         # Already logged with full stage context at the raise site.
         sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()

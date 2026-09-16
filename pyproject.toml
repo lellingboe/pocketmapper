@@ -39,7 +39,7 @@ dev = [
 ]
 
 [project.scripts]
-pocketmapper = "pocketmapper.cli:main"
+pocketmapper = "pocketmapper.cli:cli"
 
 [build-system]
 requires = [

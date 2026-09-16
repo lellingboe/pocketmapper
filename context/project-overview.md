@@ -3,7 +3,7 @@ Project implementation specifics. Cross-module and derived facts only. Anything 
 
 ## Pipeline
 
-`cli.py` holds the argparse parser and the console-script `main()`; it is **the only module that knows
+`cli.py` holds the argparse parser and the console-script `cli()`; it is **the only module that knows
 about argv or exit codes**, and `search()` is its one subcommand. The seven steps of `search()` are listed
 in the `pocketmapper.py` module docstring.
 
@@ -277,7 +277,7 @@ on which earlier step had last updated it.
 All logging is module-level `logging.debug(...)`. No module instantiates a logger; `getLogger` appears
 nowhere in the package.
 
-Errors are `logging.critical(...)` then `raise PocketMapperError(...)`; `main()` catches and exits 1.
+Errors are `logging.critical(...)` then `raise PocketMapperError(...)`; `cli()` catches and exits 1.
 
 That convention now holds on the Foldseek path too, which is most of what `foldseek.run_foldseek` buys:
 five of the six invocations used to be a bare `subprocess.run(..., check=True)`, so a failing Foldseek
@@ -285,7 +285,7 @@ surfaced as a `CalledProcessError` traceback rather than a message. Exit code wa
 
 **No `exit()`/`sys.exit()` inside modules** — deliberately removed, which no code comment can show. There
 are now none: the last survivor was `_check_help_search`, deleted along with `search()`'s `help` parameter
-when argparse took over `--help`. The only `sys.exit` in the package is in `cli.py`'s `main()`, which is
+when argparse took over `--help`. The only `sys.exit` in the package is in `cli.py`'s `cli()`, which is
 the boundary and is meant to have one.
 
 ## Settings
@@ -296,13 +296,13 @@ to a setting; the layering that makes it one is in `configure_workflow`.
 
 A new option goes in **five hand-maintained places**: the `Settings` dataclass, the `search()` signature
 together with the `cli_overrides` dict directly beneath it (one site — the dict mirrors the signature and
-sits next to it precisely so the two cannot drift), the parser in `cli.py`, `main()`'s kwarg block in the
+sits next to it precisely so the two cannot drift), the parser in `cli.py`, `cli()`'s kwarg block in the
 same file, and the README's Options tables. None is generated from the dataclass. Miss one and the option
-is silently ignored — `main()` is the one that reads like boilerplate and is easiest to forget.
+is silently ignored — `cli()` is the one that reads like boilerplate and is easiest to forget.
 
 Nothing enforces the agreement, but it is checkable in a few lines: `dataclasses.fields(Settings)`,
 `inspect.signature(PocketMapper.search)`, the `cli_overrides` keys, the subparser's `_actions` dests and
-`main()`'s `x=args.x` lines must all name the same fields (modulo `settings`, which is a parser-side
+`cli()`'s `x=args.x` lines must all name the same fields (modulo `settings`, which is a parser-side
 spelling rather than a field). The `query` and `target` positionals carry those dests, so they line up
 with the rest.
 
@@ -425,7 +425,7 @@ separately usable.
   depends on** — so no component takes one. The `Settings` is unpacked at each call site in
   `pocketmapper.py` into the values that component needs.
 - **`pocketmapper/__init__.py` only exports `PocketMapper` and `__version__`.** The console script
-  loads `main` from `pocketmapper.cli` directly, so the package does not re-export it. Submodules are
+  loads `cli` from `pocketmapper.cli` directly, so the package does not re-export it. Submodules are
   reachable as `pocketmapper.lib` etc. only as a side effect of its importing
   `pocketmapper.pocketmapper` — for anything else, always use explicit
   `from pocketmapper.<module> import <name>`.
