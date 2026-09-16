@@ -61,7 +61,8 @@ Downloads are cached in `--cache_dir`, so a second run over the same structures 
 ### Arguments
 
 Both are required, and are given positionally in this order — there is no `--query`/`--target`
-spelling.
+spelling. Either may instead be set in a [job file](#advanced-options), in which case it must be
+left off the command line.
 
 | Argument | Summary |
 | --- | --- |
@@ -72,7 +73,7 @@ spelling.
 
 | Option | Type | Default | Summary |
 | --- | --- | --- | --- |
-| `--settings` | path | none | JSON file of `{"option": value}`; explicit CLI arguments override it. |
+| `--job_file` | path | none | JSON file of `{"option": value}`, query and target included; it overrides CLI arguments. |
 | `--verbosity` | int | `3` | Log level: 4=DEBUG, 3=INFO, 2=WARNING, anything else=ERROR. |
 | `--foldseek` | bool | unset (auto) | Require the Foldseek aligner (`True`) or forbid it (`False`); unset auto-detects the binary. |
 | `--query_pocket_method` | str | unset | Force the query pocket method instead of inferring it: `pisa`, `passthrough`, `vdw`, `whole_chain`. Each entry is still checked against the method — see [Input format](#input-format). |
@@ -310,18 +311,28 @@ pocketmapper search 4Q5J:B_F human_domains --results_dir ./out_hd
 ```
 Batch mode using files with one entry per line:
 ```
-pocketmapper search queries.txt targets.txt --settings config.json
+pocketmapper search queries.txt targets.txt --job_file job.json
 ```
 
 ### Advanced options
 
-**The settings JSON.** `--settings config.json` takes a flat `{"option": value}` object using the same
-names as the CLI options, minus the leading `--`. Settings are layered lowest to highest: built-in
-defaults, then the JSON file, then any explicit CLI argument. Every option can be given either way —
-the JSON is for keeping a long invocation reproducible, never the only route to a setting. An
-unrecognised key is an error rather than being ignored. The query and target are the exception in the
-other direction: they are positional arguments the CLI always supplies, so the `query` and `target`
-keys are only useful when calling `search()` as a library.
+**The job file.** `--job_file job.json` takes a flat `{"option": value}` object using the same names
+as the CLI options, minus the leading `--`, plus `query` and `target`. A value set in the job file
+wins; anything it leaves out comes from the command line, then from the defaults, and unset paths are
+derived last. Every option can be given either way — the job file is for keeping a long invocation
+reproducible, never the only route to a setting. An unrecognised key is an error rather than being
+ignored. `query` and `target` must each come from exactly one place: giving one both positionally and
+in the job file is an error, so `pocketmapper search --job_file job.json` is a complete invocation
+when the file sets both.
+
+```json
+{"query": "queries.txt", "target": "human_domains", "align_count": 3}
+```
+
+A finished run's `job_settings.json` is itself a valid job file, but it sets *every* option, so no
+command-line option can change it. Edit it instead: it names the previous `results_dir` (and every
+path under it), and it records the resolved `foldseek`, so `true` there makes Foldseek a hard
+requirement rather than auto-detected.
 
 **`--temp_dir` is emptied on the way in and deleted on the way out.** It holds `query_structures/`,
 `target_structures/` and `foldseek_tmp/`, so a rerun into the same `--results_dir` never hands Foldseek

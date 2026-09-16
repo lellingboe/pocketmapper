@@ -5,7 +5,7 @@ description: Run PocketMapper's end-to-end test suite (tests/e2e/run_e2e.sh) aga
 
 # PocketMapper e2e suite
 
-`tests/e2e/run_e2e.sh` is the only test suite in this repo. Each of its 23 cases shells out to
+`tests/e2e/run_e2e.sh` is the only test suite in this repo. Each of its cases shells out to
 the real `pocketmapper` CLI against live wwPDB, AlphaFold and PDBe PISA — no mocks, network
 required — and asserts exit status plus the presence (and, where hits are expected,
 non-emptiness) of `pocket_comparison.tsv`.
@@ -41,7 +41,7 @@ The script must be executed, never sourced: it sets `set -u` and calls `exit`, w
 login shell kills the terminal.
 
 ```bash
-tests/e2e/run_e2e.sh --list          # the 23 cases with their tags and descriptions
+tests/e2e/run_e2e.sh --list          # every case with their tags and descriptions
 tests/e2e/run_e2e.sh -n -t core      # dry run: print the commands, touch nothing
 tests/e2e/run_e2e.sh -t core         # ~35s warm; every group except human_domains searches
 tests/e2e/run_e2e.sh test_core_7     # one or more cases by name
@@ -73,7 +73,7 @@ touched:
 | Local BLOSUM62 aligner (`SequenceAligner`) | `-t local` |
 | A pocket method, or `pocket_comparison.py` | `-t core`, then `test_domains_1` |
 | The Foldseek-DB path | `test_fsdb_1` (needs `POCKETMAPPER_PDB_FSDB` set) |
-| `Settings`, CLI plumbing, option validation | `test_local_5 test_local_6` — the two rejection cases |
+| `Settings`, CLI plumbing, job files, option validation | `test_local_5 test_local_6` and the `test_settings_*` cases |
 | Anything you're unsure of | `-t core` first; it's the cheap signal |
 
 ## Reading the result
@@ -83,7 +83,7 @@ skipped: N` line, exiting 1 only if something failed. Per-case output lands in
 `<out-dir>/<name>/` with the full CLI log at `<out-dir>/<name>.log` — read the log, not just
 the summary, when a case fails.
 
-**A skip is not a pass.** Without the `foldseek` binary on PATH, 17 of the 23 cases skip and
+**A skip is not a pass.** Without the `foldseek` binary on PATH, 17 of the 37 cases skip and
 the run still exits 0. Report the skip count alongside the pass count, and say what was
 skipped and why. Foldseek is the CLI's default aligner; install it with
 `conda install -c conda-forge -c bioconda foldseek` if the user wants full coverage.

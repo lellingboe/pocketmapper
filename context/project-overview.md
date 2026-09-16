@@ -7,11 +7,11 @@ Project implementation specifics. Cross-module and derived facts only. Anything 
 about argv or exit codes**, and `search()` is its one subcommand. The seven steps of `search()` are listed
 in the `pocketmapper.py` module docstring.
 
-Two parsing details are load-bearing and documented at the parser: query and target are required
-positionals with no `--query`/`--target` spelling — so a settings file's `query`/`target` can never
-win on the CLI path, and those two fields exist for library callers alone — and every option defaults
-to `None` rather than to a `Settings` default, which is what leaves the JSON settings file
-overridable.
+Two parsing details are load-bearing and documented at the parser: query and target are optional
+positionals with no `--query`/`--target` spelling, because a job file may supply them instead — and
+`configure_workflow` requires each from exactly one of the two — and every static default is a real
+value from `constants`, shared with `search()`'s signature. The job file is layered *on top of* the
+parsed arguments, so nothing needs to tell a default apart from a value the user typed.
 
 ### Input grammar
 
@@ -256,7 +256,7 @@ would let those reach the formatter unprotected.
 Three consequences, none visible from one file:
 
 - **The `__init__` handler is load-bearing, not a placeholder.** `configure_workflow` can `logging.critical`
-  on a bad settings file *before* it calls `configure_logging`, so the root logger needs a formatting
+  on a bad job file *before* it calls `configure_logging`, so the root logger needs a formatting
   handler from construction. It is built by hand rather than via `basicConfig(format=...)` precisely so
   the filter can be attached to it.
 - **A declared stage and a defaulted one look different on purpose.** Declared stages are Title Case
@@ -292,21 +292,27 @@ the boundary and is meant to have one.
 
 ## Settings
 
-**Every `Settings` field is reachable from the command line**, and the settings JSON sets nothing the
+**Every `Settings` field is reachable from the command line**, and the job file sets nothing the
 CLI cannot. The file is a convenience for keeping a long invocation reproducible, never the only route
-to a setting; the layering that makes it one is in `configure_workflow`.
+to a setting. The layering is in `configure_workflow`: job file over `search()`'s arguments, then
+`resolve_paths` and the `resolve_*` methods. `Settings` has no defaults and is built once, from the
+finished values, so every field but the two pocket methods has a concrete type.
+
+**A reused `job_settings.json` pins everything.** It is a valid job file, but it names every field, so
+no command-line option changes anything in it.
 
 A new option goes in **five hand-maintained places**: the `Settings` dataclass, the `search()` signature
-together with the `cli_overrides` dict directly beneath it (one site — the dict mirrors the signature and
+together with the `arguments` dict directly beneath it (one site — the dict mirrors the signature and
 sits next to it precisely so the two cannot drift), the parser in `cli.py`, `cli()`'s kwarg block in the
-same file, and the README's Options tables. None is generated from the dataclass. Miss one and the option
-is silently ignored — `cli()` is the one that reads like boilerplate and is easiest to forget.
+same file, and the README's Options tables. None is generated from the dataclass. A static default
+goes in `constants` as a `DEFAULT_*` name, used by both the parser and the signature, so it is written
+once; a default that depends on the run is `None` in both and resolved in `configure_workflow`. Miss
+one and the option is silently ignored — `cli()` is the one that reads like boilerplate and is easiest to forget.
 
 Nothing enforces the agreement, but it is checkable in a few lines: `dataclasses.fields(Settings)`,
-`inspect.signature(PocketMapper.search)`, the `cli_overrides` keys, the subparser's `_actions` dests and
-`cli()`'s `x=args.x` lines must all name the same fields (modulo `settings`, which is a parser-side
-spelling rather than a field). The `query` and `target` positionals carry those dests, so they line up
-with the rest.
+`inspect.signature(PocketMapper.search)`, the `arguments` keys, the subparser's `_actions` dests and
+`cli()`'s `x=args.x` lines must all name the same fields (modulo `job_file`, which is not a field). The `query` and `target` positionals carry those dests, so
+they line up with the rest.
 
 Options are grouped by lifetime in both places a human reads them — argparse's argument groups in
 `build_parser`, and the README's matching subsections. The path fields alone roughly double the
@@ -374,12 +380,12 @@ Each module's own docstring states its remit. Not stated anywhere in the code:
   chain, so it is the entry `--query_pocket_method pisa` must reject; the other two lines are what
   `test_invalid_8` asserts still produce rows. Give the middle line a partner and the case stops proving
   that a forced method skips entries rather than aborting the run.
-- **`fixtures/settings_paths.json` is deliberately wrong, and JSON cannot say so.** It sets a `results_dir`
-  that must never be used: `test_settings_2` relies on the runner appending its own `--results_dir` after
-  the case args, so if CLI-over-file layering ever broke, `pocket_comparison.tsv` would land at the file's
-  path and the existing assertion would fail. Its `align_count: 3` is the other half — a value nothing on
-  the command line sets, so seeing it in `job_settings.json` proves the file was read at all. Change either
-  value and the case stops testing anything.
+- **`fixtures/job_file.json` must never set a path.** The job file beats the runner's appended
+  `--results_dir`, so a `results_dir` there would send `pocket_comparison.tsv` out of `$case_out` and
+  fail the case. Its `align_count: 3` against `test_settings_2`'s `--align_count 5` is what shows the
+  priority, but only in `job_settings.json`, which the runner does not read — check it by hand.
+- **`test_settings_5` and `test_settings_6` share `fixtures/job_file_qt.json`.** One supplies query and
+  target from the file alone; the other repeats them positionally and must be rejected.
 - **What `test_settings_1` cannot catch.** The runner only ever asserts on `$case_out/pocket_comparison.tsv`,
   so a path option that argparse accepts and something downstream silently drops still passes. The case
   catches a rejected or crashing flag and nothing subtler; the five-way agreement check under "Settings" is
@@ -431,8 +437,8 @@ separately usable.
   reachable as `pocketmapper.lib` etc. only as a side effect of its importing
   `pocketmapper.pocketmapper` — for anything else, always use explicit
   `from pocketmapper.<module> import <name>`.
-- **Always call `Settings(...).resolve_paths()`** if you build one yourself — the failure mode is in that
-  method's docstring. `search()` does this for you.
+- **`search(job_file=...)` needs no query or target** when the file sets them, and rejects either
+  one given both ways, as the CLI does.
 - **`search()` has global side effects**: `logging.config.dictConfig` reconfigures the *root* logger and
   stomps on a host app's logging setup, and `delete_tmp` `shutil.rmtree`s `temp_dir` at the end unless
   `delete_tmp=False`, which keeps it. `configure_workflow` also empties `temp_dir` on the way in. Both

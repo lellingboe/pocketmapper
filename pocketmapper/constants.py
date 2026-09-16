@@ -201,6 +201,14 @@ FOLDSEEK_FORMAT_OUTPUT = ",".join(ALIGNMENT_COLUMNS)
 RESOLVED_ALIGN_STRUCT_METHODS = ("pocket", "foldseek")
 ALIGN_STRUCT_METHODS = ("auto",) + RESOLVED_ALIGN_STRUCT_METHODS
 
+# Defaults for the search options that have a static value. Options whose default depends on the run
+# (results_dir, foldseek, threads and the derived paths) default to None and are resolved at run time.
+DEFAULT_CACHE_DIR = "pocketmapper_cache"
+DEFAULT_VERBOSITY = 3
+DEFAULT_ALIGN_COUNT = 10
+DEFAULT_ALIGN_STRUCT_METHOD = "auto"
+DEFAULT_DELETE_TMP = True
+
 # The chain used when an entry names a structure but no chain at all ("4Q5J"). AlphaFold models are
 # always a single chain A, and it is the first chain of most PDB entries.
 DEFAULT_CHAIN = "A"
@@ -222,7 +230,10 @@ Examples:
   pocketmapper search 4Q5J:B_F human_domains
 
   # Batch mode: one entry per line in each file.
-  pocketmapper search queries.txt targets.txt --settings config.json
+  pocketmapper search queries.txt targets.txt --job_file job.json
+
+  # Everything, query and target included, from a job file.
+  pocketmapper search --job_file job.json
 
 Input grammar, databases, output columns and the Foldseek fallback are
 documented in the README:

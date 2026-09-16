@@ -6,7 +6,7 @@ command line lives in `cli.py`, which is the only module that knows about argv o
 
 `search()` is the whole workflow, top to bottom:
 
-1. `configure_workflow` -> Settings, directories, job_settings.json, logging.
+1. `configure_workflow` -> job file over arguments -> Settings, directories, job_settings.json, logging.
 2. `configure_query_target` -> QTProcessor -> one DataFrame of QTRecords per side.
 3. `fetch_missing_structures` (or `fetch_missing_fsdb`) -> mmCIF into structure_dir.
 4. `alignment` -> foldseek or the local aligner -> alignment.tsv.
@@ -28,13 +28,17 @@ import os
 import shutil
 from dataclasses import asdict
 from dataclasses import dataclass
-from dataclasses import field
-from dataclasses import replace
+from dataclasses import fields
 from datetime import datetime
 
 import pandas as pd
 
 from pocketmapper.constants import ALIGN_STRUCT_METHODS
+from pocketmapper.constants import DEFAULT_ALIGN_COUNT
+from pocketmapper.constants import DEFAULT_ALIGN_STRUCT_METHOD
+from pocketmapper.constants import DEFAULT_CACHE_DIR
+from pocketmapper.constants import DEFAULT_DELETE_TMP
+from pocketmapper.constants import DEFAULT_VERBOSITY
 from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT
 from pocketmapper.constants import FOLDSEEK_INSTALL_HINT
 from pocketmapper.constants import LOG_FORMAT
@@ -64,75 +68,75 @@ class Settings:
     """
     Fully resolved PocketMapper run configuration.
 
-    Built by layering three sources in priority order (lowest to highest):
-    dataclass defaults -> JSON settings file -> explicit CLI arguments.
-    Derived paths (structure_dir, alignment_path, etc.) are filled in
-    afterward by resolve_paths(), unless already set by the settings file.
+    A record of what a run actually used, built once at the end of `configure_workflow` and dumped
+    to job_settings.json. It has no defaults: each field arrives from the job file, the arguments to
+    `search()` or run-time resolution, in that priority order. The pocket methods are the only
+    optional fields, because None means "infer the method from each entry".
     """
 
-    query: str | None = None
-    target: str | None = None
-    cache_dir: str = "pocketmapper_cache"
-    results_dir: str = field(default_factory=lambda: f"pocketmapper_results_{datetime.now().strftime('%y%m%d_%H%M%S')}")
-    query_pocket_method: str | None = None
-    target_pocket_method: str | None = None
-    # Tri-state: None (the default) means "auto" -- use Foldseek when the binary runs and fall
-    # back to the local aligner when it does not. resolve_foldseek() turns this into a concrete
-    # bool before anything else reads it, so the rest of the pipeline only ever sees True/False.
-    foldseek: bool | None = None
-    align_count: int = 10
-    # Which transform superposes a target onto its query in step 7: "foldseek" (Foldseek's whole-chain
-    # fit) or "pocket" (the fit of the two pockets on their overlapping residues). The default "auto"
-    # is collapsed to one of those by resolve_align_struct_method(), so nothing downstream sees it.
-    align_struct_method: str = "auto"
-    verbosity: int = 3
-    # None (the default) means one per available core. resolve_threads() turns it into a concrete
-    # int before anything reads it, so the pipeline and job_settings.json only ever see a number.
-    threads: int | None = None
+    query: str
+    target: str
+    cache_dir: str
+    results_dir: str
+    query_pocket_method: str | None
+    target_pocket_method: str | None
+    foldseek: bool
+    align_count: int
+    # "pocket" or "foldseek"; "auto" is resolved to one of those before a Settings is built.
+    align_struct_method: str
+    verbosity: int
+    threads: int
     # temp_dir holds the per-run inputs actually handed to the aligner, and delete_tmp removes it
     # on the way out. False keeps it: a run that produced no rows is diagnosed from what it was
     # given, which is gone by the time anyone looks.
-    delete_tmp: bool = True
+    delete_tmp: bool
+    structure_dir: str
+    pocket_dir: str
+    foldseek_preprocessed_structure_dir: str
+    temp_dir: str
+    aligned_structure_dir: str
+    alignment_path: str
+    pocket_comparison_path: str
+    job_settings_path: str
+    log_path: str
+    fsdb_dir: str
 
-    # Derived paths -- left unset (None) until resolve_paths() fills them in, unless explicitly
-    # provided via the settings file or the matching command-line option.
-    structure_dir: str | None = None
-    pocket_dir: str | None = None
-    foldseek_preprocessed_structure_dir: str | None = None
-    temp_dir: str | None = None
-    aligned_structure_dir: str | None = None
-    alignment_path: str | None = None
-    pocket_comparison_path: str | None = None
-    job_settings_path: str | None = None
-    log_path: str | None = None
-    fsdb_dir: str | None = None
 
-    def resolve_paths(self):
-        """
-        Return a copy of these settings with any unset derived paths filled in.
+def resolve_paths(values):
+    """
+    Fill in `results_dir` and any derived path left unset.
 
-        Paths already set -- via the settings file or a command-line option -- are left untouched.
-        Always call this on a Settings you built yourself; `search()` does it for you. Skipping it
-        leaves the derived paths None and yields an opaque `TypeError: expected str, bytes or
-        os.PathLike object, not NoneType` from inside `os.path.join`.
+    Paths already set -- via the job file or an argument -- are left untouched. `results_dir`
+    defaults to a timestamped name; the derived paths default to locations under `cache_dir` or
+    `results_dir`.
 
-        Returns:
-            Settings: A new instance with the derived paths resolved against cache_dir/results_dir.
-        """
-        derived = {
-            "structure_dir": os.path.join(self.cache_dir, "ref_structures"),
-            "pocket_dir": os.path.join(self.cache_dir, "pockets"),
-            "foldseek_preprocessed_structure_dir": os.path.join(self.cache_dir, "foldseek_preprocessed_structures"),
-            "temp_dir": os.path.join(self.results_dir, "tmp"),
-            "aligned_structure_dir": os.path.join(self.results_dir, "aligned_structures"),
-            "alignment_path": os.path.join(self.results_dir, "alignment.tsv"),
-            "pocket_comparison_path": os.path.join(self.results_dir, "pocket_comparison.tsv"),
-            "job_settings_path": os.path.join(self.results_dir, "job_settings.json"),
-            "log_path": os.path.join(self.results_dir, "info.log"),
-            "fsdb_dir": os.path.join(self.cache_dir, "fsdb"),
-        }
-        unset = {key: path_val for key, path_val in derived.items() if getattr(self, key) is None}
-        return replace(self, **unset)
+    Args:
+        values (dict): Settings field name -> value, with `cache_dir` set.
+
+    Returns:
+        dict: A copy of `values` with every path set.
+    """
+    values = dict(values)
+    if values["results_dir"] is None:
+        values["results_dir"] = f"pocketmapper_results_{datetime.now().strftime('%y%m%d_%H%M%S')}"
+    cache_dir = values["cache_dir"]
+    results_dir = values["results_dir"]
+    derived = {
+        "structure_dir": os.path.join(cache_dir, "ref_structures"),
+        "pocket_dir": os.path.join(cache_dir, "pockets"),
+        "foldseek_preprocessed_structure_dir": os.path.join(cache_dir, "foldseek_preprocessed_structures"),
+        "temp_dir": os.path.join(results_dir, "tmp"),
+        "aligned_structure_dir": os.path.join(results_dir, "aligned_structures"),
+        "alignment_path": os.path.join(results_dir, "alignment.tsv"),
+        "pocket_comparison_path": os.path.join(results_dir, "pocket_comparison.tsv"),
+        "job_settings_path": os.path.join(results_dir, "job_settings.json"),
+        "log_path": os.path.join(results_dir, "info.log"),
+        "fsdb_dir": os.path.join(cache_dir, "fsdb"),
+    }
+    for key, path in derived.items():
+        if values[key] is None:
+            values[key] = path
+    return values
 
 
 class PocketMapper:
@@ -226,19 +230,19 @@ class PocketMapper:
 
     def search(
         self,
-        query=None,  # settings passed to configure
+        query=None,
         target=None,
-        settings=None,
-        cache_dir=None,
+        job_file=None,
+        cache_dir=DEFAULT_CACHE_DIR,
         results_dir=None,
-        verbosity=None,
+        verbosity=DEFAULT_VERBOSITY,
         threads=None,
         foldseek=None,
-        align_count=None,
-        align_struct_method=None,
+        align_count=DEFAULT_ALIGN_COUNT,
+        align_struct_method=DEFAULT_ALIGN_STRUCT_METHOD,
         query_pocket_method=None,
         target_pocket_method=None,
-        delete_tmp=None,
+        delete_tmp=DEFAULT_DELETE_TMP,
         structure_dir=None,
         pocket_dir=None,
         foldseek_preprocessed_structure_dir=None,
@@ -253,19 +257,25 @@ class PocketMapper:
         """
         Orchestrate and run the full PocketMapper search workflow.
 
+        Every value set in `job_file` wins over the matching argument here. `query` and `target`
+        are required from exactly one of the two.
+
         Args:
-            query (str): Target query identifier, string or path to a list.
-            target (str): Target structure identifier, string or path to a list.
-            settings (str, optional): Path to a JSON settings file.
+            query (str, optional): Query identifier, string or path to a list.
+            target (str, optional): Target structure identifier, string or path to a list.
+            job_file (str, optional): Path to a JSON job file of Settings field name -> value.
             cache_dir (str, optional): Directory to cache intermediate structures.
+                Defaults to DEFAULT_CACHE_DIR.
             results_dir (str, optional): Directory to output results to.
-            verbosity (int, optional): Control logging level.
+                Defaults to pocketmapper_results_<YYMMDD_HHMMSS>.
+            verbosity (int, optional): Control logging level. Defaults to DEFAULT_VERBOSITY.
             threads (int, optional): Cap on the cores Foldseek uses. Defaults to one per available core.
             foldseek (bool, optional): Use foldseek for structure alignment instead of local sequence
                 alignment. Left unset, foldseek is used when the binary runs and the local aligner
                 is used with a warning when it does not. True makes foldseek a hard requirement -- an
                 unrunnable binary is an error; False always uses the local aligner.
             align_count (int, optional): Number of top targets to superpose onto each query.
+                Defaults to DEFAULT_ALIGN_COUNT.
             align_struct_method (str, optional): Which transform superposes a target onto its query --
                 'foldseek' for Foldseek's whole-chain fit, 'pocket' for the fit of the two pockets
                 on their overlapping residues, or 'auto' (the default) for 'foldseek' when Foldseek is
@@ -274,8 +284,8 @@ class PocketMapper:
                 'pisa', 'passthrough', 'vdw', 'whole_chain' or 'foldseek_db'. Left unset, it is
                 inferred per entry from the input string.
             target_pocket_method (str, optional): As `query_pocket_method`, for the target side.
-            delete_tmp (bool, optional): Delete temp_dir at the end of the run. Defaults to True;
-                False keeps it for inspection.
+            delete_tmp (bool, optional): Delete temp_dir at the end of the run. Defaults to
+                DEFAULT_DELETE_TMP; False keeps it for inspection.
             structure_dir (str, optional): Cache of fetched reference structures.
                 Defaults to <cache_dir>/ref_structures.
             pocket_dir (str, optional): Cache of parsed pockets. Defaults to <cache_dir>/pockets.
@@ -297,14 +307,17 @@ class PocketMapper:
                 Defaults to <cache_dir>/fsdb.
 
         Returns:
-            None: Results are written to `results_dir` -- read pocket_comparison.tsv and
-                alignment.tsv from there.
+            dict: The resolved Settings as a dictionary. Results are written to `results_dir` --
+                read pocket_comparison.tsv and alignment.tsv from the paths it names.
+
+        Raises:
+            PocketMapperError: On a bad job file, a query/target given both ways or neither way,
+                or any pipeline failure.
         """
-        # The Settings fields this call is overriding. `settings` is deliberately absent: it names the
-        # JSON file the overrides sit on top of, and Settings has no such field. Keeping the dict here,
-        # next to the signature it mirrors, is what keeps a new option from being added to one and not
-        # the other.
-        cli_overrides = {
+        # The Settings fields as passed to this call; the job file is layered on top. `job_file` is
+        # deliberately absent: Settings has no such field. Keeping the dict here, next to the
+        # signature it mirrors, is what keeps a new option from being added to one and not the other.
+        arguments = {
             "query": query,
             "target": target,
             "cache_dir": cache_dir,
@@ -329,7 +342,7 @@ class PocketMapper:
             "fsdb_dir": fsdb_dir,
         }
 
-        self.settings = self.configure_workflow(settings, cli_overrides)
+        self.settings = self.configure_workflow(job_file, arguments)
         self.query_df, self.target_df = (
             self.configure_query_target()
         )  # parses the query and target inputs to determine their types and sets up the relevant data structures for each entry
@@ -350,52 +363,66 @@ class PocketMapper:
 
         return asdict(self.settings)
 
-    def configure_workflow(self, settings_file, cli_overrides):
+    def configure_workflow(self, job_file, arguments):
         """
         Build the fully resolved `Settings` for this run.
 
-        Layers three sources in priority order -- dataclass defaults, then an optional JSON settings file,
-        then the arguments passed to `search()` -- then resolves the derived paths, creates the
+        Layers an optional JSON job file over the arguments passed to `search()` -- any value the job
+        file sets wins -- then resolves the unset paths and run-dependent values, creates the
         directories and writes job_settings.json.
 
         Args:
-            settings_file (str or None): Path to a JSON settings file, or None for none.
-            cli_overrides (dict): Settings field name -> value from `search()`. A None value means
-                "not supplied" and is dropped, which is what leaves the settings file in charge of
-                that field; anything else wins over the file.
+            job_file (str or None): Path to a JSON job file, or None for none.
+            arguments (dict): Settings field name -> value from `search()`.
 
         Returns:
             Settings: The resolved configuration. Also written to `job_settings_path`.
+
+        Raises:
+            PocketMapperError: If the job file is missing, unreadable or names an unknown setting, if
+                query or target is given both ways or neither way, or if a directory cannot be made.
         """
         log_extra = {"stage": "Configuring Settings"}
 
-        # 1. Base defaults
-        settings = Settings()
-
-        # 2. Populate settings from the settings file if provided
-        if settings_file is not None:
-            if not os.path.isfile(settings_file):
-                logging.critical(f"Settings file not found: {settings_file}", extra=log_extra)
-                raise PocketMapperError(f"Settings file not found: {settings_file}")
+        # 1. The job file, if any
+        job = {}
+        if job_file is not None:
+            if not os.path.isfile(job_file):
+                logging.critical(f"Job file not found: {job_file}", extra=log_extra)
+                raise PocketMapperError(f"Job file not found: {job_file}")
             try:
-                with open(settings_file) as f:
-                    settings_data_from_file = json.load(f)
-                settings = replace(settings, **settings_data_from_file)
-            except TypeError as e:
-                logging.critical(f"Unknown setting(s) in {settings_file}: {e}", extra=log_extra)
-                raise PocketMapperError(f"Unknown setting(s) in {settings_file}: {e}") from e
+                with open(job_file) as f:
+                    job = json.load(f)
             except Exception as e:
-                logging.critical(
-                    f"Error reading settings file: {settings_file}. Is it in JSON format?", extra=log_extra
-                )
-                raise PocketMapperError(f"Error reading settings file: {settings_file}. Is it in JSON format?") from e
+                logging.critical(f"Error reading job file: {job_file}. Is it in JSON format?", extra=log_extra)
+                raise PocketMapperError(f"Error reading job file: {job_file}. Is it in JSON format?") from e
+            if not isinstance(job, dict):
+                msg = f'Job file {job_file} must hold a JSON object of {{"option": value}}.'
+                logging.critical(msg, extra=log_extra)
+                raise PocketMapperError(msg)
+            unknown = sorted(set(job) - {f.name for f in fields(Settings)})
+            if unknown:
+                msg = f"Unknown setting(s) in {job_file}: {', '.join(unknown)}"
+                logging.critical(msg, extra=log_extra)
+                raise PocketMapperError(msg)
 
-        # 3. Override settings with the arguments explicitly passed to search()
-        supplied = {key: value for key, value in cli_overrides.items() if value is not None}
-        settings = replace(settings, **supplied)
+        # 2. The job file wins over the arguments, except that query and target must come from exactly
+        # one of the two: a silently discarded positional would search something other than what the
+        # command line shows.
+        for key in ("query", "target"):
+            if job.get(key) is not None and arguments[key] is not None:
+                msg = f"{key} is set both in the job file and as an argument; give it only once."
+                logging.critical(msg, extra=log_extra)
+                raise PocketMapperError(msg)
+        values = {**arguments, **job}
+        for key in ("query", "target"):
+            if values[key] is None:
+                msg = f"No {key} given; pass it as an argument or set it in the job file."
+                logging.critical(msg, extra=log_extra)
+                raise PocketMapperError(msg)
 
-        # 4. Computed paths (only fills in paths not already set by the settings file or an argument)
-        settings = settings.resolve_paths()
+        # 3. Paths left unset by both
+        values = resolve_paths(values)
 
         # Ensure all necessary directories exist before proceeding, creating them if needed.
         # results_dir is listed in its own right: configure_logging opens a file handler under it
@@ -408,33 +435,36 @@ class PocketMapper:
             "aligned_structure_dir",
         ]
         for dir_key in dirs_to_create:
-            path = getattr(settings, dir_key)
+            path = values[dir_key]
             try:
                 os.makedirs(path, exist_ok=True)
             except OSError as e:
                 logging.critical(f"Error creating directory {path}", extra=log_extra)
                 raise PocketMapperError(f"Error creating directory {path}") from e
 
-        self.configure_logging(settings.verbosity, settings.log_path)
+        self.configure_logging(values["verbosity"], values["log_path"])
 
         # 4a. Lay out this run's scratch space. Must come after configure_logging: the root logger is
         # still at CRITICAL before it, so the warning for a temp_dir that cannot be wiped would be
         # swallowed. Nothing reads the scratch directories until step 4 of the pipeline.
-        self.configure_temp_dir(settings)
+        self.configure_temp_dir(values["temp_dir"], values["cache_dir"], values["results_dir"])
 
         # 4b. Resolve the tri-state foldseek setting into a concrete bool. Must come after
         # configure_logging (the root logger is still at CRITICAL before it, so the fallback
         # warning would be swallowed) and before the settings are logged and dumped below, so
         # job_settings.json records what the run actually did.
-        settings = self.resolve_foldseek(settings)
+        values["foldseek"] = self.resolve_foldseek(values["foldseek"])
 
         # 4c. Same reasoning, and it reads the bool resolve_foldseek just settled, so it must follow it.
-        settings = self.resolve_align_struct_method(settings)
+        values["align_struct_method"] = self.resolve_align_struct_method(
+            values["align_struct_method"], values["foldseek"]
+        )
 
         # 4d. Same reasoning as 4b/4c: after configure_logging so the resolution is visible, and
         # before the settings are logged and dumped, so job_settings.json records a concrete count.
-        settings = self.resolve_threads(settings)
+        values["threads"] = self.resolve_threads(values["threads"])
 
+        settings = Settings(**values)
         logging.info(f"Settings: {json.dumps(asdict(settings), indent=4)}", extra=log_extra)
 
         # 5. Output dump
@@ -447,17 +477,19 @@ class PocketMapper:
             logging.error(f"Failed to dump settings to {settings.job_settings_path}: {e}", extra=log_extra)
         return settings
 
-    def configure_temp_dir(self, settings):
+    def configure_temp_dir(self, temp_dir, cache_dir, results_dir):
         """
         Empty this run's scratch directory and lay out the subdirectories under it.
 
         The wipe is guarded by `is_within` and the creation is not: `temp_dir` is settable by both the
-        settings file and the command line, so a mistyped one costs a stray directory rather than its
+        job file and the command line, so a mistyped one costs a stray directory rather than its
         contents, but the run still needs somewhere to put its scratch. Foldseek's own scratch
         subdirectory is not created here -- Foldseek creates it itself.
 
         Args:
-            settings (Settings): Settings with `temp_dir`, `cache_dir` and `results_dir` resolved.
+            temp_dir (str): This run's scratch directory.
+            cache_dir (str): The cache root; `temp_dir` is only emptied when under it or `results_dir`.
+            results_dir (str): The results root.
 
         Returns:
             None: Sets `query_tmp_dir`, `target_tmp_dir` and `foldseek_tmp_dir` on the instance.
@@ -469,60 +501,60 @@ class PocketMapper:
 
         # Subdirectories rather than Settings fields: every Settings field is reachable from the
         # command line, and these are placed by --temp_dir alone.
-        self.query_tmp_dir = os.path.join(settings.temp_dir, "query_structures")
-        self.target_tmp_dir = os.path.join(settings.temp_dir, "target_structures")
-        self.foldseek_tmp_dir = os.path.join(settings.temp_dir, "foldseek_tmp")
+        self.query_tmp_dir = os.path.join(temp_dir, "query_structures")
+        self.target_tmp_dir = os.path.join(temp_dir, "target_structures")
+        self.foldseek_tmp_dir = os.path.join(temp_dir, "foldseek_tmp")
 
         # A rerun into the same results_dir would otherwise hand Foldseek's createdb whatever the
         # previous run left behind.
-        if is_within(settings.temp_dir, [settings.cache_dir, settings.results_dir]):
-            shutil.rmtree(settings.temp_dir, ignore_errors=True)
+        if is_within(temp_dir, [cache_dir, results_dir]):
+            shutil.rmtree(temp_dir, ignore_errors=True)
         else:
             logging.warning(
-                f"Reusing temp_dir {settings.temp_dir} without emptying it: it is outside cache_dir "
+                f"Reusing temp_dir {temp_dir} without emptying it: it is outside cache_dir "
                 "and results_dir. Empty it yourself if a previous run left anything there.",
                 extra=log_extra,
             )
 
-        for path in (settings.temp_dir, self.query_tmp_dir, self.target_tmp_dir):
+        for path in (temp_dir, self.query_tmp_dir, self.target_tmp_dir):
             try:
                 os.makedirs(path, exist_ok=True)
             except OSError as e:
                 logging.critical(f"Error creating directory {path}", extra=log_extra)
                 raise PocketMapperError(f"Error creating directory {path}") from e
 
-    def resolve_foldseek(self, settings):
+    def resolve_foldseek(self, foldseek):
         """
         Turn the tri-state `foldseek` setting into a concrete bool.
 
-        Foldseek is an optional external binary, so the default (None, "auto") is resolved against
-        what is actually installed: foldseek when `check_foldseek` can run it, the local BLOSUM62
-        aligner with a warning when it cannot. An explicit True is a hard requirement and errors
-        instead of falling back; an explicit False always means the local aligner and never probes
-        for the binary.
+        Foldseek is an optional external binary, so None ("auto") is resolved against what is
+        actually installed: foldseek when `check_foldseek` can run it, the local BLOSUM62 aligner
+        with a warning when it cannot. An explicit True is a hard requirement and errors instead of
+        falling back; an explicit False always means the local aligner and never probes for the
+        binary.
 
         Called before any structure is fetched, so an unmet requirement fails without wasted
         downloads rather than partway through the run at the first `run_foldseek` call.
 
         Args:
-            settings (Settings): Settings whose `foldseek` field may still be None.
+            foldseek (bool or None): The requested setting.
 
         Returns:
-            Settings: A copy with `foldseek` set to True or False.
+            bool: Whether this run uses foldseek.
 
         Raises:
             PocketMapperError: If foldseek was explicitly requested but is not installed.
         """
         log_extra = {"stage": "Configuring Settings"}
 
-        if settings.foldseek is False:
-            return settings
+        if foldseek is False:
+            return False
 
         self.foldseek_available = check_foldseek()
         if self.foldseek_available:
-            return replace(settings, foldseek=True)
+            return True
 
-        if settings.foldseek is True:
+        if foldseek is True:
             msg = (
                 "Foldseek alignment was requested but 'foldseek' could not be run; it is either "
                 f"not on PATH or not executable (run with --verbosity 4 for the reason). {FOLDSEEK_INSTALL_HINT} "
@@ -538,30 +570,27 @@ class PocketMapper:
             f"superposed on the pocket instead (see --align_struct_method). {FOLDSEEK_INSTALL_HINT}",
             extra=log_extra,
         )
-        return replace(settings, foldseek=False)
+        return False
 
-    def resolve_align_struct_method(self, settings):
+    def resolve_align_struct_method(self, align_struct_method, foldseek):
         """
         Turn the tri-value `align_struct_method` setting into "pocket" or "foldseek".
 
         "foldseek" uses Foldseek's whole-chain transform from alignment.tsv; "pocket" uses the
         superposition of the two pockets on their overlapping residues, which `compare_pockets`
-        already writes to pocket_comparison.tsv. The default "auto" picks whichever the run can
-        actually do: the local BLOSUM62 aligner writes "-" for the chain transform, so it has only
-        the pocket one.
+        already writes to pocket_comparison.tsv. "auto" picks whichever the run can actually do:
+        the local BLOSUM62 aligner writes "-" for the chain transform, so it has only the pocket one.
 
         An explicit "foldseek" without the binary is an error rather than a silent switch to "pocket" --
         the same call as an unmet `--foldseek True`, and for the same reason: better to fail before
         anything is downloaded than to hand back a method the user did not ask for.
 
-        Called from configure_workflow after resolve_foldseek, whose resolved bool it reads, and
-        before the settings are logged and dumped, so job_settings.json records what the run did.
-
         Args:
-            settings (Settings): Settings whose `foldseek` is already a concrete bool.
+            align_struct_method (str): The requested method.
+            foldseek (bool): Whether this run uses foldseek, already resolved.
 
         Returns:
-            Settings: A copy with `align_struct_method` set to "pocket" or "foldseek".
+            str: "pocket" or "foldseek".
 
         Raises:
             PocketMapperError: If the value is not one of ALIGN_STRUCT_METHODS, or "foldseek" was
@@ -569,25 +598,24 @@ class PocketMapper:
         """
         log_extra = {"stage": "Configuring Settings"}
 
-        method = settings.align_struct_method
-        # The CLI always hands over a str, but a settings file can hold anything at all.
-        method = method.lower() if isinstance(method, str) else method
+        # The CLI always hands over a str, but a job file can hold anything at all.
+        method = align_struct_method.lower() if isinstance(align_struct_method, str) else align_struct_method
         if method not in ALIGN_STRUCT_METHODS:
             msg = (
-                f"Unknown align_struct_method {settings.align_struct_method!r}. "
+                f"Unknown align_struct_method {align_struct_method!r}. "
                 f"Choose one of: {', '.join(ALIGN_STRUCT_METHODS)}."
             )
             logging.critical(msg, extra=log_extra)
             raise PocketMapperError(msg)
 
         if method == "auto":
-            method = "foldseek" if settings.foldseek else "pocket"
+            method = "foldseek" if foldseek else "pocket"
             logging.info(
                 f"align_struct_method 'auto' resolved to '{method}' "
-                f"({'foldseek' if settings.foldseek else 'the local aligner'} is in use)",
+                f"({'foldseek' if foldseek else 'the local aligner'} is in use)",
                 extra=log_extra,
             )
-        elif method == "foldseek" and not settings.foldseek:
+        elif method == "foldseek" and not foldseek:
             msg = (
                 "align_struct_method 'foldseek' needs Foldseek's whole-chain transform, but this run "
                 "uses the local BLOSUM62 aligner, which does not produce one. Use "
@@ -596,9 +624,9 @@ class PocketMapper:
             logging.critical(msg, extra=log_extra)
             raise PocketMapperError(msg)
 
-        return replace(settings, align_struct_method=method)
+        return method
 
-    def resolve_threads(self, settings):
+    def resolve_threads(self, threads):
         """
         Turn an unset `threads` setting into a concrete core count.
 
@@ -606,36 +634,32 @@ class PocketMapper:
         `--threads`, so the default changes nothing about how Foldseek runs. Resolving it here
         rather than leaving it None means job_settings.json records the number the run used.
 
-        Called from configure_workflow after resolve_align_struct_method and before the settings are
-        logged and dumped.
-
         Args:
-            settings (Settings): Settings whose `threads` may still be None.
+            threads (int or None): The requested core count.
 
         Returns:
-            Settings: A copy with `threads` set to a positive int.
+            int: A positive core count.
 
         Raises:
             PocketMapperError: If `threads` is not a positive integer.
         """
         log_extra = {"stage": "Configuring Settings"}
 
-        threads = settings.threads
         if threads is None:
             # os.cpu_count(), not os.process_cpu_count() (3.13+) or os.sched_getaffinity (Linux
             # only): the floor is 3.10 and this has to work on macOS. None on an exotic platform.
             threads = os.cpu_count() or 1
             logging.info(f"threads unset, using one per available core ({threads})", extra=log_extra)
-            return replace(settings, threads=threads)
+            return threads
 
-        # argparse guarantees an int, but a settings file can hold anything at all -- and a bool is
+        # argparse guarantees an int, but a job file can hold anything at all -- and a bool is
         # an int to isinstance, while --threads is not a flag.
         if isinstance(threads, bool) or not isinstance(threads, int) or threads < 1:
             msg = f"threads must be a positive integer, got {threads!r}."
             logging.critical(msg, extra=log_extra)
             raise PocketMapperError(msg)
 
-        return settings
+        return threads
 
     def configure_query_target(self):
         """

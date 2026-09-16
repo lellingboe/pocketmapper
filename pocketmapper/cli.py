@@ -8,13 +8,12 @@ importable without a terminal; see `pocketmapper.pocketmapper`.
 
 Three parsing details are load-bearing, each for a reason the code alone would not show:
 
-- Query and target are positional and required; there are no `--query`/`--target` options. The
-  `Settings` fields of those names stay for library callers, but argparse always supplies both here,
-  so a settings file's `query`/`target` can never win on the CLI path.
-- Every option defaults to None, never to a `Settings` default. `configure_workflow` layers the JSON
-  settings file under the CLI arguments by testing `is not None`, so a non-None default here would
-  make the settings file unoverridable.
-- No `choices=` anywhere. The same values arrive from the settings file, which never passes through
+- Query and target are optional positionals; there are no `--query`/`--target` options. A job file
+  may supply them instead, and `configure_workflow` requires each from exactly one of the two.
+- Defaults are real values, shared with `PocketMapper.search` through `constants`. The job file is
+  layered on top of the parsed arguments, so a default here never hides a job-file value. Options
+  whose default depends on the run default to None and are resolved downstream.
+- No `choices=` anywhere. The same values arrive from the job file, which never passes through
   this parser, so validation lives downstream where both paths reach it.
 
 Author: Lachlan Ellingboe
@@ -24,6 +23,11 @@ import argparse
 import sys
 
 from pocketmapper.constants import CLI_SEARCH_EPILOG
+from pocketmapper.constants import DEFAULT_ALIGN_COUNT
+from pocketmapper.constants import DEFAULT_ALIGN_STRUCT_METHOD
+from pocketmapper.constants import DEFAULT_CACHE_DIR
+from pocketmapper.constants import DEFAULT_DELETE_TMP
+from pocketmapper.constants import DEFAULT_VERBOSITY
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.pocketmapper import PocketMapper
 
@@ -61,7 +65,7 @@ def build_parser():
 
     Option help here is the whole per-option reference -- it is what `search --help` prints, so it
     must stay in step with the `Settings` dataclass and the README's Options tables. Every `Settings`
-    field is reachable from here; the settings JSON is a convenience, never the only route to one.
+    field is reachable from here; the job file is a convenience, never the only route to one.
     Only what argparse cannot generate (the examples) lives in `CLI_SEARCH_EPILOG`, which hangs off
     the `search` subparser alone: the bare `pocketmapper --help` is the subcommand list and nothing
     more.
@@ -85,26 +89,32 @@ def build_parser():
 
     search.add_argument(
         "query",
+        nargs="?",
+        default=None,
         metavar="QUERY",
-        help="Query entry, or a file with one entry per line. STRUCT[:CHAIN[:RESIDUES]], e.g. 4Q5J:B_F.",
+        help="Query entry, or a file with one entry per line. STRUCT[:CHAIN[:RESIDUES]], e.g. 4Q5J:B_F. "
+        "Required unless the job file sets query.",
     )
     search.add_argument(
         "target",
+        nargs="?",
+        default=None,
         metavar="TARGET",
-        help="Target entry, a file with one entry per line, or a Foldseek DB name: human_domains, pdb.",
+        help="Target entry, a file with one entry per line, or a Foldseek DB name: human_domains, pdb. "
+        "Required unless the job file sets target.",
     )
     search.add_argument(
-        "--settings",
+        "--job_file",
         default=None,
         metavar="PATH",
-        help='JSON file of {"option": value}; CLI args override it. (default: none)',
+        help='JSON file of {"option": value}, query and target included; it overrides CLI args. ' "(default: none)",
     )
     search.add_argument(
         "--verbosity",
         type=int,
-        default=None,
+        default=DEFAULT_VERBOSITY,
         metavar="INT",
-        help="Log level: 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. (default: 3)",
+        help=f"Log level: 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. (default: {DEFAULT_VERBOSITY})",
     )
     # nargs="?" with const=True is what makes the bare `--foldseek` mean True while `--foldseek False`
     # still parses, matching what fire did and what the e2e cases pass.
@@ -148,15 +158,17 @@ def build_parser():
     aligned_structure_options.add_argument(
         "--align_count",
         type=int,
-        default=None,
+        default=DEFAULT_ALIGN_COUNT,
         metavar="INT",
-        help="How many top-scoring targets to superpose onto each query; 0 disables. (default: 10)",
+        help=f"How many top-scoring targets to superpose onto each query; 0 disables. "
+        f"(default: {DEFAULT_ALIGN_COUNT})",
     )
     aligned_structure_options.add_argument(
         "--align_struct_method",
-        default=None,
+        default=DEFAULT_ALIGN_STRUCT_METHOD,
         metavar="STR",
-        help="Which transform superposes a target onto its query: auto, pocket or foldseek. (default: auto)",
+        help=f"Which transform superposes a target onto its query: auto, pocket or foldseek. "
+        f"(default: {DEFAULT_ALIGN_STRUCT_METHOD})",
     )
 
     cache_paths = search.add_argument_group(
@@ -164,9 +176,9 @@ def build_parser():
     )
     cache_paths.add_argument(
         "--cache_dir",
-        default=None,
+        default=DEFAULT_CACHE_DIR,
         metavar="DIR",
-        help="Where structures, pockets and PISA responses are cached. (default: pocketmapper_cache)",
+        help=f"Where structures, pockets and PISA responses are cached. (default: {DEFAULT_CACHE_DIR})",
     )
     cache_paths.add_argument(
         "--structure_dir",
@@ -248,9 +260,9 @@ def build_parser():
         nargs="?",
         const=True,
         type=bool_arg,
-        default=None,
+        default=DEFAULT_DELETE_TMP,
         metavar="BOOL",
-        help="Delete --temp_dir at the end of the run; False keeps it. (default: True)",
+        help=f"Delete --temp_dir at the end of the run; False keeps it. (default: {DEFAULT_DELETE_TMP})",
     )
 
     return parser
@@ -283,7 +295,7 @@ def cli(argv=None):
         PocketMapper().search(
             query=args.query,
             target=args.target,
-            settings=args.settings,
+            job_file=args.job_file,
             cache_dir=args.cache_dir,
             results_dir=args.results_dir,
             verbosity=args.verbosity,
