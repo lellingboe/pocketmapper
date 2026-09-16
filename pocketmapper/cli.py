@@ -176,10 +176,16 @@ def build_parser():
         help=f"Where structures, pockets and PISA responses are cached. (default: {DEFAULT_CACHE_DIR})",
     )
     cache_paths.add_argument(
-        "--structure_dir",
+        "--pdb_dir",
         default=None,
         metavar="DIR",
-        help="Cache of fetched reference structures. (default: <cache_dir>/ref_structures)",
+        help="Cache of fetched PDB structures. (default: <cache_dir>/pdb_structures)",
+    )
+    cache_paths.add_argument(
+        "--alphafold_dir",
+        default=None,
+        metavar="DIR",
+        help="Cache of fetched AlphaFold structures. (default: <cache_dir>/alphafold_structures)",
     )
     cache_paths.add_argument(
         "--pocket_dir",
@@ -301,7 +307,8 @@ def cli(argv=None):
             query_pocket_method=args.query_pocket_method,
             target_pocket_method=args.target_pocket_method,
             delete_tmp=args.delete_tmp,
-            structure_dir=args.structure_dir,
+            pdb_dir=args.pdb_dir,
+            alphafold_dir=args.alphafold_dir,
             pocket_dir=args.pocket_dir,
             foldseek_preprocessed_structure_dir=args.foldseek_preprocessed_structure_dir,
             temp_dir=args.temp_dir,

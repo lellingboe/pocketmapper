@@ -62,13 +62,15 @@ class QTProcessor:
     per side.
     """
 
-    def __init__(self, structure_dir, foldseek_preprocessed_structure_dir, fsdb_dir):
+    def __init__(self, pdb_dir, alphafold_dir, foldseek_preprocessed_structure_dir, fsdb_dir):
         """
         Store the directories that record paths are resolved against, and compile the input regexes.
 
         Args:
-            structure_dir (str): Directory fetched reference structures are written to; where
-                `pdb`/`alphafold` records get their `struct_path`.
+            pdb_dir (str): Directory fetched PDB structures are written to; where `pdb` records get
+                their `struct_path`.
+            alphafold_dir (str): Directory fetched AlphaFold structures are written to; where
+                `alphafold` records get their `struct_path`.
             foldseek_preprocessed_structure_dir (str): Directory the Foldseek preprocessing step
                 writes to; where records get their `preprocess_path`.
             fsdb_dir (str): Directory holding downloaded Foldseek databases, used to locate the
@@ -79,7 +81,8 @@ class QTProcessor:
         self.log_extra = {"stage": "Processing Inputs"}
         logging.debug("Started")
 
-        self.structure_dir = structure_dir
+        self.pdb_dir = pdb_dir
+        self.alphafold_dir = alphafold_dir
         self.foldseek_preprocessed_structure_dir = foldseek_preprocessed_structure_dir
 
         # Structure type regex patterns
@@ -367,9 +370,9 @@ class QTProcessor:
         """
         match struct_type:
             case "alphafold":
-                return os.path.join(self.structure_dir, f"{struct_info}.cif.gz")
+                return os.path.join(self.alphafold_dir, f"{struct_info}.cif.gz")
             case "pdb":
-                return os.path.join(self.structure_dir, f"{struct_info}.cif.gz")
+                return os.path.join(self.pdb_dir, f"{struct_info}.cif.gz")
             case "local_file":
                 return struct_info
             case _:

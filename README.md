@@ -95,7 +95,8 @@ What survives a run and makes the next one fast. Each defaults to a location und
 | Option | Default | Summary |
 | --- | --- | --- |
 | `--cache_dir` | `pocketmapper_cache` | Where structures, pockets and PISA responses are cached. |
-| `--structure_dir` | `<cache_dir>/ref_structures` | Cache of fetched reference structures. |
+| `--pdb_dir` | `<cache_dir>/pdb_structures` | Cache of fetched PDB structures. |
+| `--alphafold_dir` | `<cache_dir>/alphafold_structures` | Cache of fetched AlphaFold structures. |
 | `--pocket_dir` | `<cache_dir>/pockets` | Cache of parsed pockets. |
 | `--foldseek_preprocessed_structure_dir` | `<cache_dir>/foldseek_preprocessed_structures` | Cache of the single-chain structures Foldseek is given. |
 | `--fsdb_dir` | `<cache_dir>/fsdb` | Cache of bundled Foldseek databases. |
@@ -231,9 +232,9 @@ Everything is written under `--results_dir`:
 | `unknown_ids.json` | Residue codes the aligner and the structure disagreed on (e.g. MSE -> M). Only written if any were seen. |
 | `incorrect_mapping.json` | Pockets dropped because their own sequence disagreed with the aligner's for that chain — typically assembly vs asymmetric unit numbering. Only written if any were dropped. |
 
-Under `--cache_dir` and surviving between runs: the downloaded mmCIF files (`ref_structures/`), the
-raw PISA API responses (`pockets/pisa_responses/`), and the derived pockets themselves
-(`pockets/pisa_pockets.json`, `passthrough_pockets.json`, `vdw_pockets.json`,
+Under `--cache_dir` and surviving between runs: the downloaded mmCIF files (`pdb_structures/` and
+`alphafold_structures/`), the raw PISA API responses (`pockets/pisa_responses/`), and the derived
+pockets themselves (`pockets/pisa_pockets.json`, `passthrough_pockets.json`, `vdw_pockets.json`,
 `whole_chain_pockets.json`). The pocket files are written for inspection only and never read back;
 each pocket is an object of metadata fields plus a `residues` map keyed by author residue number.
 

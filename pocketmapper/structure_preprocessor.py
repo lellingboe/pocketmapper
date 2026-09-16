@@ -97,7 +97,7 @@ class StructurePreprocessor:
             ]  # e.g., /path/to/foldseek_preprocessed_structure_dir/P12345_A_<md5>.cif.gz
 
             if os.path.basename(out_path_gz) not in self.cache:
-                ref_path = record["struct_path"]  # e.g., /path/to/structure_dir/P12345.cif.gz
+                ref_path = record["struct_path"]  # e.g., /path/to/alphafold_dir/P12345.cif.gz
                 st = gemmi.read_structure(ref_path, format=gemmi.CoorFormat.Mmcif)
 
                 # Taking first model and deleting the rest

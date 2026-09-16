@@ -100,7 +100,7 @@ test_invalid_7|core|fail|Forced vdw with no partner chain rejected|4Q5J:A 4Q5J:B
 test_invalid_8|core|rows|Forced method skips only the entries that cannot use it|forced_pisa_mixed.txt 4Q5J:B_F --aligner seq --query_pocket_method pisa
 test_invalid_9|core|fail|Unknown aligner rejected|4Q5J:A_E 4Q5J:B_F --aligner bogus
 
-test_settings_1|core settings|rows|Path options set on the command line|4Q5J:A_E 4Q5J:B_F --aligner seq --structure_dir @CACHE@/ref_structures --pocket_dir @CACHE@/pockets --alignment_path @OUT@/custom_alignment.tsv --aligned_structure_dir @OUT@/custom_aligned --job_settings_path @OUT@/custom_settings.json --log_path @OUT@/custom.log --temp_dir @OUT@/custom_temp
+test_settings_1|core settings|rows|Path options set on the command line|4Q5J:A_E 4Q5J:B_F --aligner seq --pdb_dir @CACHE@/pdb_structures --alphafold_dir @CACHE@/alphafold_structures --pocket_dir @CACHE@/pockets --alignment_path @OUT@/custom_alignment.tsv --aligned_structure_dir @OUT@/custom_aligned --job_settings_path @OUT@/custom_settings.json --log_path @OUT@/custom.log --temp_dir @OUT@/custom_temp
 test_settings_2|core settings|rows|Job file wins over CLI arguments|--job_file job_file.json 4Q5J:A_E 4Q5J:B_F --aligner seq --align_count 5
 test_settings_3|core settings|rows|Temp directories kept with --delete_tmp False|4Q5J:A_E 4Q5J:B_F --aligner seq --delete_tmp False
 test_settings_4|core settings|rows|Explicit --threads accepted and honoured|4Q5J:A_E 4Q5J:B_F --aligner seq --threads 2

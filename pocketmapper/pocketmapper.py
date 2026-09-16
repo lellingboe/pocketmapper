@@ -8,7 +8,7 @@ command line lives in `cli.py`, which is the only module that knows about argv o
 
 1. `configure_workflow` -> job file over arguments -> Settings, directories, job_settings.json, logging.
 2. `configure_query_target` -> QTProcessor -> one DataFrame of QTRecords per side.
-3. `fetch_missing_structures` (or `fetch_missing_fsdb`) -> mmCIF into structure_dir.
+3. `fetch_missing_structures` (or `fetch_missing_fsdb`) -> mmCIF into pdb_dir / alphafold_dir.
 4. `alignment` -> foldseek or the local sequence aligner, per `aligner` -> alignment.tsv.
 5. `get_pockets` -> a `retrieve_*_pockets` builder per pocket method, merged into one
    pocket_id -> Pocket dict. The Pocket shape itself is declared in `pocket.py`.
@@ -93,7 +93,8 @@ class Settings:
     # on the way out. False keeps it: a run that produced no rows is diagnosed from what it was
     # given, which is gone by the time anyone looks.
     delete_tmp: bool
-    structure_dir: str
+    pdb_dir: str
+    alphafold_dir: str
     pocket_dir: str
     foldseek_preprocessed_structure_dir: str
     temp_dir: str
@@ -125,7 +126,8 @@ def resolve_paths(values):
     cache_dir = values["cache_dir"]
     results_dir = values["results_dir"]
     derived = {
-        "structure_dir": os.path.join(cache_dir, "ref_structures"),
+        "pdb_dir": os.path.join(cache_dir, "pdb_structures"),
+        "alphafold_dir": os.path.join(cache_dir, "alphafold_structures"),
         "pocket_dir": os.path.join(cache_dir, "pockets"),
         "foldseek_preprocessed_structure_dir": os.path.join(cache_dir, "foldseek_preprocessed_structures"),
         "temp_dir": os.path.join(results_dir, "tmp"),
@@ -242,7 +244,8 @@ class PocketMapper:
         query_pocket_method=None,
         target_pocket_method=None,
         delete_tmp=DEFAULT_DELETE_TMP,
-        structure_dir=None,
+        pdb_dir=None,
+        alphafold_dir=None,
         pocket_dir=None,
         foldseek_preprocessed_structure_dir=None,
         temp_dir=None,
@@ -283,8 +286,10 @@ class PocketMapper:
             target_pocket_method (str, optional): As `query_pocket_method`, for the target side.
             delete_tmp (bool, optional): Delete temp_dir at the end of the run. Defaults to
                 DEFAULT_DELETE_TMP; False keeps it for inspection.
-            structure_dir (str, optional): Cache of fetched reference structures.
-                Defaults to <cache_dir>/ref_structures.
+            pdb_dir (str, optional): Cache of fetched PDB structures.
+                Defaults to <cache_dir>/pdb_structures.
+            alphafold_dir (str, optional): Cache of fetched AlphaFold structures.
+                Defaults to <cache_dir>/alphafold_structures.
             pocket_dir (str, optional): Cache of parsed pockets. Defaults to <cache_dir>/pockets.
             foldseek_preprocessed_structure_dir (str, optional): Cache of the single-chain structures
                 Foldseek is given. Defaults to <cache_dir>/foldseek_preprocessed_structures.
@@ -327,7 +332,8 @@ class PocketMapper:
             "query_pocket_method": query_pocket_method,
             "target_pocket_method": target_pocket_method,
             "delete_tmp": delete_tmp,
-            "structure_dir": structure_dir,
+            "pdb_dir": pdb_dir,
+            "alphafold_dir": alphafold_dir,
             "pocket_dir": pocket_dir,
             "foldseek_preprocessed_structure_dir": foldseek_preprocessed_structure_dir,
             "temp_dir": temp_dir,
@@ -426,7 +432,8 @@ class PocketMapper:
         # immediately below, and every other path here is settable away from it.
         dirs_to_create = [
             "results_dir",
-            "structure_dir",
+            "pdb_dir",
+            "alphafold_dir",
             "pocket_dir",
             "foldseek_preprocessed_structure_dir",
             "aligned_structure_dir",
@@ -663,7 +670,8 @@ class PocketMapper:
         log_extra = {"stage": "Determine Query/Target Types"}
 
         qtprocessor = QTProcessor(
-            structure_dir=self.settings.structure_dir,
+            pdb_dir=self.settings.pdb_dir,
+            alphafold_dir=self.settings.alphafold_dir,
             foldseek_preprocessed_structure_dir=self.settings.foldseek_preprocessed_structure_dir,
             fsdb_dir=self.settings.fsdb_dir,
         )
@@ -1107,7 +1115,8 @@ class PocketMapper:
         # Building one record per interface the hit chain takes part in
         parser = PisaParser()
         qtprocessor = QTProcessor(
-            structure_dir=self.settings.structure_dir,
+            pdb_dir=self.settings.pdb_dir,
+            alphafold_dir=self.settings.alphafold_dir,
             foldseek_preprocessed_structure_dir=self.settings.foldseek_preprocessed_structure_dir,
             fsdb_dir=self.settings.fsdb_dir,
         )

@@ -412,8 +412,8 @@ Each module's own docstring states its remit. Not stated anywhere in the code:
 - **Nothing creates a structure's parent directory.** `StructureDownloader` dropped the `makedirs` that
   `set_output_directory` used to do, and `write_through_part` does not add one, so a missing directory
   is a non-transient failure that surfaces as `structure_not_found` rather than an error. On the
-  pipeline path `configure_workflow` has already created `structure_dir`; a library caller driving the
-  component directly has to create it.
+  pipeline path `configure_workflow` has already created `pdb_dir` and `alphafold_dir`; a library caller
+  driving the component directly has to create them.
 
 ## As a library
 
@@ -427,8 +427,8 @@ separately usable.
   aligned structures, and `StructureAligner.align_structs` then produces them from the run's own outputs
   — `pm.query_df` / `pm.target_df` as records, plus the two result paths off `pm.settings`. Verified: the
   PDBs come out byte-identical to those of a normal run, on both the structure and the Foldseek-DB path.
-  It works because records point at `structure_dir`, which `delete_tmp` never touches, and it is why
-  `align_structs` takes `query_ids`, `target_ids` and `overwrite` — a deferred caller superposes a few
+  It works because records point at `pdb_dir` and `alphafold_dir`, which `delete_tmp` never touches, and
+  it is why `align_structs` takes `query_ids`, `target_ids` and `overwrite` — a deferred caller superposes a few
   queries at a time rather than all of them.
 - **A component reaching into a `Settings` can't be used without building one, and hides which fields it
   depends on** — so no component takes one. The `Settings` is unpacked at each call site in
