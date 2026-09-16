@@ -13,11 +13,11 @@ PocketMapper supports **Python 3.10 to 3.14** and is published on
 [PyPI](https://pypi.org/project/pocketmapper/). Its Python dependencies (biopython, numpy, pandas, tqdm,
 gemmi) are installed by pip.
 
-[Foldseek](https://github.com/steineggerlab/foldseek) is an optional external binary, but installing it is
-recommended:
+[Foldseek](https://github.com/steineggerlab/foldseek) is an external binary. It is not installed by pip,
+but it is the default aligner:
 
-- PocketMapper uses Foldseek by default whenever the binary is on `PATH` and runnable, and falls back to
-  the built-in BLOSUM62 sequence aligner — with a warning — when it is not.
+- PocketMapper uses Foldseek unless you pass `--aligner seq`, which selects the built-in BLOSUM62
+  sequence aligner. Without `--aligner seq`, a missing or unrunnable binary is an error.
 - Foldseek is **required** to search a Foldseek database target (`human_domains`, `pdb`).
 - Structural superposition works either way: with Foldseek it can use the whole-chain fit, and the local
   aligner superposes on the pocket instead (see [Advanced options](#advanced-options)).
@@ -27,10 +27,10 @@ recommended:
 # Pip installation of PocketMapper
 pip install pocketmapper
 
-# Optional - Conda installation of Foldseek
+# Conda installation of Foldseek (not needed with --aligner seq)
 conda install -c conda-forge -c bioconda foldseek
 
-# Optional - Homebrew installation of foldseek
+# Or Homebrew installation of foldseek
 brew tap brewsci/bio
 brew trust brewsci/bio
 brew install foldseek
@@ -75,7 +75,7 @@ left off the command line.
 | --- | --- | --- | --- |
 | `--job_file` | path | none | JSON file of `{"option": value}`, query and target included; it overrides CLI arguments. |
 | `--verbosity` | int | `3` | Log level: 4=DEBUG, 3=INFO, 2=WARNING, anything else=ERROR. |
-| `--foldseek` | bool | unset (auto) | Require the Foldseek aligner (`True`) or forbid it (`False`); unset auto-detects the binary. |
+| `--aligner` | str | `foldseek` | Chain aligner: `foldseek` (needs the binary) or `seq` (built-in BLOSUM62 sequence aligner). |
 | `--query_pocket_method` | str | unset | Force the query pocket method instead of inferring it: `pisa`, `passthrough`, `vdw`, `whole_chain`. Each entry is still checked against the method — see [Input format](#input-format). |
 | `--target_pocket_method` | str | unset | As `--query_pocket_method`, for targets; also accepts `foldseek_db`. |
 | `--threads` | int | one per core | Cap on the cores Foldseek uses. |
@@ -293,13 +293,13 @@ The rotation matrices are stored in Biopython's right-multiplying convention
 `pocketmapper.pocket_comparison.parse_pocket_transform`, which does the conversion for you.
 
 ### Examples
-A single pair, using Foldseek if it is installed and the local aligner otherwise:
+A single pair, aligned with Foldseek:
 ```
 pocketmapper search 4Q5J:B_F 4Q5J:A_E --results_dir ./out_fs
 ```
-Forcing the local BLOSUM62 aligner even when Foldseek is available:
+The same pair with the local BLOSUM62 aligner, which needs no Foldseek binary:
 ```
-pocketmapper search 4Q5J:B_F 4Q5J:A_E --foldseek False --results_dir ./out_local
+pocketmapper search 4Q5J:B_F 4Q5J:A_E --aligner seq --results_dir ./out_local
 ```
 An open search — is this pocket anywhere on chain A of 4Q5J at all?
 ```
@@ -331,8 +331,7 @@ when the file sets both.
 
 A finished run's `job_settings.json` is itself a valid job file, but it sets *every* option, so no
 command-line option can change it. Edit it instead: it names the previous `results_dir` (and every
-path under it), and it records the resolved `foldseek`, so `true` there makes Foldseek a hard
-requirement rather than auto-detected.
+path under it).
 
 **`--temp_dir` is emptied on the way in and deleted on the way out.** It holds `query_structures/`,
 `target_structures/` and `foldseek_tmp/`, so a rerun into the same `--results_dir` never hands Foldseek
@@ -342,12 +341,10 @@ what the previous run left behind. Both the emptying and the deletion are skippe
 per-run inputs the aligner was actually given, which is what you want when a run returns nothing and
 you need to see why.
 
-**`--foldseek` is three-valued.** Left unset it means *auto*: Foldseek is used when its binary is on
-`PATH` and runnable (checked by running `foldseek -h`), and the local BLOSUM62 aligner is used with a
-warning when it is not. `True` makes Foldseek a hard requirement, so an unrunnable binary is an error
-rather than a silent change of method — worth setting in a pipeline where the two aligners are not
-interchangeable. `False` always uses the local aligner. A Foldseek database target needs the binary
-whatever this is set to.
+**`--aligner` picks how chains are aligned.** `foldseek`, the default, needs the Foldseek binary on
+`PATH` and runnable (checked by running `foldseek -h`); if it is not, the run stops before anything is
+downloaded rather than silently switching method. `seq` uses the built-in BLOSUM62 sequence aligner,
+which needs no binary but produces no whole-chain transform and cannot search a Foldseek database.
 
 **`--align_struct_method` picks the transform used to write `aligned_structures/`.**
 
@@ -356,7 +353,7 @@ whatever this is set to.
   `pocket_comparison.tsv`. Puts the two *pockets* on top of each other, which is usually what you want
   when the chains are otherwise unrelated. Unavailable against a Foldseek database target, where the
   target pocket has no coordinates to fit.
-- `auto` (the default) — `foldseek` when Foldseek is in use, `pocket` with the local aligner, which
+- `auto` (the default) — `foldseek` with `--aligner foldseek`, `pocket` with `--aligner seq`, which
   produces no whole-chain transform at all.
 
 **Using PocketMapper as a library.** `PocketMapper().search(...)` runs the same workflow as the CLI and

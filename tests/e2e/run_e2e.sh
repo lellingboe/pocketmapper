@@ -42,7 +42,7 @@ FIXTURES_DIR="$SCRIPT_DIR/fixtures"
 #          let a case aim a path option somewhere real without hardcoding a
 #          machine-specific path. Foldseek is the CLI's default, so a case is
 #          assumed to need the binary and is skipped when it is missing; a
-#          case opts out with an explicit `--foldseek False`, which exercises
+#          case opts out with an explicit `--aligner seq`, which exercises
 #          the local BLOSUM62 aligner and still runs without the binary.
 #
 # Cases are grouped by what they exercise, and each group is named by its
@@ -52,7 +52,7 @@ FIXTURES_DIR="$SCRIPT_DIR/fixtures"
 # aligner, test_invalid_* input that must be rejected or skipped rather than
 # compared, test_settings_* how a run is configured rather than what it
 # computes. The prefix tracks the group, not the tag column -- test_open_*,
-# test_invalid_*, the test_settings_* and two of the test_local_* cases are
+# test_invalid_*, the test_settings_* and most of the test_local_* cases are
 # tagged 'core' as well.
 #
 # Append to a group and nothing else moves; inserting mid-group still renumbers
@@ -62,49 +62,50 @@ FIXTURES_DIR="$SCRIPT_DIR/fixtures"
 # annotations up here.
 # ---------------------------------------------------------------------------
 read -r -d '' CASES <<'EOF'
-test_core_1|core|rows|PISA interface pair (PDB vs PDB)|4Q5J:A_E 4Q5J:B_F --foldseek
-test_core_2|core|rows|Batch file vs batch file, PISA interfaces both sides|pdb_pisa_in.txt pdb_pisa_in.txt --foldseek
-test_core_3|core|rows|Chain-ID case sensitivity (4DX9 a_b vs A_B)|4DX9.txt 4DX9.txt --foldseek
-test_core_4|core|ok|PISA interface vs single-residue AlphaFold pocket (human CDK2)|4Q5J:B_F P24941:A:160 --foldseek
-test_core_5|core|ok|PISA interface vs single-residue AlphaFold pocket (mouse ortholog)|4Q5J:B_F P97377:A:160 --foldseek
-test_core_6|core|rows|AlphaFold passthrough vs AlphaFold passthrough|P06493:A:160,161,162,163,164,165 P24941:A:160,161,162,163,164,165 --foldseek
-test_core_7|core|rows|Two pockets on one query chain (pisa + passthrough)|multi_pocket_chain.txt 4Q5J:B_F --foldseek
-test_core_8|core|rows|Superposing on the pocket rather than the chain, with foldseek|4Q5J:A_E 4Q5J:B_F --foldseek --align_struct_method pocket
+test_core_1|core|rows|PISA interface pair (PDB vs PDB)|4Q5J:A_E 4Q5J:B_F
+test_core_2|core|rows|Batch file vs batch file, PISA interfaces both sides|pdb_pisa_in.txt pdb_pisa_in.txt
+test_core_3|core|rows|Chain-ID case sensitivity (4DX9 a_b vs A_B)|4DX9.txt 4DX9.txt
+test_core_4|core|ok|PISA interface vs single-residue AlphaFold pocket (human CDK2)|4Q5J:B_F P24941:A:160
+test_core_5|core|ok|PISA interface vs single-residue AlphaFold pocket (mouse ortholog)|4Q5J:B_F P97377:A:160
+test_core_6|core|rows|AlphaFold passthrough vs AlphaFold passthrough|P06493:A:160,161,162,163,164,165 P24941:A:160,161,162,163,164,165
+test_core_7|core|rows|Two pockets on one query chain (pisa + passthrough)|multi_pocket_chain.txt 4Q5J:B_F
+test_core_8|core|rows|Superposing on the pocket rather than the chain, with foldseek|4Q5J:A_E 4Q5J:B_F --align_struct_method pocket
 
-test_open_1|core|rows|PISA interface vs an open whole-chain target|4Q5J:A_E 4Q5J:B --foldseek
-test_open_2|core|rows|PISA interface vs a bare structure, chain defaulting to A|4Q5J:B_F 4Q5J --foldseek
+test_open_1|core|rows|PISA interface vs an open whole-chain target|4Q5J:A_E 4Q5J:B
+test_open_2|core|rows|PISA interface vs a bare structure, chain defaulting to A|4Q5J:B_F 4Q5J
 
-test_domains_1|human_domains|rows|Single PISA interface vs human domains|4Q5J:B_F human_domains --foldseek
-test_domains_2|human_domains|rows|Mixed batch file (PDB, local mmCIF, AlphaFold) vs human domains|testfile.txt human_domains --foldseek
-test_domains_3|human_domains|rows|AlphaFold passthrough residues vs human domains|P06493:A:160,161,162,163,164,165 human_domains --foldseek
-test_domains_4|human_domains|rows|Large CDK2 pocket residue list vs human domains|1B38:A:8,9,10,11,12,13,14,15,16,17,18,19,20,30,31,32,33,34,35,47,48,49,50,51,52,53,54,55,56,57,58,59,61,62,63,64,65,66,67,68,69,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,143,144,145,146,147,148,149 human_domains --foldseek
-test_domains_5|human_domains|rows|Large kinase pocket residue list vs human domains|4WB5:A:47,48,49,50,51,52,53,54,55,56,57,58,59,69,70,71,72,73,74,87,88,89,90,91,92,93,94,95,96,97,98,99,101,102,103,104,105,106,107,108,109,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,182,183,184,185,186,187,188 human_domains --foldseek
+test_domains_1|human_domains|rows|Single PISA interface vs human domains|4Q5J:B_F human_domains
+test_domains_2|human_domains|rows|Mixed batch file (PDB, local mmCIF, AlphaFold) vs human domains|testfile.txt human_domains
+test_domains_3|human_domains|rows|AlphaFold passthrough residues vs human domains|P06493:A:160,161,162,163,164,165 human_domains
+test_domains_4|human_domains|rows|Large CDK2 pocket residue list vs human domains|1B38:A:8,9,10,11,12,13,14,15,16,17,18,19,20,30,31,32,33,34,35,47,48,49,50,51,52,53,54,55,56,57,58,59,61,62,63,64,65,66,67,68,69,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,143,144,145,146,147,148,149 human_domains
+test_domains_5|human_domains|rows|Large kinase pocket residue list vs human domains|4WB5:A:47,48,49,50,51,52,53,54,55,56,57,58,59,69,70,71,72,73,74,87,88,89,90,91,92,93,94,95,96,97,98,99,101,102,103,104,105,106,107,108,109,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,182,183,184,185,186,187,188 human_domains
 
-test_fsdb_1|needs-pdb-fsdb slow|rows|PISA interface vs a local Foldseek PDB database|4Q5J:B_F @PDB_FSDB@ --target_pocket_method foldseek_db --foldseek
-test_fsdb_2|needs-pdb-download huge|rows|PISA interface vs the bundled full-PDB Foldseek database|4Q5J:A_E pdb --foldseek
+test_fsdb_1|needs-pdb-fsdb slow|rows|PISA interface vs a local Foldseek PDB database|4Q5J:B_F @PDB_FSDB@ --target_pocket_method foldseek_db
+test_fsdb_2|needs-pdb-download huge|rows|PISA interface vs the bundled full-PDB Foldseek database|4Q5J:A_E pdb
 
-test_local_1|core local|rows|Local BLOSUM62 sequence alignment, no Foldseek (same pair as test_core_1)|4Q5J:A_E 4Q5J:B_F --foldseek False
-test_local_2|local|rows|Local aligner over mixed input types (PDB, local mmCIF, AlphaFold)|testfile.txt testfile.txt --foldseek False
-test_local_3|core local|rows|Open whole-chain target on the local aligner|4Q5J:A_E 4Q5J:B --foldseek False
-test_local_4|core local|rows|Explicit pocket superposition on the local aligner|4Q5J:A_E 4Q5J:B_F --foldseek False --align_struct_method pocket
-test_local_5|core local|fail|align_struct_method foldseek rejected on the local aligner|4Q5J:A_E 4Q5J:B_F --foldseek False --align_struct_method foldseek
-test_local_6|core local|fail|Unknown align_struct_method rejected|4Q5J:A_E 4Q5J:B_F --foldseek False --align_struct_method bogus
+test_local_1|core local|rows|Local BLOSUM62 sequence alignment, no Foldseek (same pair as test_core_1)|4Q5J:A_E 4Q5J:B_F --aligner seq
+test_local_2|local|rows|Local aligner over mixed input types (PDB, local mmCIF, AlphaFold)|testfile.txt testfile.txt --aligner seq
+test_local_3|core local|rows|Open whole-chain target on the local aligner|4Q5J:A_E 4Q5J:B --aligner seq
+test_local_4|core local|rows|Explicit pocket superposition on the local aligner|4Q5J:A_E 4Q5J:B_F --aligner seq --align_struct_method pocket
+test_local_5|core local|fail|align_struct_method foldseek rejected on the local aligner|4Q5J:A_E 4Q5J:B_F --aligner seq --align_struct_method foldseek
+test_local_6|core local|fail|Unknown align_struct_method rejected|4Q5J:A_E 4Q5J:B_F --aligner seq --align_struct_method bogus
 
-test_invalid_1|core|rows|Passthrough residue id absent from the chain is skipped|invalid_residues.txt 4Q5J:B_F --foldseek False
-test_invalid_2|core|rows|Duplicated passthrough residue ids collapsed|4Q5J:A:1101,1101,1104 4Q5J:B_F --foldseek False
-test_invalid_3|core|fail|Forced passthrough with no residue list rejected|4Q5J:A 4Q5J:B_F --foldseek False --query_pocket_method passthrough
-test_invalid_4|core|fail|Unknown forced pocket method rejected|4Q5J:A_E 4Q5J:B_F --foldseek False --query_pocket_method psia
-test_invalid_5|core|fail|Forced pisa with no partner chain rejected|4Q5J:A 4Q5J:B_F --foldseek False --query_pocket_method pisa
-test_invalid_6|core|fail|Forced pisa on an AlphaFold entry rejected|P24941:A_B 4Q5J:B_F --foldseek False --query_pocket_method pisa
-test_invalid_7|core|fail|Forced vdw with no partner chain rejected|4Q5J:A 4Q5J:B_F --foldseek False --query_pocket_method vdw
-test_invalid_8|core|rows|Forced method skips only the entries that cannot use it|forced_pisa_mixed.txt 4Q5J:B_F --foldseek False --query_pocket_method pisa
+test_invalid_1|core|rows|Passthrough residue id absent from the chain is skipped|invalid_residues.txt 4Q5J:B_F --aligner seq
+test_invalid_2|core|rows|Duplicated passthrough residue ids collapsed|4Q5J:A:1101,1101,1104 4Q5J:B_F --aligner seq
+test_invalid_3|core|fail|Forced passthrough with no residue list rejected|4Q5J:A 4Q5J:B_F --aligner seq --query_pocket_method passthrough
+test_invalid_4|core|fail|Unknown forced pocket method rejected|4Q5J:A_E 4Q5J:B_F --aligner seq --query_pocket_method psia
+test_invalid_5|core|fail|Forced pisa with no partner chain rejected|4Q5J:A 4Q5J:B_F --aligner seq --query_pocket_method pisa
+test_invalid_6|core|fail|Forced pisa on an AlphaFold entry rejected|P24941:A_B 4Q5J:B_F --aligner seq --query_pocket_method pisa
+test_invalid_7|core|fail|Forced vdw with no partner chain rejected|4Q5J:A 4Q5J:B_F --aligner seq --query_pocket_method vdw
+test_invalid_8|core|rows|Forced method skips only the entries that cannot use it|forced_pisa_mixed.txt 4Q5J:B_F --aligner seq --query_pocket_method pisa
+test_invalid_9|core|fail|Unknown aligner rejected|4Q5J:A_E 4Q5J:B_F --aligner bogus
 
-test_settings_1|core settings|rows|Path options set on the command line|4Q5J:A_E 4Q5J:B_F --foldseek False --structure_dir @CACHE@/ref_structures --pocket_dir @CACHE@/pockets --alignment_path @OUT@/custom_alignment.tsv --aligned_structure_dir @OUT@/custom_aligned --job_settings_path @OUT@/custom_settings.json --log_path @OUT@/custom.log --temp_dir @OUT@/custom_temp
-test_settings_2|core settings|rows|Job file wins over CLI arguments|--job_file job_file.json 4Q5J:A_E 4Q5J:B_F --foldseek False --align_count 5
-test_settings_3|core settings|rows|Temp directories kept with --delete_tmp False|4Q5J:A_E 4Q5J:B_F --foldseek False --delete_tmp False
-test_settings_4|core settings|rows|Explicit --threads accepted and honoured|4Q5J:A_E 4Q5J:B_F --foldseek False --threads 2
-test_settings_5|core settings|rows|Job file supplies query and target|--job_file job_file_qt.json --foldseek False
-test_settings_6|core settings|fail|Query given both positionally and in the job file|--job_file job_file_qt.json 4Q5J:A_E 4Q5J:B_F --foldseek False
+test_settings_1|core settings|rows|Path options set on the command line|4Q5J:A_E 4Q5J:B_F --aligner seq --structure_dir @CACHE@/ref_structures --pocket_dir @CACHE@/pockets --alignment_path @OUT@/custom_alignment.tsv --aligned_structure_dir @OUT@/custom_aligned --job_settings_path @OUT@/custom_settings.json --log_path @OUT@/custom.log --temp_dir @OUT@/custom_temp
+test_settings_2|core settings|rows|Job file wins over CLI arguments|--job_file job_file.json 4Q5J:A_E 4Q5J:B_F --aligner seq --align_count 5
+test_settings_3|core settings|rows|Temp directories kept with --delete_tmp False|4Q5J:A_E 4Q5J:B_F --aligner seq --delete_tmp False
+test_settings_4|core settings|rows|Explicit --threads accepted and honoured|4Q5J:A_E 4Q5J:B_F --aligner seq --threads 2
+test_settings_5|core settings|rows|Job file supplies query and target|--job_file job_file_qt.json --aligner seq
+test_settings_6|core settings|fail|Query given both positionally and in the job file|--job_file job_file_qt.json 4Q5J:A_E 4Q5J:B_F --aligner seq
 EOF
 
 # ---------------------------------------------------------------------------
@@ -155,7 +156,7 @@ Environment:
 Notes:
   * Foldseek is the CLI default, so most cases need the 'foldseek' binary on
     PATH and are skipped without it. Cases tagged 'local' pass
-    '--foldseek False' to force the built-in BLOSUM62 aligner and still run.
+    '--aligner seq' to use the built-in BLOSUM62 aligner and still run.
   * Cases hit wwPDB, AlphaFold and PDBe PISA, so they need network access.
   * test_fsdb_2 downloads the full PDB Foldseek database (2GB download, 7Gb unzipped) and is
     therefore excluded unless named explicitly.
@@ -210,7 +211,7 @@ fi
 HAVE_FOLDSEEK=1
 if ! command -v foldseek >/dev/null 2>&1; then
     HAVE_FOLDSEEK=0
-    echo "WARNING: 'foldseek' not found on PATH; only the '--foldseek False' cases will run." >&2
+    echo "WARNING: 'foldseek' not found on PATH; only the '--aligner seq' cases will run." >&2
 fi
 
 echo "pocketmapper : $(command -v "$POCKETMAPPER_BIN")"
@@ -247,8 +248,8 @@ while IFS='|' read -r name tags expect desc args; do
     # --- gating -----------------------------------------------------------
     skip_reason=""
     case "$args" in
-        *"--foldseek False"*) uses_foldseek=0 ;;
-        *)                    uses_foldseek=1 ;;
+        *"--aligner seq"*) uses_foldseek=0 ;;
+        *)                 uses_foldseek=1 ;;
     esac
     if [ "$uses_foldseek" -eq 1 ] && [ "$HAVE_FOLDSEEK" -eq 0 ]; then
         skip_reason="foldseek not installed"

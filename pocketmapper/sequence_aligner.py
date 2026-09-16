@@ -1,5 +1,5 @@
 """
-Local pairwise sequence alignment, the fallback for when Foldseek is unavailable.
+Local pairwise sequence alignment, the `--aligner seq` alternative to Foldseek.
 
 Biopython's PairwiseAligner over BLOSUM62 stands in for the structural aligner and produces the
 same alignment table, so the rest of the pipeline cannot tell the two apart. It has no structural

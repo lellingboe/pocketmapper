@@ -9,7 +9,7 @@ command line lives in `cli.py`, which is the only module that knows about argv o
 1. `configure_workflow` -> job file over arguments -> Settings, directories, job_settings.json, logging.
 2. `configure_query_target` -> QTProcessor -> one DataFrame of QTRecords per side.
 3. `fetch_missing_structures` (or `fetch_missing_fsdb`) -> mmCIF into structure_dir.
-4. `alignment` -> foldseek or the local aligner -> alignment.tsv.
+4. `alignment` -> foldseek or the local sequence aligner, per `aligner` -> alignment.tsv.
 5. `get_pockets` -> a `retrieve_*_pockets` builder per pocket method, merged into one
    pocket_id -> Pocket dict. The Pocket shape itself is declared in `pocket.py`.
 6. `compare_pockets_based_on_alignment` -> pocket_comparison.compare_pockets -> pocket_comparison.tsv.
@@ -34,8 +34,10 @@ from datetime import datetime
 import pandas as pd
 
 from pocketmapper.constants import ALIGN_STRUCT_METHODS
+from pocketmapper.constants import ALIGNERS
 from pocketmapper.constants import DEFAULT_ALIGN_COUNT
 from pocketmapper.constants import DEFAULT_ALIGN_STRUCT_METHOD
+from pocketmapper.constants import DEFAULT_ALIGNER
 from pocketmapper.constants import DEFAULT_CACHE_DIR
 from pocketmapper.constants import DEFAULT_DELETE_TMP
 from pocketmapper.constants import DEFAULT_VERBOSITY
@@ -80,7 +82,8 @@ class Settings:
     results_dir: str
     query_pocket_method: str | None
     target_pocket_method: str | None
-    foldseek: bool
+    # "foldseek" or "seq" (the local BLOSUM62 sequence aligner).
+    aligner: str
     align_count: int
     # "pocket" or "foldseek"; "auto" is resolved to one of those before a Settings is built.
     align_struct_method: str
@@ -167,10 +170,6 @@ class PocketMapper:
 
         self.fsdb_target = False
         self.fsdb_pdb_target = False
-        # Set for real by resolve_foldseek(); read by configure_query_target to explain *why*
-        # a Foldseek-DB target was rejected. True here so a caller that skips search() is not
-        # told the binary is missing when nothing has looked for it.
-        self.foldseek_available = True
 
     def configure_logging(self, verbosity, log_path):
         """
@@ -237,7 +236,7 @@ class PocketMapper:
         results_dir=None,
         verbosity=DEFAULT_VERBOSITY,
         threads=None,
-        foldseek=None,
+        aligner=DEFAULT_ALIGNER,
         align_count=DEFAULT_ALIGN_COUNT,
         align_struct_method=DEFAULT_ALIGN_STRUCT_METHOD,
         query_pocket_method=None,
@@ -270,16 +269,14 @@ class PocketMapper:
                 Defaults to pocketmapper_results_<YYMMDD_HHMMSS>.
             verbosity (int, optional): Control logging level. Defaults to DEFAULT_VERBOSITY.
             threads (int, optional): Cap on the cores Foldseek uses. Defaults to one per available core.
-            foldseek (bool, optional): Use foldseek for structure alignment instead of local sequence
-                alignment. Left unset, foldseek is used when the binary runs and the local aligner
-                is used with a warning when it does not. True makes foldseek a hard requirement -- an
-                unrunnable binary is an error; False always uses the local aligner.
+            aligner (str, optional): Chain aligner -- 'foldseek', which needs the foldseek binary, or
+                'seq' for the local BLOSUM62 sequence aligner. Defaults to DEFAULT_ALIGNER.
             align_count (int, optional): Number of top targets to superpose onto each query.
                 Defaults to DEFAULT_ALIGN_COUNT.
             align_struct_method (str, optional): Which transform superposes a target onto its query --
                 'foldseek' for Foldseek's whole-chain fit, 'pocket' for the fit of the two pockets
-                on their overlapping residues, or 'auto' (the default) for 'foldseek' when Foldseek is
-                in use and 'pocket' with the local aligner, which produces no chain transform at all.
+                on their overlapping residues, or 'auto' (the default) for 'foldseek' with
+                aligner 'foldseek' and 'pocket' with 'seq', which produces no chain transform at all.
             query_pocket_method (str, optional): Force a pocket method for every query entry --
                 'pisa', 'passthrough', 'vdw', 'whole_chain' or 'foldseek_db'. Left unset, it is
                 inferred per entry from the input string.
@@ -322,7 +319,7 @@ class PocketMapper:
             "target": target,
             "cache_dir": cache_dir,
             "results_dir": results_dir,
-            "foldseek": foldseek,
+            "aligner": aligner,
             "verbosity": verbosity,
             "threads": threads,
             "align_count": align_count,
@@ -449,15 +446,15 @@ class PocketMapper:
         # swallowed. Nothing reads the scratch directories until step 4 of the pipeline.
         self.configure_temp_dir(values["temp_dir"], values["cache_dir"], values["results_dir"])
 
-        # 4b. Resolve the tri-state foldseek setting into a concrete bool. Must come after
-        # configure_logging (the root logger is still at CRITICAL before it, so the fallback
-        # warning would be swallowed) and before the settings are logged and dumped below, so
-        # job_settings.json records what the run actually did.
-        values["foldseek"] = self.resolve_foldseek(values["foldseek"])
+        # 4b. Validate the aligner and, for foldseek, probe the binary. Must come before anything is
+        # fetched, so a missing binary fails without wasted downloads, and before the settings are
+        # dumped below, so job_settings.json records the normalised value.
+        values["aligner"] = self.resolve_aligner(values["aligner"])
 
-        # 4c. Same reasoning, and it reads the bool resolve_foldseek just settled, so it must follow it.
+        # 4c. Reads the aligner resolve_aligner just validated, so it must follow it. After
+        # configure_logging, so the 'auto' resolution is visible.
         values["align_struct_method"] = self.resolve_align_struct_method(
-            values["align_struct_method"], values["foldseek"]
+            values["align_struct_method"], values["aligner"]
         )
 
         # 4d. Same reasoning as 4b/4c: after configure_logging so the resolution is visible, and
@@ -523,56 +520,44 @@ class PocketMapper:
                 logging.critical(f"Error creating directory {path}", extra=log_extra)
                 raise PocketMapperError(f"Error creating directory {path}") from e
 
-    def resolve_foldseek(self, foldseek):
+    def resolve_aligner(self, aligner):
         """
-        Turn the tri-state `foldseek` setting into a concrete bool.
+        Validate the `aligner` setting and check that its binary can run.
 
-        Foldseek is an optional external binary, so None ("auto") is resolved against what is
-        actually installed: foldseek when `check_foldseek` can run it, the local BLOSUM62 aligner
-        with a warning when it cannot. An explicit True is a hard requirement and errors instead of
-        falling back; an explicit False always means the local aligner and never probes for the
-        binary.
-
-        Called before any structure is fetched, so an unmet requirement fails without wasted
-        downloads rather than partway through the run at the first `run_foldseek` call.
+        "seq" needs nothing external and never probes for foldseek. "foldseek" is an optional external
+        binary, so it is checked here, before any structure is fetched, rather than failing partway
+        through the run at the first `run_foldseek` call.
 
         Args:
-            foldseek (bool or None): The requested setting.
+            aligner (str): The requested aligner, "foldseek" or "seq", in any case.
 
         Returns:
-            bool: Whether this run uses foldseek.
+            str: The aligner, lowercased.
 
         Raises:
-            PocketMapperError: If foldseek was explicitly requested but is not installed.
+            PocketMapperError: If the value is not one of ALIGNERS, or foldseek cannot be run.
         """
         log_extra = {"stage": "Configuring Settings"}
 
-        if foldseek is False:
-            return False
+        # The CLI always hands over a str, but a job file can hold anything at all.
+        normalised = aligner.lower() if isinstance(aligner, str) else aligner
+        if normalised not in ALIGNERS:
+            msg = f"Unknown aligner {aligner!r}. Choose one of: {', '.join(ALIGNERS)}."
+            logging.critical(msg, extra=log_extra)
+            raise PocketMapperError(msg)
 
-        self.foldseek_available = check_foldseek()
-        if self.foldseek_available:
-            return True
-
-        if foldseek is True:
+        if normalised == "foldseek" and not check_foldseek():
             msg = (
-                "Foldseek alignment was requested but 'foldseek' could not be run; it is either "
-                f"not on PATH or not executable (run with --verbosity 4 for the reason). {FOLDSEEK_INSTALL_HINT} "
-                "Alternatively, set --foldseek False to use the local BLOSUM62 sequence aligner."
+                "The foldseek aligner was selected but 'foldseek' could not be run; it is either not on "
+                f"PATH or not executable (run with --verbosity 4 for the reason). {FOLDSEEK_INSTALL_HINT} "
+                "Or pass --aligner seq to use the built-in BLOSUM62 sequence aligner."
             )
             logging.critical(msg, extra=log_extra)
             raise PocketMapperError(msg)
 
-        logging.warning(
-            "'foldseek' could not be run -- it is either not on PATH or not executable (run with "
-            "--verbosity 4 for the reason); falling back to the local BLOSUM62 sequence aligner. "
-            "The local aligner produces no whole-chain transform, so aligned_structures/*.pdb are "
-            f"superposed on the pocket instead (see --align_struct_method). {FOLDSEEK_INSTALL_HINT}",
-            extra=log_extra,
-        )
-        return False
+        return normalised
 
-    def resolve_align_struct_method(self, align_struct_method, foldseek):
+    def resolve_align_struct_method(self, align_struct_method, aligner):
         """
         Turn the tri-value `align_struct_method` setting into "pocket" or "foldseek".
 
@@ -581,20 +566,20 @@ class PocketMapper:
         already writes to pocket_comparison.tsv. "auto" picks whichever the run can actually do:
         the local BLOSUM62 aligner writes "-" for the chain transform, so it has only the pocket one.
 
-        An explicit "foldseek" without the binary is an error rather than a silent switch to "pocket" --
-        the same call as an unmet `--foldseek True`, and for the same reason: better to fail before
-        anything is downloaded than to hand back a method the user did not ask for.
+        An explicit "foldseek" with the "seq" aligner is an error rather than a silent switch to
+        "pocket": better to fail before anything is downloaded than to hand back a method the user did
+        not ask for.
 
         Args:
             align_struct_method (str): The requested method.
-            foldseek (bool): Whether this run uses foldseek, already resolved.
+            aligner (str): This run's aligner, already validated.
 
         Returns:
             str: "pocket" or "foldseek".
 
         Raises:
             PocketMapperError: If the value is not one of ALIGN_STRUCT_METHODS, or "foldseek" was
-                asked for on the local-aligner path.
+                asked for with the "seq" aligner.
         """
         log_extra = {"stage": "Configuring Settings"}
 
@@ -609,17 +594,16 @@ class PocketMapper:
             raise PocketMapperError(msg)
 
         if method == "auto":
-            method = "foldseek" if foldseek else "pocket"
+            method = "foldseek" if aligner == "foldseek" else "pocket"
             logging.info(
-                f"align_struct_method 'auto' resolved to '{method}' "
-                f"({'foldseek' if foldseek else 'the local aligner'} is in use)",
+                f"align_struct_method 'auto' resolved to '{method}' (aligner '{aligner}' is in use)",
                 extra=log_extra,
             )
-        elif method == "foldseek" and not foldseek:
+        elif method == "foldseek" and aligner != "foldseek":
             msg = (
                 "align_struct_method 'foldseek' needs Foldseek's whole-chain transform, but this run "
                 "uses the local BLOSUM62 aligner, which does not produce one. Use "
-                "--align_struct_method pocket, or enable foldseek."
+                "--align_struct_method pocket, or --aligner foldseek."
             )
             logging.critical(msg, extra=log_extra)
             raise PocketMapperError(msg)
@@ -705,12 +689,12 @@ class PocketMapper:
             raise PocketMapperError("; ".join(errors))
 
         if t_df.loc[0, "struct_type"] == "foldseek_db":
-            if self.settings.foldseek:
+            if self.settings.aligner == "foldseek":
                 self.fsdb_target = True
                 # Neither kind of Foldseek DB can be superposed on its pocket, and which kind this is
                 # is not known until expand_fsdb_pdb_targets has read the hit names -- so reject both
-                # here, before anything is fetched. Unreachable from "auto": a DB target forces
-                # foldseek on, and auto resolves to "foldseek" whenever it is on.
+                # here, before anything is fetched. Unreachable from "auto", which resolves to
+                # "foldseek" whenever the foldseek aligner is in use.
                 if self.settings.align_struct_method == "pocket":
                     msg = (
                         "align_struct_method 'pocket' is not available against a Foldseek database "
@@ -722,19 +706,7 @@ class PocketMapper:
                     logging.critical(msg, extra=log_extra)
                     raise PocketMapperError(msg)
             else:
-                # foldseek is already resolved to a concrete bool here, so False means either the
-                # binary is unrunnable or the user turned it off -- say which, since the fixes differ.
-                if not self.foldseek_available:
-                    msg = (
-                        "A Foldseek database was specified as the target, which requires the "
-                        "'foldseek' binary, but it could not be run; it is either not on PATH or "
-                        f"not executable (run with --verbosity 4 for the reason). {FOLDSEEK_INSTALL_HINT}"
-                    )
-                else:
-                    msg = (
-                        "Foldseek database specified as target but foldseek is not enabled. "
-                        "Remove --foldseek False to use it."
-                    )
+                msg = "A Foldseek database target requires --aligner foldseek."
                 logging.critical(msg, extra=log_extra)
                 raise PocketMapperError(msg)
         return q_df, t_df
@@ -821,15 +793,15 @@ class PocketMapper:
         """
         Coordinate structural alignment routes bridging query and target proteins.
 
-        Dispatches to `foldseek_alignment()` if the foldseek flag is set, else rolls
-        back to `local_alignment()`. Requisites like `foldseek_preprocessing()`
+        Dispatches to `foldseek_alignment()` for the "foldseek" aligner, else to
+        `local_alignment()`. Requisites like `foldseek_preprocessing()`
         precede foldseek routines.
 
         Returns:
             None
         """
         log_extra = {"stage": "Alignment"}
-        if self.settings.foldseek:
+        if self.settings.aligner == "foldseek":
             logging.info("Preprocessing structures for Foldseek...", extra=log_extra)
             self.foldseek_preprocessing()
             logging.info("Running Foldseek easy-search...", extra=log_extra)

@@ -201,12 +201,16 @@ FOLDSEEK_FORMAT_OUTPUT = ",".join(ALIGNMENT_COLUMNS)
 RESOLVED_ALIGN_STRUCT_METHODS = ("pocket", "foldseek")
 ALIGN_STRUCT_METHODS = ("auto",) + RESOLVED_ALIGN_STRUCT_METHODS
 
+# The chain aligners the `aligner` setting accepts: Foldseek, or the local BLOSUM62 sequence aligner.
+ALIGNERS = ("foldseek", "seq")
+
 # Defaults for the search options that have a static value. Options whose default depends on the run
-# (results_dir, foldseek, threads and the derived paths) default to None and are resolved at run time.
+# (results_dir, threads and the derived paths) default to None and are resolved at run time.
 DEFAULT_CACHE_DIR = "pocketmapper_cache"
 DEFAULT_VERBOSITY = 3
 DEFAULT_ALIGN_COUNT = 10
 DEFAULT_ALIGN_STRUCT_METHOD = "auto"
+DEFAULT_ALIGNER = "foldseek"
 DEFAULT_DELETE_TMP = True
 
 # The chain used when an entry names a structure but no chain at all ("4Q5J"). AlphaFold models are
@@ -218,13 +222,15 @@ DEFAULT_CHAIN = "A"
 # including the twelve paths, is now built from the parser in cli.py, so nothing about them is
 # duplicated here. It hangs off the `search` subparser only -- the bare `pocketmapper --help` lists
 # subcommands and nothing else. Kept to 80 columns. Anything longer -- the input grammar, the
-# databases, the output columns, the Foldseek fallback -- lives in the README, which the footer
+# databases, the output columns, the choice of aligner -- lives in the README, which the footer
 # points at.
 CLI_SEARCH_EPILOG = """
 Examples:
-  # One pair, using Foldseek when the binary is installed and the built-in
-  # BLOSUM62 aligner when it is not.
+  # One pair, aligned with Foldseek (the binary must be installed).
   pocketmapper search 4Q5J:B_F 4Q5J:A_E --results_dir ./out
+
+  # The same pair with the built-in BLOSUM62 sequence aligner instead.
+  pocketmapper search 4Q5J:B_F 4Q5J:A_E --aligner seq --results_dir ./out
 
   # Search a pocket against the bundled Foldseek DB of human domains.
   pocketmapper search 4Q5J:B_F human_domains
@@ -235,7 +241,7 @@ Examples:
   # Everything, query and target included, from a job file.
   pocketmapper search --job_file job.json
 
-Input grammar, databases, output columns and the Foldseek fallback are
+Input grammar, databases, output columns and the choice of aligner are
 documented in the README:
     https://github.com/lellingboe/pocketmapper
 """

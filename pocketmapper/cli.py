@@ -25,6 +25,7 @@ import sys
 from pocketmapper.constants import CLI_SEARCH_EPILOG
 from pocketmapper.constants import DEFAULT_ALIGN_COUNT
 from pocketmapper.constants import DEFAULT_ALIGN_STRUCT_METHOD
+from pocketmapper.constants import DEFAULT_ALIGNER
 from pocketmapper.constants import DEFAULT_CACHE_DIR
 from pocketmapper.constants import DEFAULT_DELETE_TMP
 from pocketmapper.constants import DEFAULT_VERBOSITY
@@ -32,8 +33,7 @@ from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.pocketmapper import PocketMapper
 
 # Accepted spellings for a boolean option value. Fire used to `ast.literal_eval` the token, so
-# `--foldseek False` is what every local-aligner e2e case passes and what the runner's skip gate
-# greps for; the True/False spellings must keep working exactly as written.
+# the True/False spellings must keep working exactly as written.
 TRUE_VALUES = ("true", "1", "yes")
 FALSE_VALUES = ("false", "0", "no")
 
@@ -116,17 +116,12 @@ def build_parser():
         metavar="INT",
         help=f"Log level: 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. (default: {DEFAULT_VERBOSITY})",
     )
-    # nargs="?" with const=True is what makes the bare `--foldseek` mean True while `--foldseek False`
-    # still parses, matching what fire did and what the e2e cases pass.
     search.add_argument(
-        "--foldseek",
-        nargs="?",
-        const=True,
-        type=bool_arg,
-        default=None,
-        metavar="BOOL",
-        help="Require the Foldseek aligner (True) or forbid it (False); unset auto-detects the binary. "
-        "(default: unset)",
+        "--aligner",
+        default=DEFAULT_ALIGNER,
+        metavar="STR",
+        help="Chain aligner: foldseek (needs the binary) or seq (built-in BLOSUM62 sequence aligner). "
+        f"(default: {DEFAULT_ALIGNER})",
     )
     search.add_argument(
         "--query_pocket_method",
@@ -150,7 +145,7 @@ def build_parser():
     )
 
     # Grouped by lifetime rather than by kind: the twelve path options roughly double the option
-    # count, and leaving them in one list would bury --foldseek and --query_pocket_method among
+    # count, and leaving them in one list would bury --aligner and --query_pocket_method among
     # them. argparse prints groups after the main options, in the order declared.
     aligned_structure_options = search.add_argument_group(
         "aligned structure options",
@@ -300,7 +295,7 @@ def cli(argv=None):
             results_dir=args.results_dir,
             verbosity=args.verbosity,
             threads=args.threads,
-            foldseek=args.foldseek,
+            aligner=args.aligner,
             align_count=args.align_count,
             align_struct_method=args.align_struct_method,
             query_pocket_method=args.query_pocket_method,

@@ -316,7 +316,7 @@ they line up with the rest.
 
 Options are grouped by lifetime in both places a human reads them — argparse's argument groups in
 `build_parser`, and the README's matching subsections. The path fields alone roughly double the
-option count, so leaving them ungrouped would bury `--foldseek` and `--query_pocket_method` among
+option count, so leaving them ungrouped would bury `--aligner` and `--query_pocket_method` among
 them. The four groups are `aligned structure options`, `cache options` (what survives a run),
 `out options` (what the run produces) and `temp options` (what `delete_tmp` removes at the end);
 `--cache_dir`, `--results_dir` and `--temp_dir` head the group whose defaults derive from them. Adding
@@ -340,9 +340,10 @@ file handler is one `--aligned_structure_dir` away from opening a log in a direc
 carries only the examples, which is all argparse cannot produce. It hangs off the `search` subparser
 alone; the bare `pocketmapper --help` is the subcommand list and nothing more.
 
-Resolution order and the tri-state `foldseek` / `align_struct_method` settings are documented where they are
-resolved — the `Settings` docstring and the `# 4b.` / `# 4c.` comments in `configure_workflow`, which give
-the reasons those call sites are load-bearing. Keep new resolution logic there.
+Resolution order, the `aligner` check and the tri-state `align_struct_method` setting are documented where
+they are resolved — the `Settings` docstring and the `# 4b.` / `# 4c.` comments in `configure_workflow`, which
+give the reasons those call sites are load-bearing. Keep new resolution logic there. `aligner` has no auto
+mode: `foldseek`, the default, fails the run at 4b when the binary cannot run, before anything is fetched.
 
 ## Python versions
 

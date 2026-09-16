@@ -83,7 +83,7 @@ skipped: N` line, exiting 1 only if something failed. Per-case output lands in
 `<out-dir>/<name>/` with the full CLI log at `<out-dir>/<name>.log` — read the log, not just
 the summary, when a case fails.
 
-**A skip is not a pass.** Without the `foldseek` binary on PATH, 17 of the 37 cases skip and
+**A skip is not a pass.** Without the `foldseek` binary on PATH, 18 of the 38 cases skip and
 the run still exits 0. Report the skip count alongside the pass count, and say what was
 skipped and why. Foldseek is the CLI's default aligner; install it with
 `conda install -c conda-forge -c bioconda foldseek` if the user wants full coverage.
@@ -115,7 +115,7 @@ Things that fail silently rather than loudly if you get them wrong:
   is not** — it would be parsed as a case with a garbage name. Put annotations in the header
   comment above the heredoc, where the rest of this convention is already documented.
 - **Foldseek is assumed.** A case is skipped when the binary is missing unless its `args`
-  contain the literal string `--foldseek False` — that exact substring is what the gate
+  contain the literal string `--aligner seq` — that exact substring is what the gate
   matches, checked before the catch-all. Tag such a case `local`. Keep at least one case on
   the local branch: when every case ran Foldseek, the suite couldn't see that branch, which is
   how it once shipped broken.
