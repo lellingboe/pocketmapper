@@ -351,6 +351,8 @@ class PocketMapper:
 
         logging.info("PocketMapper search completed successfully.", extra={"stage": "End"})
 
+        return asdict(self.settings)
+
     def configure_workflow(self, settings_file, cli_overrides):
         """
         Build the fully resolved `Settings` for this run.
