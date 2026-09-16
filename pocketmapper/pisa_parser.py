@@ -10,7 +10,7 @@ import json
 import logging
 import os
 
-from pocketmapper.constants import SINGLE_AA_CODE
+from pocketmapper.lib import one_letter_code
 from pocketmapper.lib import split_chain_info
 from pocketmapper.pocket import Pocket
 from pocketmapper.pocket import PocketResidue
@@ -156,7 +156,7 @@ class PisaParser:
                     res_code = bonds_dict[f"atom_site_{pocket_mol_id}_residues"][i]
                     pocket.residues[str(res_auth_id)] = PocketResidue(
                         res_code=res_code,
-                        res_code_single=SINGLE_AA_CODE.get(res_code, "X"),
+                        res_code_single=one_letter_code(res_code),
                         uniprot_pos=bonds_dict[f"atom_site_{pocket_mol_id}_unp_nums"][i],
                     )
 

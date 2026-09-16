@@ -13,6 +13,8 @@ import os
 import re
 import shutil
 
+from pocketmapper.constants import FOLDSEEK_AA_CODES
+
 UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]")
 
 
@@ -297,6 +299,22 @@ def split_chain_info(chain_info):
     domain_chain = chains[0]
     motif_chain = chains[1] if len(chains) > 1 else None
     return domain_chain, motif_chain
+
+
+def one_letter_code(res_name):
+    """
+    Map a three-letter residue name to its one-letter code, as Foldseek does.
+
+    Modified residues map to their parent amino acid (CME -> C). Names Foldseek does not list,
+    including ligands, water and nucleotides, map to X.
+
+    Args:
+        res_name (str): Residue name as it appears in the structure, e.g. "ALA".
+
+    Returns:
+        str: A single uppercase letter.
+    """
+    return FOLDSEEK_AA_CODES.get(res_name, "X")
 
 
 def seq_to_uniprot_map(domain):

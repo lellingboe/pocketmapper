@@ -203,6 +203,11 @@ its code site; what follows is the map of where, plus the checks that live nowhe
   pocket against itself: `overlap_count == pocket_len`. It is also **not** the reported residue id:
   `synthesise_target_pocket` keys its residues by UniProt position while leaving `seq_pos` the
   0-indexed alignment coordinate, and that separation is the only reason renumbering is safe.
+- **Residue letters come from `lib.one_letter_code`, and its table mirrors Foldseek, not gemmi.**
+  `constants.FOLDSEEK_AA_CODES` is Foldseek's `threeToOneAA` copied verbatim (139 names, the rest `X`).
+  gemmi's `find_tabulated_residue(...).one_letter_code` looks like the obvious source and is wrong here:
+  on gemmi 0.7.5 it disagrees on 14 of those names (`SEC` gives `U`, not `C`; `BAL`, `KYN`, `HZP` and
+  others give `X`), so local-aligner sequences would stop matching Foldseek's.
 - **`preprocess_name` is the alignment join key** — computed in `QTProcessor.parse_individual_qt`.
   Alignments are keyed by it, pockets by `pocket_id`, and `compare_pockets_based_on_alignment` builds
   `preproc_to_ids` to bridge them.

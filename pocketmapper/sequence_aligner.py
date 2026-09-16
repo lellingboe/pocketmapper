@@ -15,7 +15,7 @@ from Bio import Align
 from Bio.Align import substitution_matrices
 
 from pocketmapper.constants import ALIGNMENT_COLUMNS
-from pocketmapper.constants import SINGLE_AA_CODE
+from pocketmapper.lib import one_letter_code
 from pocketmapper.lib import split_chain_info
 
 
@@ -99,7 +99,7 @@ class SequenceAligner:
             st = gemmi.read_structure(path)  # format inferred from the extension, so local .pdb inputs work too
             st.setup_entities()
             aln_chain, _ = split_chain_info(record["chain_info"])
-            seq = "".join([SINGLE_AA_CODE.get(res.name, "X") for res in st[0][aln_chain].get_polymer() if "CA" in res])
+            seq = "".join([one_letter_code(res.name) for res in st[0][aln_chain].get_polymer() if "CA" in res])
             name_to_seq[name] = seq
 
         # Performing pairwise alignment

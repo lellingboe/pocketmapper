@@ -14,7 +14,7 @@ from itertools import product
 import gemmi
 from numpy.linalg import norm
 
-from pocketmapper.constants import SINGLE_AA_CODE
+from pocketmapper.lib import one_letter_code
 from pocketmapper.pocket import Pocket
 from pocketmapper.pocket import PocketResidue
 
@@ -64,7 +64,7 @@ class PocketCalculator:
         for res1 in domain_residues:
             if "CA" not in res1:  #
                 continue
-            res_single_code = SINGLE_AA_CODE.get(res1.name, "X")
+            res_single_code = one_letter_code(res1.name)
             ca_sequence.append(res_single_code)
             for res2 in motif_residues:
                 # Count contacts between the two residues
@@ -141,7 +141,7 @@ class PocketCalculator:
             # Foldseek skips residues with no CA atom
             if "CA" not in residue:
                 continue
-            ca_sequence.append(SINGLE_AA_CODE.get(residue.name, "X"))
+            ca_sequence.append(one_letter_code(residue.name))
 
             # Count contacts between residue and ATP
             contacts = 0
@@ -157,7 +157,7 @@ class PocketCalculator:
             if contacts > 0:
                 pocket.residues[str(residue.seqid.num)] = PocketResidue(
                     res_code=residue.name,
-                    res_code_single=SINGLE_AA_CODE.get(residue.name, "X"),
+                    res_code_single=one_letter_code(residue.name),
                     uniprot_pos=-1,
                     seq_pos=ca_num,
                     ca_coords=list(residue.get_ca().pos),

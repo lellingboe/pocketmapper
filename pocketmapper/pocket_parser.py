@@ -11,7 +11,7 @@ import os
 
 import gemmi
 
-from pocketmapper.constants import SINGLE_AA_CODE
+from pocketmapper.lib import one_letter_code
 from pocketmapper.pocket import Pocket
 from pocketmapper.pocket import PocketResidue
 
@@ -80,7 +80,7 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
                     pocket.residues[str(res_id)].seq_pos = -1
             continue
         seq_pos += 1
-        res_single_code = SINGLE_AA_CODE.get(res.name, "X")
+        res_single_code = one_letter_code(res.name)
         ca_sequence.append(res_single_code)
         if whole_chain:
             pocket.res_auth_ids.append(str(res_id))
