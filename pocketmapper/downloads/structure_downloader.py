@@ -15,6 +15,8 @@ from tqdm import tqdm
 from pocketmapper.downloads.lib_download import download_file
 from pocketmapper.lib import gzip_file
 
+logger = logging.getLogger(__name__)
+
 # Default pool width. Fixed rather than tied to a thread count: a worker waits on a socket, not on a core.
 DOWNLOAD_WORKERS = 8
 
@@ -90,7 +92,7 @@ class StructureDownloader:
                 # We assume that the foldseek db is already downloaded and available at the specified path, so we just check if the file exists
                 return (record["struct_info"], True)
             case _:
-                logging.warning(
+                logger.warning(
                     f"Unknown structure type {record['struct_type']} for struct_info {record['struct_info']}",
                     extra=self.log_extra,
                 )

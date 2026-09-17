@@ -20,6 +20,7 @@ Author: Lachlan Ellingboe
 """
 
 import argparse
+import logging
 import sys
 
 from pocketmapper.constants import CLI_SEARCH_EPILOG
@@ -30,7 +31,9 @@ from pocketmapper.constants import DEFAULT_CACHE_DIR
 from pocketmapper.constants import DEFAULT_DELETE_TMP
 from pocketmapper.constants import DEFAULT_POCKET_METHOD
 from pocketmapper.constants import DEFAULT_VERBOSITY
+from pocketmapper.constants import PACKAGE_LOGGER
 from pocketmapper.exceptions import PocketMapperError
+from pocketmapper.lib import format_handler
 from pocketmapper.pocketmapper import PocketMapper
 
 # Accepted spellings for a boolean option value. Fire used to `ast.literal_eval` the token, so
@@ -274,6 +277,9 @@ def cli(argv=None):
     """
     Console-script entry point.
 
+    Adds the console handler to the `pocketmapper` logger for the length of the call; `search()`
+    sets that logger's level from `verbosity`.
+
     Exits 1 on `PocketMapperError`, which has already been logged with full stage context at the raise
     site. Modules raise rather than calling `exit()` precisely so the package stays embeddable -- keep
     it that way when adding error paths, and keep every exit in this module.
@@ -293,6 +299,9 @@ def cli(argv=None):
         parser.print_help()
         return
 
+    package_logger = logging.getLogger(PACKAGE_LOGGER)
+    handler = format_handler(logging.StreamHandler(sys.stdout))
+    package_logger.addHandler(handler)
     try:
         PocketMapper().search(
             query=args.query,
@@ -323,3 +332,5 @@ def cli(argv=None):
     except PocketMapperError:
         # Already logged with full stage context at the raise site.
         sys.exit(1)
+    finally:
+        package_logger.removeHandler(handler)

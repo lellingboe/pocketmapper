@@ -18,6 +18,8 @@ from pocketmapper.lib import one_letter_code
 from pocketmapper.pocket import Pocket
 from pocketmapper.pocket import PocketResidue
 
+logger = logging.getLogger(__name__)
+
 
 class PocketCalculator:
     """
@@ -50,7 +52,7 @@ class PocketCalculator:
             pass
         else:
             if not os.path.exists(structure):
-                logging.warning(f"Structure file {structure} does not exist.", extra=log_extra)
+                logger.warning(f"Structure file {structure} does not exist.", extra=log_extra)
                 return None
             structure = gemmi.read_structure(structure)
         structure.setup_entities()

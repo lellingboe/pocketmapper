@@ -40,6 +40,8 @@ from pocketmapper.lib import seq_to_uniprot_map
 from pocketmapper.pocket import Pocket
 from pocketmapper.pocket import PocketResidue
 
+logger = logging.getLogger(__name__)
+
 # One alignment row, unpacked positionally. Built with AlignmentRow(*values), so it depends on the
 # column order exactly as the old row[12]-style indexing did -- it just says which column it means.
 AlignmentRow = namedtuple("AlignmentRow", ALIGNMENT_COLUMNS)
@@ -270,14 +272,14 @@ def uniprot_res_ids(aln, offsets):
             f"Foldseek database entry {aln.target} is missing from the offset table shipped with the "
             "database; the two have drifted apart. Refresh the offset table alongside the database."
         )
-        logging.critical(msg, extra=log_extra)
+        logger.critical(msg, extra=log_extra)
         raise PocketMapperError(msg)
 
     try:
         uniprot_map = seq_to_uniprot_map(domain)
     except ValueError as error:
         msg = f"Malformed offset table entry for {aln.target}: {domain!r} ({error})"
-        logging.critical(msg, extra=log_extra)
+        logger.critical(msg, extra=log_extra)
         raise PocketMapperError(msg)
 
     # Only the short direction is detectable from an alignment row: tlen is not in ALIGNMENT_COLUMNS,
@@ -288,7 +290,7 @@ def uniprot_res_ids(aln, offsets):
             f"Offset table entry for {aln.target} spans {len(uniprot_map)} residues but the alignment "
             f"reaches position {aln.tend}; the table and the database have drifted apart."
         )
-        logging.critical(msg, extra=log_extra)
+        logger.critical(msg, extra=log_extra)
         raise PocketMapperError(msg)
 
     return [str(uniprot_map[k]) for k in range(aln.tend)]
@@ -682,7 +684,7 @@ def compare_pockets(
                 )
 
         except Exception:
-            logging.exception(
+            logger.exception(
                 f"Uncontrolled error calculating {aln.query} and {aln.target}",
                 extra=log_extra,
             )
@@ -693,7 +695,7 @@ def compare_pockets(
     pockets_df = pd.DataFrame.from_dict(output_rows)
     undeclared = [column for column in pockets_df.columns if column not in POCKET_COMPARISON_COLUMNS]
     if undeclared:
-        logging.warning(
+        logger.warning(
             f"Pocket comparison produced undeclared column(s) {undeclared}; add them to POCKET_COMPARISON_COLUMNS",
             extra=log_extra,
         )

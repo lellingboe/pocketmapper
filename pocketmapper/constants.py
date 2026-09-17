@@ -153,10 +153,12 @@ FOLDSEEK_AA_CODES = {
     "MGN": "Q",
 }
 
-# The root log format, shared by the CRITICAL-only handler PocketMapper installs at construction
-# and by the dictConfig configure_logging replaces it with. `stage` is not a stock LogRecord
-# attribute: lib.StageFilter supplies it from the emitting function's name for any record that does
-# not carry one, and both handlers must run that filter or an outside record fails to format.
+# The logger every module's logger sits under. Nothing in the package configures the root logger.
+PACKAGE_LOGGER = "pocketmapper"
+
+# The format of every handler the package builds. `stage` is not a stock LogRecord attribute:
+# lib.StageFilter supplies it from the emitting function's name for any record that does not carry
+# one, so a handler using this format must run that filter.
 LOG_FORMAT = "%(levelname)s: %(stage)s - %(msg)s"
 
 

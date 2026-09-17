@@ -361,8 +361,13 @@ which needs no binary but produces no whole-chain transform and cannot search a 
 writes the same files; results come back through `results_dir`, not as a return value. The individual
 components (`qt_processor`, `downloads.structure_downloader`, `downloads.pisa_downloader`,
 `sequence_aligner`, `structure_aligner`, `pocket_calculator`, ...) are each usable on their own.
-Note that `search()` reconfigures the root logger and deletes its temporary directories on the way
-out.
+Note that `search()` deletes its temporary directories on the way out.
+
+Logging goes through the `pocketmapper` logger and never touches the root logger, so your own logging
+setup decides what is shown. `search()` still writes `info.log` and sets the `pocketmapper` logger's level
+from `verbosity` for the length of the call. For the CLI's console format, use
+`pocketmapper.lib.format_handler(logging.StreamHandler())` and add the handler to
+`logging.getLogger("pocketmapper")`.
 
 The last step is the one you can defer: run with `align_count=0` and no aligned structures are written,
 then hand `StructureAligner.align_structs` the run's own records and result files to produce them

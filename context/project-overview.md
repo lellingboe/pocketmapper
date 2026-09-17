@@ -245,20 +245,32 @@ diff old output against new. Nothing else covers that path.
 
 ## Logging and errors
 
-The root format interpolates `%(stage)s` (`constants.LOG_FORMAT`), which is not a stock LogRecord
-attribute. `lib.StageFilter` supplies it from `record.funcName` for any record that arrives without one,
-so a missing `stage` degrades to the emitting function's name instead of failing to format. It is
-attached **to the handlers**, in both places a handler is built — `PocketMapper.__init__` and the
-`configure_logging` dictConfig. Handler-level rather than logger-level because a handler filter also
-sees records propagating up from third-party loggers, which never pass an `extra`; a root-logger filter
-would let those reach the formatter unprotected.
+**The package never touches the root logger.** Every module logs through its own
+`logger = logging.getLogger(__name__)`, so all records go to `constants.PACKAGE_LOGGER`
+(`pocketmapper`) and the loggers beneath it, and from there propagate to whatever the host application
+set up. `pocketmapper/__init__.py` gives that logger a `NullHandler`, the standard library convention.
+Handlers are added in exactly two places, each removed again in a `finally`:
 
-Three consequences, none visible from one file:
+- **`cli()` adds the stdout handler.** It is added before `search()` runs because `configure_workflow` can
+  `logger.critical` on a bad job file *before* `configure_logging`. At that point the package logger has
+  no level of its own, so it inherits the root level (WARNING), which lets criticals through.
+- **`search()` adds the `info.log` file handler** in `configure_logging` and sets the package logger's
+  level from `verbosity`. `reset_logging` removes the handler and restores the previous level. Without
+  that, a second `search()` in one process would also write into the first run's log. Neither handler
+  has a level of its own, so the logger's level alone decides what both print.
 
-- **The `__init__` handler is load-bearing, not a placeholder.** `configure_workflow` can `logging.critical`
-  on a bad job file *before* it calls `configure_logging`, so the root logger needs a formatting
-  handler from construction. It is built by hand rather than via `basicConfig(format=...)` precisely so
-  the filter can be attached to it.
+Consequences:
+
+- **A library caller gets no console output from pocketmapper** unless their own logging config prints
+  `pocketmapper.*` records. `lib.format_handler` gives any handler the CLI's format.
+- **`info.log` holds only pocketmapper's records.** It used to also catch third-party loggers such as
+  urllib3, when its handler sat on the root logger.
+
+`LOG_FORMAT` interpolates `%(stage)s`, which is not a stock LogRecord attribute. `lib.StageFilter`
+fills it in from `record.funcName` for any record that arrives without one, so a missing `stage` falls
+back to the emitting function's name instead of failing to format. `lib.format_handler` attaches the
+filter together with the format, so the two cannot be separated.
+
 - **A declared stage and a defaulted one look different on purpose.** Declared stages are Title Case
   phrases naming a pipeline step ("Foldseek Alignment"); a defaulted one is a function name
   (`write_through_part`). The difference is the signal that nothing declared a stage there.
@@ -273,13 +285,14 @@ several stages builds a local `log_extra` per function, or passes the dict inlin
 only one call (`pocketmapper.py`, `pisa_parser`, `pocket_parser`, `pocket_comparison`, ...). `QTProcessor`
 is the one deliberate `.update()`: `process_qt_cmdline_input` names the side being processed and the
 `determine_*` helpers it drives all log under that name, which is call-scoped context rather than drift.
-`PocketMapper` itself holds no logging state — it used to, and the stage a step logged under then depended
-on which earlier step had last updated it.
+`PocketMapper` itself holds no stage state — it used to, and the stage a step logged under then depended
+on which earlier step had last updated it. Its only logging state is the handler and saved level that
+`reset_logging` undoes.
 
-All logging is module-level `logging.debug(...)`. No module instantiates a logger; `getLogger` appears
-nowhere in the package.
+Never call `logging.info(...)` and the like directly. Those go to the root logger and skip the package's
+level and handlers.
 
-Errors are `logging.critical(...)` then `raise PocketMapperError(...)`; `cli()` catches and exits 1.
+Errors are `logger.critical(...)` then `raise PocketMapperError(...)`; `cli()` catches and exits 1.
 
 That convention now holds on the Foldseek path too, which is most of what `foldseek.run_foldseek` buys:
 five of the six invocations used to be a bare `subprocess.run(..., check=True)`, so a failing Foldseek
@@ -331,7 +344,7 @@ makes its own. `temp_dir` is emptied there rather than merely created, so a reru
 `results_dir` cannot hand `createdb` the previous run's structures; the emptying is guarded by
 `lib.is_within` and the creation deliberately is not, since a run pointed outside both roots still
 needs somewhere to work. That step sits after `configure_logging` for the same reason 4b/4c do —
-the skip warning would otherwise be swallowed by the CRITICAL-only root logger.
+otherwise the skip warning would be logged before the run's level and `info.log` handler are in place.
 
 `results_dir` is in `configure_workflow`'s `dirs_to_create` in its own right, and has to stay there.
 Every other path in that list is settable away from `results_dir`, so without it `configure_logging`'s
@@ -441,9 +454,9 @@ separately usable.
   `from pocketmapper.<module> import <name>`.
 - **`search(job_file=...)` needs no query or target** when the file sets them, and rejects either
   one given both ways, as the CLI does.
-- **`search()` has global side effects**: `logging.config.dictConfig` reconfigures the *root* logger and
-  stomps on a host app's logging setup, and `delete_tmp` `shutil.rmtree`s `temp_dir` at the end unless
-  `delete_tmp=False`, which keeps it. `configure_workflow` also empties `temp_dir` on the way in. Both
+- **`search()` has side effects**: for the length of the call it sets the `pocketmapper` logger's level
+  and attaches the `info.log` handler (see "Logging and errors"; the root logger is never touched), and
+  `delete_tmp` `shutil.rmtree`s `temp_dir` at the end unless `delete_tmp=False`, which keeps it. `configure_workflow` also empties `temp_dir` on the way in. Both
   rmtrees are guarded rather than unconditional: `temp_dir` is settable, so `lib.is_within` skips (with
   a warning) a path that does not resolve under `cache_dir` or `results_dir`. The guard bounds the
   damage from a mistyped path; it is not a reason to point the setting at a directory you care about.

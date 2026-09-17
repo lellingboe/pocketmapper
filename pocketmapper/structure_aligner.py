@@ -28,6 +28,8 @@ from pocketmapper.lib import safe_filename
 from pocketmapper.lib import split_chain_info
 from pocketmapper.pocket_comparison import parse_pocket_transform
 
+logger = logging.getLogger(__name__)
+
 
 def as_dataframe(table, **read_csv_kwargs):
     """
@@ -63,7 +65,7 @@ class StructureAligner:
         Initialise the logging stage. The aligner holds no other state.
         """
         self.log_extra = {"stage": "Structural Alignment"}
-        logging.debug("Initialized")
+        logger.debug("Initialized")
 
     def char_gen(self):
         """
@@ -186,15 +188,15 @@ class StructureAligner:
 
             except Exception as e:
                 dropped.append(record["pocket_id"])
-                logging.error(f"Problem processing {record['pocket_id']}: {e}", extra=self.log_extra)
+                logger.error(f"Problem processing {record['pocket_id']}: {e}", extra=self.log_extra)
 
         if dropped:
-            logging.warning(
+            logger.warning(
                 f"Not superposing {dropped}; they are absent from {out_path}",
                 extra=self.log_extra,
             )
         if not kept_records:
-            logging.error(f"No structure could be placed, not writing {out_path}", extra=self.log_extra)
+            logger.error(f"No structure could be placed, not writing {out_path}", extra=self.log_extra)
             return None
 
         aligned_struct = self.apply_transformation(structs, domain_chains, motif_chains, us, ts)
@@ -272,7 +274,7 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
                 transforms.append((struct_u, struct_t))
             except Exception as e:
                 transforms.append(None)
-                logging.error(f"Problem processing {record['pocket_id']}: {e}", extra=self.log_extra)
+                logger.error(f"Problem processing {record['pocket_id']}: {e}", extra=self.log_extra)
 
         return self.transform(aln_records, transforms, out_path)
 
@@ -299,7 +301,7 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
         """
         qt_id_map = {}
         for query_id in query_ids:
-            logging.debug(f"Processing query {query_id} for structural alignment", extra=self.log_extra)
+            logger.debug(f"Processing query {query_id} for structural alignment", extra=self.log_extra)
             candidates = pocket_comparison_df[
                 (pocket_comparison_df["pocket_1"] == query_id) & (pocket_comparison_df["overlap_count"] > 0)
             ]
@@ -318,18 +320,18 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
             )
             if not target_ids:
                 if overlapping_count:
-                    logging.info(
+                    logger.info(
                         f"No target overlaps the pocket of query {query_id} by the three residues a "
                         "superposition needs; skipping its structural alignment",
                         extra=self.log_extra,
                     )
                 else:
-                    logging.info(
+                    logger.info(
                         f"No target overlaps the pocket of query {query_id}; skipping its structural alignment",
                         extra=self.log_extra,
                     )
                 continue
-            logging.debug(f"Top target IDs for query {query_id}: {target_ids}", extra=self.log_extra)
+            logger.debug(f"Top target IDs for query {query_id}: {target_ids}", extra=self.log_extra)
             qt_id_map[query_id] = target_ids
         return qt_id_map
 
@@ -369,7 +371,7 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
         else:
             entry_names = {target_id: target_id for target_id in target_ids}
 
-        logging.debug(f"Using Foldseek database at {fsdb_path} for structural alignment", extra=self.log_extra)
+        logger.debug(f"Using Foldseek database at {fsdb_path} for structural alignment", extra=self.log_extra)
         struct_paths = extract_fsdb_structures(
             fsdb_path,
             list(dict.fromkeys(entry_names.values())),
@@ -412,7 +414,7 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
                 row = pocket_transform_df.loc[(query_id, record["pocket_id"])]
             except KeyError:
                 transforms.append(None)
-                logging.warning(
+                logger.warning(
                     f"No pocket superposition for {query_id} against {record['pocket_id']}",
                     extra=self.log_extra,
                 )
@@ -450,7 +452,7 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
         """
         unknown = [wanted_id for wanted_id in wanted_ids if wanted_id not in known_ids]
         if unknown:
-            logging.warning(f"No {side} in this run matches {unknown}", extra=self.log_extra)
+            logger.warning(f"No {side} in this run matches {unknown}", extra=self.log_extra)
 
     def align_structs(
         self,
@@ -510,13 +512,13 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
                 f"Unknown align_struct_method {method!r}. "
                 f"Choose one of: {', '.join(RESOLVED_ALIGN_STRUCT_METHODS)}."
             )
-            logging.critical(msg, extra=self.log_extra)
+            logger.critical(msg, extra=self.log_extra)
             raise PocketMapperError(msg)
         if align_count <= 0:
-            logging.info("No Aligned Structures to Process", extra=self.log_extra)
+            logger.info("No Aligned Structures to Process", extra=self.log_extra)
             return {}
 
-        logging.info(f"Performing structural alignment of target structures on the {method}...", extra=self.log_extra)
+        logger.info(f"Performing structural alignment of target structures on the {method}...", extra=self.log_extra)
         os.makedirs(out_dir, exist_ok=True)
 
         # Pre-loading
@@ -549,7 +551,7 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
             for query_id in list(query_by_id):
                 out_path = os.path.join(out_dir, f"{safe_filename(query_id)}.pdb")
                 if os.path.exists(out_path):
-                    logging.info(
+                    logger.info(
                         f"Keeping the existing {out_path}; not superposing onto {query_id} again",
                         extra=self.log_extra,
                     )
@@ -559,7 +561,7 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
         qt_id_map = self.select_targets(list(query_by_id), pocket_comparison_df, align_count, method)
         unique_target_ids = list(dict.fromkeys(t for targets in qt_id_map.values() for t in targets))
         if not unique_target_ids:
-            logging.info("No query/target pair shares pocket residues, nothing to superpose", extra=self.log_extra)
+            logger.info("No query/target pair shares pocket residues, nothing to superpose", extra=self.log_extra)
             return out_paths
 
         if fsdb_path is None:
@@ -569,7 +571,7 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
 
         for query_id, query_target_ids in qt_id_map.items():
             query_record = query_by_id[query_id]
-            logging.debug(f"Query record for '{query_id}': {json.dumps(query_record, indent=4)}", extra=self.log_extra)
+            logger.debug(f"Query record for '{query_id}': {json.dumps(query_record, indent=4)}", extra=self.log_extra)
 
             # A pocket_2 need not be a target: when a query and a target share a chain they share a
             # preprocess_name, so compare_pockets pairs every pocket on that chain with every other and
@@ -577,12 +579,12 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
             # structure to superpose, so drop them.
             missing_target_ids = [t for t in query_target_ids if t not in target_by_id]
             if missing_target_ids:
-                logging.debug(
+                logger.debug(
                     f"Skipping non-target pocket(s) {missing_target_ids} when superposing onto '{query_id}'",
                     extra=self.log_extra,
                 )
             top_target_records = [target_by_id[t] for t in query_target_ids if t in target_by_id]
-            logging.debug(
+            logger.debug(
                 f"Top target records for query '{query_id}': {json.dumps(top_target_records, indent=4)}",
                 extra=self.log_extra,
             )

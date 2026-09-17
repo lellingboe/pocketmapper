@@ -16,6 +16,8 @@ import pandas as pd
 
 from pocketmapper.exceptions import PocketMapperError
 
+logger = logging.getLogger(__name__)
+
 # The external binary, resolved off PATH. Optional, and never bundled.
 FOLDSEEK_BINARY = "foldseek"
 
@@ -40,7 +42,7 @@ def check_foldseek():
             stderr=subprocess.DEVNULL,
         )
     except (OSError, subprocess.CalledProcessError) as e:
-        logging.debug(f"'{FOLDSEEK_BINARY}' is not runnable: {e}")
+        logger.debug(f"'{FOLDSEEK_BINARY}' is not runnable: {e}")
         return False
     return True
 
@@ -65,17 +67,17 @@ def run_foldseek(args, log_extra=None):
     """
     cmd = [FOLDSEEK_BINARY] + list(args)
     cmd_str = " ".join([str(x) for x in cmd])
-    logging.debug(f"Running Foldseek with command: {cmd_str}", extra=log_extra)
+    logger.debug(f"Running Foldseek with command: {cmd_str}", extra=log_extra)
     try:
         subprocess.run(cmd, check=True)
     except OSError as e:
         # Missing, not executable, or otherwise unable to exec -- all the same failure to the caller.
         msg = f"Foldseek is not callable, so '{cmd_str}' could not be run: {e}"
-        logging.critical(msg, extra=log_extra)
+        logger.critical(msg, extra=log_extra)
         raise PocketMapperError(msg) from e
     except subprocess.CalledProcessError as e:
         msg = f"Foldseek exited with code {e.returncode} running '{cmd_str}'"
-        logging.critical(msg, extra=log_extra)
+        logger.critical(msg, extra=log_extra)
         raise PocketMapperError(msg) from e
 
 
@@ -106,7 +108,7 @@ def extract_fsdb_structures(db_path, entry_names, out_dir, threads, log_extra=No
         KeyError: If an entry name is absent from the database's `.lookup` file.
         PocketMapperError: If either Foldseek subcommand fails.
     """
-    logging.debug(f"Extracting {len(entry_names)} entries from Foldseek database {db_path}", extra=log_extra)
+    logger.debug(f"Extracting {len(entry_names)} entries from Foldseek database {db_path}", extra=log_extra)
 
     # Entries are addressed by their database key, which only the .lookup file relates to their names.
     lookup_df = pd.read_csv(db_path + ".lookup", sep="\t", header=None, names=["chain_id", "name", "struct_id"])

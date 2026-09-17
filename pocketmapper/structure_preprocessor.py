@@ -16,6 +16,8 @@ from tqdm import tqdm
 from pocketmapper.lib import gzip_file
 from pocketmapper.lib import split_chain_info
 
+logger = logging.getLogger(__name__)
+
 
 class StructurePreprocessor:
     """
@@ -33,7 +35,7 @@ class StructurePreprocessor:
         Initialise with no output directory; `set_output_directory` supplies it later.
         """
         self.log_extra = {"stage": "Preprocessing Structures"}
-        logging.debug("Initialized")
+        logger.debug("Initialized")
 
         self.out_dir = None
         self.cache = None
@@ -108,7 +110,7 @@ class StructurePreprocessor:
                 model_chains = set([chain.name for chain in model])
                 if chain not in model_chains:
                     msg = f"Preprocessing: {struct_info} does not contain chain '{chain}' specified in chain_info '{chain_info}'"
-                    logging.warning(
+                    logger.warning(
                         msg,
                         extra=self.log_extra,
                     )

@@ -14,6 +14,7 @@ import re
 import shutil
 
 from pocketmapper.constants import FOLDSEEK_AA_CODES
+from pocketmapper.constants import LOG_FORMAT
 
 UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]")
 
@@ -22,10 +23,8 @@ class StageFilter(logging.Filter):
     """
     Supply a missing `stage` attribute from the name of the function that logged the record.
 
-    The root format interpolates `%(stage)s`, which is not a stock LogRecord attribute, so a
-    record reaching a handler without one fails to format. Attach this to the handlers rather
-    than to a logger: a handler filter also sees records propagating up from third-party
-    loggers, which never pass an `extra`.
+    `LOG_FORMAT` interpolates `%(stage)s`, which is not a stock LogRecord attribute, so a record
+    logged without `extra={"stage": ...}` fails to format without this filter.
     """
 
     def filter(self, record):
@@ -41,6 +40,21 @@ class StageFilter(logging.Filter):
         if not hasattr(record, "stage"):
             record.stage = record.funcName
         return True
+
+
+def format_handler(handler):
+    """
+    Give a handler the package log format and the `StageFilter` that format needs.
+
+    Args:
+        handler (logging.Handler): The handler to configure; modified in place.
+
+    Returns:
+        logging.Handler: The same handler.
+    """
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    handler.addFilter(StageFilter())
+    return handler
 
 
 def jsonify_dict(item):

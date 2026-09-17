@@ -30,6 +30,8 @@ from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import bundled_foldseek_dbs
 from pocketmapper.lib import split_chain_info
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class QTRecord:
@@ -80,7 +82,7 @@ class QTProcessor:
         # Held on the instance, not built per function: process_qt_cmdline_input names the side
         # being processed and the determine_* helpers it drives all log under that name.
         self.log_extra = {"stage": "Processing Inputs"}
-        logging.debug("Started")
+        logger.debug("Started")
 
         self.pdb_dir = pdb_dir
         self.alphafold_dir = alphafold_dir
@@ -154,11 +156,11 @@ class QTProcessor:
             pandas.DataFrame: the parsed records for this side.
         """
         self.log_extra.update({"stage": f"Processing {name}"})
-        logging.debug(f"Processing {name}", extra=self.log_extra)
+        logger.debug(f"Processing {name}", extra=self.log_extra)
 
         # Check that the input is specified
         if isinstance(qt_input, type(None)):
-            logging.critical(f"{name} input is required. Exiting.", extra=self.log_extra)
+            logger.critical(f"{name} input is required. Exiting.", extra=self.log_extra)
             raise PocketMapperError(f"{name} input is required.")
 
         # The method applies to every entry, so an unrecognised one is a setting to correct
@@ -168,7 +170,7 @@ class QTProcessor:
                 f"Unknown {name} pocket method {pocket_method!r}. "
                 f"Choose one of: {', '.join(self.accepted_pocket_methods())}."
             )
-            logging.critical(msg, extra=self.log_extra)
+            logger.critical(msg, extra=self.log_extra)
             raise PocketMapperError(msg)
 
         records = []
@@ -180,7 +182,7 @@ class QTProcessor:
                     for line in f.readlines():
                         records.append(self.parse_individual_qt(line.strip(), pocket_method=pocket_method))
             except Exception as e:
-                logging.critical(f"Problem reading the file {qt_input}: {e}", extra=self.log_extra)
+                logger.critical(f"Problem reading the file {qt_input}: {e}", extra=self.log_extra)
                 raise PocketMapperError(f"Problem reading the file {qt_input}: {e}") from e
         else:
             records.append(self.parse_individual_qt(qt_input, pocket_method=pocket_method))
@@ -232,7 +234,7 @@ class QTProcessor:
         # determining structure info
         struct_type = self.determine_struct_type(struct_info)
         if struct_type is None:
-            logging.warning(f"Could not determine structure type for {qt}", extra=self.log_extra)
+            logger.warning(f"Could not determine structure type for {qt}", extra=self.log_extra)
             return None
         struct_path = self.determine_ref_struct_path(struct_info, struct_type)
 
@@ -249,7 +251,7 @@ class QTProcessor:
             pocket_method if pocket_method != "auto" else self.determine_pocket_method(qt, struct_type)
         )
         if resolved_pocket_method is None:
-            logging.warning(f"Could not determine pocket method for {qt}", extra=self.log_extra)
+            logger.warning(f"Could not determine pocket method for {qt}", extra=self.log_extra)
             return None
 
         # Run unconditionally rather than only for a forced method: for an inferred one it is a
@@ -278,7 +280,7 @@ class QTProcessor:
             preprocess_path_gz=preprocess_path_gz,
             pocket_method=resolved_pocket_method,
         )
-        logging.debug(
+        logger.debug(
             f"Processed {qt} into structured data: {json.dumps(asdict(record), indent=4)}", extra=self.log_extra
         )
         return record
@@ -303,7 +305,7 @@ class QTProcessor:
                 the list is unusable -- logged as a warning, so one bad entry does not abort a batch.
         """
         if not residue_info:
-            logging.warning(
+            logger.warning(
                 f"No residue ids in {qt}, which the passthrough pocket method requires", extra=self.log_extra
             )
             return None
@@ -314,7 +316,7 @@ class QTProcessor:
             # isdecimal rather than isdigit: int() accepts every decimal digit but not every digit,
             # so isdigit would let a superscript through to a ValueError further down.
             if not res_id.isdecimal() or int(res_id) < 1:
-                logging.warning(
+                logger.warning(
                     f"Residue id '{res_id}' in {qt} is not a positive integer; skipping this entry",
                     extra=self.log_extra,
                 )
@@ -327,7 +329,7 @@ class QTProcessor:
                 res_ids.append(res_id)
 
         if duplicates:
-            logging.warning(
+            logger.warning(
                 f"Residue id(s) {','.join(duplicates)} listed more than once in {qt}; using each one once",
                 extra=self.log_extra,
             )
@@ -357,10 +359,10 @@ class QTProcessor:
         elif os.path.isfile(struct_str):
             return "local_file"
         elif os.path.isdir(struct_str):
-            logging.critical(f"Directory input is not currently supported: {struct_str}", extra=self.log_extra)
+            logger.critical(f"Directory input is not currently supported: {struct_str}", extra=self.log_extra)
             raise PocketMapperError(f"Directory input is not currently supported: {struct_str}")
         else:
-            logging.warning(f"Could not determine structure type for {struct_str}", extra=self.log_extra)
+            logger.warning(f"Could not determine structure type for {struct_str}", extra=self.log_extra)
             return None
 
     def determine_ref_struct_path(self, struct_info, struct_type):
@@ -382,7 +384,7 @@ class QTProcessor:
             case "local_file":
                 return struct_info
             case _:
-                logging.critical(
+                logger.critical(
                     f"Unknown structure type {struct_type} for struct_info {struct_info}", extra=self.log_extra
                 )
                 raise PocketMapperError(f"Unknown structure type {struct_type} for struct_info {struct_info}")
@@ -419,7 +421,7 @@ class QTProcessor:
             str: One of "whole_chain", "pisa", "passthrough", "vdw", or None if no pattern matched.
         """
         pocket_info_str = self.pocket_info(qt_str)
-        logging.debug(f"Determining pocket method for {pocket_info_str} using regex patterns", extra=self.log_extra)
+        logger.debug(f"Determining pocket method for {pocket_info_str} using regex patterns", extra=self.log_extra)
         for method in self.struct_type_pocket_methods.get(struct_type, ()):
             if re.match(self.pocket_methods[method][0], pocket_info_str):
                 return method
@@ -444,7 +446,7 @@ class QTProcessor:
         """
         supported = self.struct_type_pocket_methods.get(struct_type, ())
         if pocket_method not in supported:
-            logging.warning(
+            logger.warning(
                 f"The {pocket_method} pocket method is not available for the {struct_type} entry {qt_str}; "
                 f"{struct_type} entries support: {', '.join(supported)}. Skipping this entry",
                 extra=self.log_extra,
@@ -454,7 +456,7 @@ class QTProcessor:
         pattern, needs = self.pocket_methods[pocket_method]
         pocket_info_str = self.pocket_info(qt_str)
         if not re.match(pattern, pocket_info_str):
-            logging.warning(
+            logger.warning(
                 f"'{pocket_info_str}' in {qt_str} is not what the {pocket_method} pocket method reads; "
                 f"it needs {needs}. Skipping this entry",
                 extra=self.log_extra,

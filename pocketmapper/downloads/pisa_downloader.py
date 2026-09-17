@@ -25,6 +25,8 @@ from tqdm import tqdm
 from pocketmapper.downloads.lib_download import download_api
 from pocketmapper.exceptions import PocketMapperError
 
+logger = logging.getLogger(__name__)
+
 
 class PisaDownloader:
     """
@@ -97,7 +99,7 @@ class PisaDownloader:
         existing_files = glob(r"*.json", root_dir=interface_dir)
         missing_pdbs = [x.lower() for x in pdb_list if f"{x.lower()}.json" not in existing_files]
         local_count = len(pdb_list) - len(missing_pdbs)
-        logging.info(f"{local_count}/{len(pdb_list)} interfaces found locally", extra=self.log_extra)
+        logger.info(f"{local_count}/{len(pdb_list)} interfaces found locally", extra=self.log_extra)
 
         all_failures = {}
         if len(missing_pdbs) > 0:
@@ -122,7 +124,7 @@ class PisaDownloader:
             if all_failures:
                 with open(error_path, "w") as f:
                     json.dump(all_failures, f)
-                logging.warning(
+                logger.warning(
                     f"See {error_path} for details of {sum(len(v) for v in all_failures.values())} PISA failures",
                     extra=self.log_extra,
                 )
@@ -141,7 +143,7 @@ class PisaDownloader:
             tuple: (list of codes whose summary is now on disk, list of codes that could not be
                 fetched). A failure is logged and collected rather than raised.
         """
-        logging.info(f"Downloading {len(pdb_codes)} PISA summaries", extra=self.log_extra)
+        logger.info(f"Downloading {len(pdb_codes)} PISA summaries", extra=self.log_extra)
         success = []
         failure = []
         for pdb_code in tqdm(pdb_codes):
@@ -155,7 +157,7 @@ class PisaDownloader:
                 else:
                     failure.append(pdb_code)
         if len(failure) > 0:
-            logging.warning(f"Failed to download {len(failure)} summaries", extra=self.log_extra)
+            logger.warning(f"Failed to download {len(failure)} summaries", extra=self.log_extra)
         return success, failure
 
     def parse_summaries(self, pdb_codes, summary_dir):
@@ -171,7 +173,7 @@ class PisaDownloader:
                 could not be read). A summary naming anything other than exactly one entry counts as
                 a failure; neither case raises.
         """
-        logging.info(f"Parsing {len(pdb_codes)} PISA summaries", extra=self.log_extra)
+        logger.info(f"Parsing {len(pdb_codes)} PISA summaries", extra=self.log_extra)
         asm_dict = defaultdict(list)
         failure = []
         for pdb_code in tqdm(pdb_codes):
@@ -179,16 +181,16 @@ class PisaDownloader:
                 fname = os.path.join(summary_dir, f"{pdb_code}.json")
                 with open(fname) as f:
                     data = json.load(f)
-                logging.debug(f"Summary data for {pdb_code}: {data}", extra=self.log_extra)
+                logger.debug(f"Summary data for {pdb_code}: {data}", extra=self.log_extra)
                 if len(data[pdb_code]) != 1:
                     raise PocketMapperError(f"More than one entry in summary for {pdb_code}")
                 for assembly in data[pdb_code][0]["assemblies"]:
                     asm_dict[pdb_code].append(assembly["assembly_id"])
             except Exception as e:
-                logging.debug(f"Issue parsing summary for {pdb_code}: ({e})", extra=self.log_extra)
+                logger.debug(f"Issue parsing summary for {pdb_code}: ({e})", extra=self.log_extra)
                 failure.append(pdb_code)
         if len(failure) > 0:
-            logging.warning(f"Failed to parse {len(failure)} PISA summaries", extra=self.log_extra)
+            logger.warning(f"Failed to parse {len(failure)} PISA summaries", extra=self.log_extra)
         return asm_dict, failure
 
     def download_missing_assemblies(self, asm_dict, asm_dir):
@@ -206,7 +208,7 @@ class PisaDownloader:
             tuple: (defaultdict of pdb_code -> list of the assembly ids now on disk, list of
                 `<pdb_code>_<assembly_id>` that could not be fetched).
         """
-        logging.info(f"Downloading {sum(len(v) for v in asm_dict.values())} PISA assemblies", extra=self.log_extra)
+        logger.info(f"Downloading {sum(len(v) for v in asm_dict.values())} PISA assemblies", extra=self.log_extra)
         failure = []
         success = defaultdict(list)
         for pdb_code, assemblies in tqdm(asm_dict.items()):
@@ -218,7 +220,7 @@ class PisaDownloader:
                 else:
                     failure.append(f"{pdb_code}_{asm}")
         if len(failure) > 0:
-            logging.warning(f"Failed to download {len(failure)} assemblies", extra=self.log_extra)
+            logger.warning(f"Failed to download {len(failure)} assemblies", extra=self.log_extra)
         return success, failure
 
     def parse_assemblies(self, asm_dict, asm_dir, interface_dir):
@@ -245,7 +247,7 @@ class PisaDownloader:
                 `<pdb_code>_<assembly_id>_<interface_id>` for each skipped interface. Writes one
                 `<pdb_code>.json` per entry that has at least one usable interface.
         """
-        logging.info(
+        logger.info(
             f"Parsing {sum(len(v) for v in asm_dict.values())} PISA assemblies into per-interface files",
             extra=self.log_extra,
         )
@@ -260,7 +262,7 @@ class PisaDownloader:
                         data = json.load(f)
 
                     if len(data.keys()) != 1:
-                        logging.debug(f"More than one entry in assembly for {pdb_code}_{asm_id}", extra=self.log_extra)
+                        logger.debug(f"More than one entry in assembly for {pdb_code}_{asm_id}", extra=self.log_extra)
                         failure.append(f"{pdb_code}_{asm_id}")
                         continue
 
@@ -273,7 +275,7 @@ class PisaDownloader:
                         interface_id = interface["interface_id"]
                         # Checking if interface is between two molecules
                         if len(interface["molecules"]) != 2:
-                            logging.debug(
+                            logger.debug(
                                 f"More than one molecule in {pdb_code}, {interface['interface_id']}",
                                 extra=self.log_extra,
                             )
@@ -285,7 +287,7 @@ class PisaDownloader:
                         for molecule in interface["molecules"]:
                             chain_ids.append(molecule["chain_id"])
                         if not all(len(c) == 1 for c in chain_ids):
-                            logging.debug(
+                            logger.debug(
                                 f"Multi-character chain ids in {pdb_code}, {interface['interface_id']}",
                                 extra=self.log_extra,
                             )
@@ -294,7 +296,7 @@ class PisaDownloader:
                         entry_name = "".join(sorted(chain_ids))
                         pdb_interfaces[entry_name] = interface
                 except Exception as e:
-                    logging.debug(
+                    logger.debug(
                         f"Unexpected error parsing assembly for {pdb_code}_{asm_id}: ({e})", extra=self.log_extra
                     )
                     failure.append(f"{pdb_code}_{asm_id}_parse_error")
@@ -304,5 +306,5 @@ class PisaDownloader:
                 with open(interface_fname, "w") as out_f:
                     json.dump(pdb_interfaces, out_f)
         if len(failure) > 0:
-            logging.warning(f"Failed to parse {len(failure)} PISA assemblies", extra=self.log_extra)
+            logger.warning(f"Failed to parse {len(failure)} PISA assemblies", extra=self.log_extra)
         return failure

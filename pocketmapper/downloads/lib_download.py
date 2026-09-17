@@ -24,6 +24,8 @@ from urllib.error import URLError
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
+logger = logging.getLogger(__name__)
+
 # Timing statuses worth another attempt. Every other 4xx describes the request itself and will
 # fail identically however many times it is repeated.
 TRANSIENT_HTTP_STATUSES = frozenset({408, 425, 429})
@@ -142,7 +144,7 @@ def write_through_part(url, out_fpath, transform, log_extra):
     part_fpath = f"{out_fpath}.part"
     raw_fpath = f"{out_fpath}.raw.part" if transform else part_fpath
     try:
-        logging.debug(f"Fetching {url} -> {raw_fpath}", extra=log_extra)
+        logger.debug(f"Fetching {url} -> {raw_fpath}", extra=log_extra)
         urlretrieve(url, raw_fpath)
         if transform:
             transform(raw_fpath, part_fpath)
@@ -184,9 +186,9 @@ def download_file(url, out_fpath, transform=None, max_retries=5, base_delay=0.25
             return True
         except Exception as e:
             if attempt == max_retries or not is_transient_error(e):
-                logging.warning(f"Giving up on {url} after {attempt} attempt(s): {e}", extra=log_extra)
+                logger.warning(f"Giving up on {url} after {attempt} attempt(s): {e}", extra=log_extra)
                 return False
-            logging.debug(
+            logger.debug(
                 f"Attempt {attempt}/{max_retries} failed for {url} ({e}); retrying in {delay:.2f}s",
                 extra=log_extra,
             )
@@ -224,10 +226,10 @@ def download_api(url, out_fpath, max_retries=5, base_delay=0.25, max_delay=30.0,
             return True
         except Exception as e:
             if attempt == max_retries or not is_transient_error(e):
-                logging.warning(f"Giving up on {url} after {attempt} attempt(s): {e}", extra=log_extra)
+                logger.warning(f"Giving up on {url} after {attempt} attempt(s): {e}", extra=log_extra)
                 return False
             delay = escalate_host_delay(url, max_delay)
-            logging.debug(
+            logger.debug(
                 f"Attempt {attempt}/{max_retries} failed for {url} ({e}); "
                 f"pacing {urlparse(url).netloc} at {delay:.2f}s",
                 extra=log_extra,

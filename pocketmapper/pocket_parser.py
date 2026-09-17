@@ -15,6 +15,8 @@ from pocketmapper.lib import one_letter_code
 from pocketmapper.pocket import Pocket
 from pocketmapper.pocket import PocketResidue
 
+logger = logging.getLogger(__name__)
+
 
 def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
     """
@@ -43,14 +45,14 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
         st = struct
     else:
         if not os.path.exists(struct):
-            logging.warning(f"Structure file {struct} does not exist.", extra=log_extra)
+            logger.warning(f"Structure file {struct} does not exist.", extra=log_extra)
             return None
         st = gemmi.read_structure(struct)
 
     # Verify the specified chain exists and get it
     chain = st[0].find_chain(chain_id)  # Assuming we are interested in the first model
     if not isinstance(chain, gemmi.Chain):
-        logging.critical(f"Chain {chain_id} not found in structure {struct}.", extra=log_extra)
+        logger.critical(f"Chain {chain_id} not found in structure {struct}.", extra=log_extra)
         return None
 
     seq_pos = (
@@ -70,7 +72,7 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
         ca_atom = res.get_ca()
         if ca_atom is None:  # Foldseek only uses residues with CA atom coords
             if res_id in pocket_residues:
-                logging.debug(
+                logger.debug(
                     f"{st.name}:{chain_id}:{res_id} ({res.name}) does not have CA coords and cannot be compared",
                     extra=log_extra,
                 )

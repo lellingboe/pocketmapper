@@ -7,7 +7,13 @@ always import anything else explicitly -- `from pocketmapper.<module> import <na
 `from pocketmapper.downloads.<module> import <name>` for the download components.
 """
 
+import logging
+
+from pocketmapper.constants import PACKAGE_LOGGER
 from pocketmapper.pocketmapper import PocketMapper
+
+# Library convention: records are dropped here unless the host application or the CLI adds a handler.
+logging.getLogger(PACKAGE_LOGGER).addHandler(logging.NullHandler())
 
 __all__ = ["PocketMapper", "__version__"]
 
