@@ -17,4 +17,4 @@ logging.getLogger(PACKAGE_LOGGER).addHandler(logging.NullHandler())
 
 __all__ = ["PocketMapper", "__version__"]
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
