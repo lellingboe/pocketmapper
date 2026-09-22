@@ -303,19 +303,19 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
         for query_id in query_ids:
             logger.debug(f"Processing query {query_id} for structural alignment", extra=self.log_extra)
             candidates = pocket_comparison_df[
-                (pocket_comparison_df["pocket_1"] == query_id) & (pocket_comparison_df["overlap_count"] > 0)
+                (pocket_comparison_df["query"] == query_id) & (pocket_comparison_df["overlap_count"] > 0)
             ]
             overlapping_count = len(candidates)
             if method == "pocket":
                 # superpose fits nothing below three overlapping residues, so those targets have no
                 # transform. Drop them here rather than when writing, or they would eat align_count
                 # slots and the run would quietly produce fewer structures than asked for.
-                candidates = candidates.dropna(subset=["p2_to_p1_u", "p2_to_p1_t"])
+                candidates = candidates.dropna(subset=["target_to_query_u", "target_to_query_t"])
 
             target_ids = (
                 candidates.sort_values(by=["jaccard_index", "min_overlap_similarity"], ascending=False)
                 .head(align_count)
-                .loc[:, "pocket_2"]
+                .loc[:, "target"]
                 .to_list()
             )
             if not target_ids:
@@ -399,8 +399,8 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
         Args:
             query_id (str): The query's `pocket_id`.
             target_records (list): Target records, in the order they will be superposed.
-            pocket_transform_df (pandas.DataFrame): `p2_to_p1_u`/`p2_to_p1_t`, indexed by
-                (`pocket_1`, `pocket_2`).
+            pocket_transform_df (pandas.DataFrame): `target_to_query_u`/`target_to_query_t`, indexed by
+                (`query`, `target`).
 
         Returns:
             list: One entry longer than `target_records` -- a leading None for the reference frame,
@@ -419,7 +419,7 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
                     extra=self.log_extra,
                 )
                 continue
-            transforms.append(parse_pocket_transform(row["p2_to_p1_u"], row["p2_to_p1_t"]))
+            transforms.append(parse_pocket_transform(row["target_to_query_u"], row["target_to_query_t"]))
         return transforms
 
     def records_by_id(self, records, id_field="pocket_id"):
@@ -530,10 +530,10 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
             if "query" in alignment_df.columns:
                 alignment_df = alignment_df.set_index(["query", "target"])
         else:
-            # (pocket_1, pocket_2) is unique -- compare_pockets' existing_calcs scores each pair once.
-            pocket_transform_df = pocket_comparison_df.dropna(subset=["p2_to_p1_u", "p2_to_p1_t"]).set_index(
-                ["pocket_1", "pocket_2"]
-            )[["p2_to_p1_u", "p2_to_p1_t"]]
+            # (query, target) is unique -- compare_pockets' existing_calcs scores each pair once.
+            pocket_transform_df = pocket_comparison_df.dropna(
+                subset=["target_to_query_u", "target_to_query_t"]
+            ).set_index(["query", "target"])[["target_to_query_u", "target_to_query_t"]]
 
         # A record list can hold the same pocket twice -- the same entry given twice on the command
         # line. Keying by pocket_id keeps the first of each, so a query is not written twice and a
@@ -543,8 +543,8 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
             self.warn_unknown_ids("query", query_ids, query_by_id)
             query_by_id = {query_id: query_by_id[query_id] for query_id in query_ids if query_id in query_by_id}
         if target_ids is not None:
-            self.warn_unknown_ids("target", target_ids, set(pocket_comparison_df["pocket_2"]))
-            pocket_comparison_df = pocket_comparison_df[pocket_comparison_df["pocket_2"].isin(list(target_ids))]
+            self.warn_unknown_ids("target", target_ids, set(pocket_comparison_df["target"]))
+            pocket_comparison_df = pocket_comparison_df[pocket_comparison_df["target"].isin(list(target_ids))]
 
         out_paths = {}
         if not overwrite:
@@ -573,10 +573,10 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
             query_record = query_by_id[query_id]
             logger.debug(f"Query record for '{query_id}': {json.dumps(query_record, indent=4)}", extra=self.log_extra)
 
-            # A pocket_2 need not be a target: when a query and a target share a chain they share a
-            # preprocess_name, so compare_pockets pairs every pocket on that chain with every other and
-            # some rows come back with a query-only pocket_id in pocket_2. Those have no target
-            # structure to superpose, so drop them.
+            # A `target` value need not be a target: when a query and a target share a chain they
+            # share a preprocess_name, so compare_pockets pairs every pocket on that chain with every
+            # other and some rows come back with a query-only pocket_id in the `target` column. Those
+            # have no target structure to superpose, so drop them.
             missing_target_ids = [t for t in query_target_ids if t not in target_by_id]
             if missing_target_ids:
                 logger.debug(

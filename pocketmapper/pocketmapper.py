@@ -1051,7 +1051,7 @@ class PocketMapper:
         Turn the hits of a PDB Foldseek-database search into ordinary PISA target records.
 
         A Foldseek-database target has no per-chain records of its own, so `compare_pockets` normally
-        synthesises a whole-chain pseudo-pocket for each hit and leaves every `pocket_2_*` column empty.
+        synthesises a whole-chain pseudo-pocket for each hit and leaves every `target_*` column empty.
         The PDB database is built from real PDB entries, though, so its hits have real PISA interfaces:
         this reads the hit names out of the alignment table, resolves each to a PDB ID and chain, asks
         PISA which chains that chain touches, and appends one `pisa` record per interface to

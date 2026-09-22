@@ -63,11 +63,11 @@ and no warning. Only the passthrough method takes its order from user input; the
 ### Open searches
 
 README's "Open searches" covers the output shape; `retrieve_whole_chain_pockets` and
-`compare_pocket_pair` cover the per-pocket suppression of the `pocket_2_*` columns.
+`compare_pocket_pair` cover the per-pocket suppression of the `target_*` columns.
 
-A `pocket_2` value is not guaranteed to be a target. A query and target sharing a chain share a
+A `target` value is not guaranteed to be a target. A query and target sharing a chain share a
 `preprocess_name`, so `compare_pockets` pairs every pocket on that chain with every other and some rows
-carry a query-only `pocket_id` in `pocket_2`. `StructureAligner.align_structs` filters those out before
+carry a query-only `pocket_id` in `target`. `StructureAligner.align_structs` filters those out before
 looking a target record up; without that it raises a bare pandas `KeyError`.
 
 ### Foldseek-DB targets
@@ -113,8 +113,8 @@ file states:
   looks that up by the target's resolved DB path rather than by name — so a DB you supply yourself keeps
   0-indexed positions within the entry, logged at INFO because the same column then means different
   things on different runs.
-- **`pocket_2_overlap_ids` is the only column affected**, since a whole-chain pocket already suppresses
-  the other `pocket_2_*` columns and has no coordinates to superpose. Verified: against a
+- **`target_overlap_ids` is the only column affected**, since a whole-chain pocket already suppresses
+  the other `target_*` columns and has no coordinates to superpose. Verified: against a
   same-environment baseline, a `human_domains` search changes that column and nothing else.
 - **The table and the DB are now coupled.** A hit whose entry is missing from the table, or whose spec
   is shorter than the alignment reaches, aborts the run rather than falling back — a per-row fallback
@@ -234,7 +234,7 @@ its code site; what follows is the map of where, plus the checks that live nowhe
   records inside instead.
 - **Two transform sources, chosen by `align_struct_method`** — `StructureAligner`'s class docstring names
   them; `pocket_comparison.parse_pocket_transform` is the only legitimate reader of the pocket transform
-  and carries the measured evidence. Never hand a raw `p2_to_p1_*` cell to gemmi.
+  and carries the measured evidence. Never hand a raw `target_to_query_*` cell to gemmi.
 - **Step 7 is `StructureAligner.align_structs`, not a pipeline method** — `PocketMapper.align_structs`
   only unpacks the `Settings` and the two `fsdb_*` flags into it. Selection, transform lookup and
   writing all live in the component, so a change to any of them belongs there and is reachable without

@@ -59,34 +59,34 @@ MIN_SEQ_IDENTITY = 0.8
 # written table always has this exact schema and consumers can rely on a column existing regardless of what
 # any individual comparison found.
 POCKET_COMPARISON_COLUMNS = [
-    "pocket_1",
-    "pocket_2",
+    "query",
+    "target",
     "evalue",
     "lddt",
-    "pocket_1_res_ids",
-    "pocket_1_len",
-    "pocket_1_seq",
-    "pocket_1_pct_aln",
-    "pocket_2_res_ids",
-    "pocket_2_len",
-    "pocket_2_seq",
-    "pocket_2_pct_aln",
+    "query_res_ids",
+    "query_len",
+    "query_seq",
+    "query_pct_aln",
+    "target_res_ids",
+    "target_len",
+    "target_seq",
+    "target_pct_aln",
     "overlap_count",
-    "pocket_1_overlap_ids",
-    "pocket_2_overlap_ids",
+    "query_overlap_ids",
+    "target_overlap_ids",
     "jaccard_index",
-    "pocket_1_seq_overlap",
-    "pocket_2_seq_overlap",
+    "query_seq_overlap",
+    "target_seq_overlap",
     "overlap_identity",
     "overlap_similarity_binary",
     "overlap_similarity_1_2",
     "overlap_similarity_2_1",
     "min_overlap_similarity",
     "max_overlap_similarity",
-    "p2_to_p1_u",
-    "p2_to_p1_t",
-    "p1_to_p2_u",
-    "p1_to_p2_t",
+    "target_to_query_u",
+    "target_to_query_t",
+    "query_to_target_u",
+    "query_to_target_t",
     "rmsd",
     "ca_dists",
 ]
@@ -202,8 +202,8 @@ def synthesise_target_pocket(aln, ctx):
 
     Only for a database whose entries are not PDB chains (human_domains); a PDB database gets real
     PISA pockets instead, via `expand_fsdb_pdb_targets`. The residues carry no codes or coordinates,
-    so the pocket_2_* columns and the RMSD block are both suppressed downstream, which leaves
-    pocket_2_overlap_ids as the only column these ids reach.
+    so the target_* columns and the RMSD block are both suppressed downstream, which leaves
+    target_overlap_ids as the only column these ids reach.
 
     How those ids are named depends on whether the database ships an offset table. With one, they are
     1-indexed UniProt positions -- a database entry is a domain carved out of a UniProt sequence, and
@@ -390,14 +390,14 @@ def superpose(p1, p2, p1_overlap_ids, p2_overlap_ids, overlap_count, sup):
     sup.set(x, y)
     sup.run()
     u, t = sup.get_rotran()
-    fields = {"p2_to_p1_u": u.flatten().tolist(), "p2_to_p1_t": t.tolist()}
+    fields = {"target_to_query_u": u.flatten().tolist(), "target_to_query_t": t.tolist()}
 
     # TODO do this with matrix algebra instead of doing it twice
     sup.set(y, x)
     sup.run()
     u, t = sup.get_rotran()
-    fields["p1_to_p2_u"] = u.flatten().tolist()
-    fields["p1_to_p2_t"] = t.tolist()
+    fields["query_to_target_u"] = u.flatten().tolist()
+    fields["query_to_target_t"] = t.tolist()
     fields["rmsd"] = sup.get_rms()
 
     ca_dists = LA.norm(sup.get_transformed() - y, axis=1)
@@ -407,7 +407,7 @@ def superpose(p1, p2, p1_overlap_ids, p2_overlap_ids, overlap_count, sup):
 
 def parse_pocket_transform(u_cell, t_cell):
     """
-    Turn a p2_to_p1_u / p2_to_p1_t cell of pocket_comparison.tsv into a gemmi-convention (u, t).
+    Turn a target_to_query_u / target_to_query_t cell of pocket_comparison.tsv into a gemmi-convention (u, t).
 
     Two conversions, both easy to get silently wrong:
 
@@ -421,8 +421,8 @@ def parse_pocket_transform(u_cell, t_cell):
     same quantities, because superpose writes lists and to_csv reprs them.
 
     Args:
-        u_cell (str): The `p2_to_p1_u` cell, a list repr of nine floats.
-        t_cell (str): The `p2_to_p1_t` cell, a list repr of three floats.
+        u_cell (str): The `target_to_query_u` cell, a list repr of nine floats.
+        t_cell (str): The `target_to_query_t` cell, a list repr of three floats.
 
     Returns:
         tuple: (u, t) ready for gemmi, or None when the pair has no transform -- fewer than three
@@ -455,8 +455,8 @@ def score_overlap(aln, overlap_positions, similarity_matrix):
     similarity_2_1 = full_similarity(p2_aln_seq, p1_aln_seq, similarity_matrix)
 
     return {
-        "pocket_1_seq_overlap": p1_aln_seq,
-        "pocket_2_seq_overlap": p2_aln_seq,
+        "query_seq_overlap": p1_aln_seq,
+        "target_seq_overlap": p2_aln_seq,
         "overlap_identity": sum(map(str.__eq__, p1_aln_seq, p2_aln_seq)) / len(overlap_positions),
         "overlap_similarity_binary": binary_similarity(p1_aln_seq, p2_aln_seq, similarity_matrix),
         "overlap_similarity_1_2": similarity_1_2,
@@ -485,22 +485,22 @@ def compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_map
         ctx (Context): Scoring state shared across the call.
 
     Returns:
-        dict: One comparison row. The pocket_2_* descriptor columns and `jaccard_index` are omitted
+        dict: One comparison row. The target_* descriptor columns and `jaccard_index` are omitted
             when p2 is a whole chain rather than a pocket on one.
     """
     output = {
-        "pocket_1": pocket_id_1,
-        "pocket_2": pocket_id_2,
+        "query": pocket_id_1,
+        "target": pocket_id_2,
         "evalue": aln.evalue,
         "lddt": aln.lddt,
     }
 
     (
-        output["pocket_1_res_ids"],
-        output["pocket_1_len"],
-        output["pocket_1_seq"],
+        output["query_res_ids"],
+        output["query_len"],
+        output["query_seq"],
     ) = describe_pocket(pocket_id_1, p1, ctx.descriptions)
-    output["pocket_1_pct_aln"] = p1_mapped.in_aln_count / output["pocket_1_len"]
+    output["query_pct_aln"] = p1_mapped.in_aln_count / output["query_len"]
 
     # An open search -- a whole chain rather than a pocket on it -- has no pocket 2 to describe, and
     # the chain's length would swamp both these columns and the union the Jaccard index normalises
@@ -508,11 +508,11 @@ def compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_map
     p2_is_whole_chain = p2.whole_chain
     if not p2_is_whole_chain:
         (
-            output["pocket_2_res_ids"],
-            output["pocket_2_len"],
-            output["pocket_2_seq"],
+            output["target_res_ids"],
+            output["target_len"],
+            output["target_seq"],
         ) = describe_pocket(pocket_id_2, p2, ctx.descriptions)
-        output["pocket_2_pct_aln"] = p2_mapped.in_aln_count / output["pocket_2_len"]
+        output["target_pct_aln"] = p2_mapped.in_aln_count / output["target_len"]
 
     # Kept in pocket-1 order: the overlap sequences are built by indexing the alignment strings with it.
     p2_positions = set(p2_mapped.positions)
@@ -524,8 +524,8 @@ def compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_map
     overlap_set = set(overlap_positions)
     p1_overlap_ids = overlap_ids(p1, p1_mapped, overlap_set)
     p2_overlap_ids = overlap_ids(p2, p2_mapped, overlap_set)
-    output["pocket_1_overlap_ids"] = ",".join(p1_overlap_ids)
-    output["pocket_2_overlap_ids"] = ",".join(p2_overlap_ids)
+    output["query_overlap_ids"] = ",".join(p1_overlap_ids)
+    output["target_overlap_ids"] = ",".join(p2_overlap_ids)
 
     if not p2_is_whole_chain:
         union_size = len(p1.res_auth_ids) + len(p2.res_auth_ids) - len(overlap_positions)
@@ -591,7 +591,7 @@ def compare_pockets(
         synthesise_target_pockets (bool): Build a whole-chain pseudo-pocket per alignment row instead
             of looking the target up in `pocket_dict`. Only for a Foldseek database that has no target
             records of its own (see `expand_fsdb_pdb_targets`); it is a property of the job. Whether
-            the pocket_2_* descriptor columns and the jaccard_index are written, by contrast, is a
+            the target_* descriptor columns and the jaccard_index are written, by contrast, is a
             property of each pocket -- see `compare_pocket_pair`.
         offset_table_path (str | None): Path to the offset table shipped with that database, which
             renumbers the synthesised targets' residues into UniProt coordinates. Consulted only

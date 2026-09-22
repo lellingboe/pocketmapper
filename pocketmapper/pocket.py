@@ -24,7 +24,7 @@ class PocketResidue:
 
     Which fields are populated depends on the producer, and the gaps are load-bearing rather than
     accidental: a pocket synthesised for a Foldseek-database hit carries `seq_pos` alone, which is
-    what suppresses the descriptive pocket_2_* columns and the RMSD block downstream.
+    what suppresses the descriptive target_* columns and the RMSD block downstream.
     """
 
     res_code: str | None = None

@@ -183,14 +183,14 @@ overlap is scored, and `jaccard_index` sizes the shared residues against their u
 
 An **open search** names a structure but no pocket (`4Q5J:B`, or just `4Q5J`) and asks *does the query
 pocket resemble anything on this chain at all?* The whole chain becomes the pocket, so the answer is
-carried by `overlap_count` and `pocket_1_overlap_ids` — how many of the query pocket's residues the target
+carried by `overlap_count` and `query_overlap_ids` — how many of the query pocket's residues the target
 chain covers, and which ones.
 
 Because there is no pocket on the target to describe, the descriptive and length-normalised columns
-(`pocket_2_res_ids`, `pocket_2_len`, `pocket_2_seq`, `pocket_2_pct_aln`, `jaccard_index`) are left empty —
+(`target_res_ids`, `target_len`, `target_seq`, `target_pct_aln`, `jaccard_index`) are left empty —
 the same shape a Foldseek-database row has. `jaccard_index` in particular needs a second pocket to size
 against, and a whole chain's length would swamp the union it normalises by. The overlap itself is still
-fully reported: `pocket_2_overlap_ids` gives the author residue numbers the query pocket maps onto, and
+fully reported: `target_overlap_ids` gives the author residue numbers the query pocket maps onto, and
 because a named structure has real coordinates the superposition columns (`rmsd`, `ca_dists`, the
 transforms) are populated too, which a Foldseek-database row cannot offer.
 
@@ -203,9 +203,9 @@ every entry in it. Both bundled databases require the foldseek binary, and
 
 **`human_domains`** ships inside the package — no download. Its entries are structural domains carved out
 of human UniProt sequences. There is no interface to compute on a domain, so the target side behaves like
-an open search: no `pocket_2_*` descriptors, no `jaccard_index`, no superposition columns. The database
-ships an offset table, so `pocket_2_overlap_ids` is reported in **UniProt residue numbers** rather than
-positions within the domain. The query side (`pocket_1_overlap_ids`) is always author residue numbers.
+an open search: no `target_*` descriptors, no `jaccard_index`, no superposition columns. The database
+ships an offset table, so `target_overlap_ids` is reported in **UniProt residue numbers** rather than
+positions within the domain. The query side (`query_overlap_ids`) is always author residue numbers.
 
 **`pdb`** is downloaded on first use (`foldseek databases PDB`) into `<cache_dir>/fsdb/pdb`. Hits are
 real PDB chains, so PocketMapper fetches PISA data for each one and compares against a real interface
@@ -239,7 +239,7 @@ pockets themselves (`pockets/pisa_pockets.json`, `passthrough_pockets.json`, `vd
 each pocket is an object of metadata fields plus a `residues` map keyed by author residue number.
 
 #### `pocket_comparison.tsv` columns
-Pocket 1 is always the query, pocket 2 the target. The table always has all of these columns: a
+The `query_*` columns describe the query pocket, the `target_*` columns the target. The table always has all of these columns: a
 comparison that stops early — no overlapping residues, no coordinates, fewer than three residues to
 superpose, or an open target — leaves the remaining fields **empty** rather than dropping them.
 
@@ -247,7 +247,7 @@ superpose, or an open target — leaves the remaining fields **empty** rather th
 
 | Column | Meaning |
 | --- | --- |
-| `pocket_1`, `pocket_2` | The two pocket ids, in the input-entry form (`4Q5J:B_F`). |
+| `query`, `target` | The two pocket ids, in the input-entry form (`4Q5J:B_F`). |
 | `evalue` | Alignment E-value for the underlying chain pair. `-` with the local aligner. |
 | `lddt` | Alignment lDDT reported by Foldseek. `-` with the local aligner. |
 
@@ -255,25 +255,25 @@ superpose, or an open target — leaves the remaining fields **empty** rather th
 
 | Column | Meaning |
 | --- | --- |
-| `pocket_1_res_ids`, `pocket_2_res_ids` | The pocket's author residue numbers, comma-separated. |
-| `pocket_1_len`, `pocket_2_len` | Number of residues in the pocket. |
-| `pocket_1_seq`, `pocket_2_seq` | The pocket's residues as single-letter codes, in `res_ids` order. |
-| `pocket_1_pct_aln`, `pocket_2_pct_aln` | Fraction of the pocket's residues that fall inside the aligned region at all. A low value means the pocket sits largely outside the alignment. |
+| `query_res_ids`, `target_res_ids` | The pocket's author residue numbers, comma-separated. |
+| `query_len`, `target_len` | Number of residues in the pocket. |
+| `query_seq`, `target_seq` | The pocket's residues as single-letter codes, in `res_ids` order. |
+| `query_pct_aln`, `target_pct_aln` | Fraction of the pocket's residues that fall inside the aligned region at all. A low value means the pocket sits largely outside the alignment. |
 
 *Overlap*
 
 | Column | Meaning |
 | --- | --- |
 | `overlap_count` | How many alignment positions both pockets occupy. The headline number. |
-| `pocket_1_overlap_ids` | The query residues in the overlap, as author residue numbers. |
-| `pocket_2_overlap_ids` | The target residues they map onto, in the same order. UniProt numbers for a `human_domains` target; see [Databases](#databases). |
+| `query_overlap_ids` | The query residues in the overlap, as author residue numbers. |
+| `target_overlap_ids` | The target residues they map onto, in the same order. UniProt numbers for a `human_domains` target; see [Databases](#databases). |
 | `jaccard_index` | `overlap_count` divided by the union of the two pockets. Empty for an open or database target. |
 
 *Overlap scoring (BLOSUM62)*
 
 | Column | Meaning |
 | --- | --- |
-| `pocket_1_seq_overlap`, `pocket_2_seq_overlap` | The two overlap sequences, aligned position for position. |
+| `query_seq_overlap`, `target_seq_overlap` | The two overlap sequences, aligned position for position. |
 | `overlap_identity` | Fraction of overlap positions where the two residues are identical. |
 | `overlap_similarity_binary` | Fraction of overlap positions with a positive BLOSUM62 score — how much of the overlap is conservatively substituted, ignoring how strongly. |
 | `overlap_similarity_1_2` | Mean BLOSUM62 score over the overlap, normalised per position by the query residue's self-score, so an identical pair scores 1.0. |
@@ -284,8 +284,8 @@ superpose, or an open target — leaves the remaining fields **empty** rather th
 
 | Column | Meaning |
 | --- | --- |
-| `p2_to_p1_u`, `p2_to_p1_t` | Rotation (nine values) and translation (three) that put pocket 2 onto pocket 1, fitted on the overlapping CA atoms. |
-| `p1_to_p2_u`, `p1_to_p2_t` | The same fit in the other direction. |
+| `target_to_query_u`, `target_to_query_t` | Rotation (nine values) and translation (three) that put the target pocket onto the query pocket, fitted on the overlapping CA atoms. |
+| `query_to_target_u`, `query_to_target_t` | The same fit in the other direction. |
 | `rmsd` | RMSD of the overlapping CA atoms after superposition, in Å. |
 | `ca_dists` | Per-residue CA distance after superposition, comma-separated, in overlap order. |
 
