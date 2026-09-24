@@ -284,7 +284,7 @@ superpose, or an open target — leaves the remaining fields **empty** rather th
 
 | Column | Meaning |
 | --- | --- |
-| `target_to_query_u`, `target_to_query_t` | Rotation (nine values) and translation (three) that put the target pocket onto the query pocket, fitted on the overlapping CA atoms. |
+| `target_to_query_u`, `target_to_query_t` | Rotation (nine values) and translation (three) that put the target pocket onto the query pocket, fitted on the overlapping CA atoms. Comma-separated at three decimals, like `alignment.tsv`'s `u` and `t`. |
 | `query_to_target_u`, `query_to_target_t` | The same fit in the other direction. |
 | `rmsd` | RMSD of the overlapping CA atoms after superposition, in Å. |
 | `ca_dists` | Per-residue CA distance after superposition, comma-separated, in overlap order. |

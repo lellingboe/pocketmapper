@@ -17,7 +17,6 @@ into the pocket, which is what lets the same Pocket be read straight out of pock
 alignment row rather than deep-copied.
 """
 
-import json
 import logging
 from collections import defaultdict
 from collections import namedtuple
@@ -365,6 +364,19 @@ def overlap_ids(pocket, mapped, overlap_positions):
     return [res for res in pocket.res_auth_ids if pos_by_res.get(res, -1) in overlap_positions]
 
 
+def format_vector(values):
+    """
+    Comma-join values at three decimals, the format Foldseek writes its `u` and `t` in.
+
+    Args:
+        values (iterable): Floats to format.
+
+    Returns:
+        str: e.g. `0.846,-0.524,0.910`.
+    """
+    return ",".join(f"{value:.3f}" for value in values)
+
+
 def superpose(p1, p2, p1_overlap_ids, p2_overlap_ids, overlap_count, sup):
     """
     Superpose the two pockets on their overlapping residues.
@@ -390,14 +402,14 @@ def superpose(p1, p2, p1_overlap_ids, p2_overlap_ids, overlap_count, sup):
     sup.set(x, y)
     sup.run()
     u, t = sup.get_rotran()
-    fields = {"target_to_query_u": u.flatten().tolist(), "target_to_query_t": t.tolist()}
+    fields = {"target_to_query_u": format_vector(u.flatten()), "target_to_query_t": format_vector(t)}
 
     # TODO do this with matrix algebra instead of doing it twice
     sup.set(y, x)
     sup.run()
     u, t = sup.get_rotran()
-    fields["query_to_target_u"] = u.flatten().tolist()
-    fields["query_to_target_t"] = t.tolist()
+    fields["query_to_target_u"] = format_vector(u.flatten())
+    fields["query_to_target_t"] = format_vector(t)
     fields["rmsd"] = sup.get_rms()
 
     ca_dists = LA.norm(sup.get_transformed() - y, axis=1)
@@ -417,12 +429,12 @@ def parse_pocket_transform(u_cell, t_cell):
     the two fits of the same pair in tests/e2e/e2e_results/test_core_1: |u.T - foldseek_u|max = 0.049,
     |u - foldseek_u|max = 1.08. Never hand a raw cell to gemmi.
 
-    The cells are Python list reprs rather than the comma-joined strings alignment.tsv uses for the
-    same quantities, because superpose writes lists and to_csv reprs them.
+    The cells are comma-joined at three decimals, the same format alignment.tsv uses for Foldseek's
+    `u` and `t`.
 
     Args:
-        u_cell (str): The `target_to_query_u` cell, a list repr of nine floats.
-        t_cell (str): The `target_to_query_t` cell, a list repr of three floats.
+        u_cell (str): The `target_to_query_u` cell, nine comma-joined floats.
+        t_cell (str): The `target_to_query_t` cell, three comma-joined floats.
 
     Returns:
         tuple: (u, t) ready for gemmi, or None when the pair has no transform -- fewer than three
@@ -431,8 +443,8 @@ def parse_pocket_transform(u_cell, t_cell):
     """
     if not isinstance(u_cell, str) or not isinstance(t_cell, str):
         return None
-    u = array(json.loads(u_cell)).reshape((3, 3)).T
-    t = array(json.loads(t_cell))
+    u = array([float(x) for x in u_cell.split(",")]).reshape((3, 3)).T
+    t = array([float(x) for x in t_cell.split(",")])
     return u, t
 
 
