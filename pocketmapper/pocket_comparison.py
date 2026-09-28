@@ -619,6 +619,10 @@ def compare_pockets(
                         "fs_seq": aln.tseq,
                     }
 
+                # Both sides are checked first so each failing pocket is recorded, then the pair is dropped
+                if pocket_id_1 in incorrect_mapping or pocket_id_2 in incorrect_mapping:
+                    continue
+
                 if pocket_id_1 not in mapped_1:
                     mapped_1[pocket_id_1] = map_pocket_into_alignment(p1, aln.qaln, q_positions, aln.qstart, aln.qend)
                 if pocket_id_2 not in mapped_2:
