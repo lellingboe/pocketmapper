@@ -203,14 +203,25 @@ existence.
 
 Two things that file does not say about itself:
 
-- **Most of what it lists under `assembly_parsing` is routine, not broken.** An interface is skipped
-  for a multi-character chain id, and those dominate: over a 13,063-assembly cache, 25,733 of 50,333
-  interfaces have one, while none had a molecule count other than two. The entries are
-  distinguishable only by shape — `<pdb_code>_<assembly_id>_<interface_id>` for a skip,
-  `<pdb_code>_<assembly_id>` or a `_parse_error` suffix for a genuine failure.
+- **Its `assembly_parsing` entries are distinguishable only by shape** —
+  `<pdb_code>_<assembly_id>_<interface_id>` for an interface skipped for not having exactly two
+  molecules, `<pdb_code>_<assembly_id>` or a `_parse_error` suffix for a genuine failure. Skips used to
+  dominate, for multi-character chain ids; interfaces are now keyed by comma-joined chain ids
+  (`"A,B-2"`), so none is skipped for that, and over a 13,063-assembly cache none had a molecule count
+  other than two.
 - **An entry whose interfaces are all skipped gets no `<pdb_code>.json`.** It therefore never enters
   the interface cache and is reparsed on every later run — from cached assemblies, so at no request
   cost, but it is also why such an entry reappears in every report.
+
+**The flattened cache is `pisa_responses/interface_pairs/`, not `interfaces/`.** The old directory holds
+files keyed by concatenated chain ids (`"BF"`), which the parser no longer reads; renaming the
+directory makes every entry reflatten from cached assemblies instead of being silently missed. An
+existing `interfaces/` is dead and can be deleted.
+
+**The input grammar still allows only single-character chains**, so a multi-character interface is
+reachable from the cache but not from an input entry. On the Foldseek PDB-DB path,
+`expand_fsdb_pdb_targets` checks each chain pair against the `pisa` pattern and skips the ones it
+cannot spell, logging one count rather than a warning per record.
 
 ## Invariants
 

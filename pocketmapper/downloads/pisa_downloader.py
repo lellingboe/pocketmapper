@@ -226,8 +226,8 @@ class PisaDownloader:
         Flatten each entry's assemblies into one interface file keyed by chain pair.
 
         Writes `<pdb_code>.json` into `interface_dir` for each entry with at least one usable interface:
-        every assembly's interfaces merged into one dict keyed by the two chain ids sorted and
-        concatenated (e.g. "BF"), a later assembly winning on a repeated pair.
+        every assembly's interfaces merged into one dict keyed by the two chain ids sorted and joined
+        by a comma (e.g. "A,B-2"), a later assembly winning on a repeated pair.
 
         Args:
             asm_dict (dict): pdb_code -> list of assembly ids.
@@ -238,7 +238,7 @@ class PisaDownloader:
             list: What did not make it into a file -- `<pdb_code>_<assembly_id>` for an assembly that
                 could not be read, `<pdb_code>_<assembly_id>_parse_error` for one that raised, and
                 `<pdb_code>_<assembly_id>_<interface_id>` for each interface skipped for not having
-                exactly two molecules with single-character chain ids.
+                exactly two molecules.
         """
         logger.info(
             f"Parsing {sum(len(v) for v in asm_dict.values())} PISA assemblies into per-interface files",
@@ -274,20 +274,9 @@ class PisaDownloader:
                             )
                             failure.append(f"{pdb_code}_{asm_id}_{interface_id}")
                             continue
-                        # Checking the chain ids are single character: longer ones would not survive the
-                        # concatenated key
-                        # TODO - Find a way to handle multi character chain ids
-                        chain_ids = []
-                        for molecule in interface["molecules"]:
-                            chain_ids.append(molecule["chain_id"])
-                        if not all(len(c) == 1 for c in chain_ids):
-                            logger.debug(
-                                f"Multi-character chain ids in {pdb_code}, {interface['interface_id']}",
-                                extra=self.log_extra,
-                            )
-                            failure.append(f"{pdb_code}_{asm_id}_{interface_id}")
-                            continue
-                        entry_name = "".join(sorted(chain_ids))
+                        # Comma-separated, so chain ids of any length stay distinguishable
+                        chain_ids = [molecule["chain_id"] for molecule in interface["molecules"]]
+                        entry_name = ",".join(sorted(chain_ids))
                         pdb_interfaces[entry_name] = interface
                 except Exception as e:
                     logger.debug(

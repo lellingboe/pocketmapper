@@ -25,6 +25,7 @@ Author: Lachlan Ellingboe
 import json
 import logging
 import os
+import re
 import shutil
 from dataclasses import asdict
 from dataclasses import dataclass
@@ -934,9 +935,16 @@ class PocketMapper:
             foldseek_preprocessed_structure_dir=self.settings.foldseek_preprocessed_structure_dir,
             fsdb_dir=self.settings.fsdb_dir,
         )
+        # PISA stores chain pairs the input grammar cannot spell (multi-character chain ids); those are
+        # counted and skipped here rather than each rejected with a warning.
+        pisa_pattern = qtprocessor.pocket_methods["pisa"][0]
+        unspellable = 0
         records = []
         for hit_name, (pdb_id, chain_id) in hits.items():
             for partner in parser.get_interface_partners(pdb_id, chain_id, interface_dir):
+                if not re.match(pisa_pattern, f"{chain_id}_{partner}"):
+                    unspellable += 1
+                    continue
                 record = qtprocessor.parse_individual_qt(f"{pdb_id}:{chain_id}_{partner}", pocket_method="pisa")
                 if record is None:
                     continue
@@ -946,6 +954,11 @@ class PocketMapper:
                 record.preprocess_path = None
                 record.preprocess_path_gz = None
                 records.append(asdict(record))
+        if unspellable:
+            logger.info(
+                f"Skipped {unspellable} PISA interfaces whose chain ids the pisa pocket method cannot express",
+                extra=log_extra,
+            )
         if not records:
             logger.warning("No PISA interfaces found for any Foldseek hit", extra=log_extra)
             return

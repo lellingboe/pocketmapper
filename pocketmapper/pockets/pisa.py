@@ -39,7 +39,8 @@ class PisaParser:
             in_dir (str): Directory of parsed interface files.
 
         Returns:
-            dict: The entry's interfaces keyed by sorted chain pair, or None if not cached.
+            dict: The entry's interfaces keyed by sorted, comma-joined chain pair ("A,B-2"), or None
+                if not cached.
         """
         # Cached files are named by the lower-cased code; pdb_id may be in any case.
         for candidate in (pdb_id, pdb_id.lower()):
@@ -68,14 +69,16 @@ class PisaParser:
             logger.debug(f"Could not load PISA data for {pdb_id}", extra=log_extra)
             return []
 
-        # Keys are the interface's two chain ids, sorted and concatenated ("BF"); a partner is the
+        # Keys are the interface's two chain ids, sorted and comma-joined ("A,B-2"); a partner is the
         # other half of every key the chain appears in.
         partners = []
         for interface_chains in pisa_data:
-            if chain_id not in interface_chains:
+            chains = interface_chains.split(",")
+            if chain_id not in chains:
                 continue
-            partner = interface_chains.replace(chain_id, "", 1)
-            if partner and partner not in partners:
+            chains.remove(chain_id)
+            partner = chains[0]
+            if partner not in partners:
                 partners.append(partner)
         if not partners:
             logger.debug(f"No PISA interface involving chain {chain_id} of {pdb_id}", extra=log_extra)
@@ -112,7 +115,7 @@ class PisaParser:
             if motif_chain is None:
                 logger.warning(f"No partner chain in chain_info '{record['chain_info']}' for {pdb_id}", extra=log_extra)
                 continue
-            interface_chains = "".join(sorted([domain_chain, motif_chain]))
+            interface_chains = ",".join(sorted([domain_chain, motif_chain]))
             if interface_chains not in pisa_data:
                 logger.warning(f"No PISA data for {pdb_id} interface {interface_chains}", extra=log_extra)
                 continue
@@ -174,7 +177,8 @@ def download_pisa_interfaces(pdb_list, pocket_dir):
         str: The directory of parsed interface files.
     """
     pisa_response_dir = os.path.join(pocket_dir, "pisa_responses")
-    interface_dir = os.path.join(pisa_response_dir, "interfaces")
+    # Not "interfaces", which holds files keyed by the older concatenated chain pair ("BF")
+    interface_dir = os.path.join(pisa_response_dir, "interface_pairs")
     PisaDownloader().download_missing_interfaces(
         pdb_list=pdb_list,
         summary_dir=os.path.join(pisa_response_dir, "summaries"),
