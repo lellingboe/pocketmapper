@@ -31,6 +31,7 @@ from dataclasses import fields
 from datetime import datetime
 
 import pandas as pd
+from tqdm import tqdm
 
 from pocketmapper.constants import ALIGN_STRUCT_METHODS
 from pocketmapper.constants import ALIGNERS
@@ -1162,7 +1163,7 @@ class PocketMapper:
 
         # PisaParser gives residue ids but no geometry; this second pass fills in seq_pos and the CA
         # coordinates on the same Pocket, which is what the comparison and superposition need.
-        for _, row in pisa_df.iterrows():
+        for _, row in tqdm(pisa_df.iterrows(), total=len(pisa_df)):
             if row["pocket_id"] in pisa_pockets:
                 domain_chain, _ = split_chain_info(row["chain_info"])
                 pisa_pockets[row["pocket_id"]] = parse_pocket_from_struct(
@@ -1196,7 +1197,7 @@ class PocketMapper:
         log_extra = {"stage": "Retrieving passthrough Pockets"}
 
         passthrough_pockets = {}
-        for _, row in pt_df.iterrows():
+        for _, row in tqdm(pt_df.iterrows(), total=len(pt_df)):
             domain_chain, _ = split_chain_info(row["chain_info"])
             pocket = parse_pocket_from_struct(
                 struct=row["struct_path"],
@@ -1242,7 +1243,7 @@ class PocketMapper:
         """
         vdw_pockets = {}
         pc = PocketCalculator()
-        for _, row in vdw_df.iterrows():
+        for _, row in tqdm(vdw_df.iterrows(), total=len(vdw_df)):
             domain_chain, motif_chain = split_chain_info(row["chain_info"])
             vdw_pockets[row["pocket_id"]] = pc.pocket_overlap(
                 structure=row["struct_path"],
@@ -1270,7 +1271,7 @@ class PocketMapper:
         log_extra = {"stage": "Retrieving whole chain Pockets"}
 
         whole_chain_pockets = {}
-        for _, row in wc_df.iterrows():
+        for _, row in tqdm(wc_df.iterrows(), total=len(wc_df)):
             domain_chain, _ = split_chain_info(row["chain_info"])
             pocket = parse_pocket_from_struct(
                 struct=row["struct_path"],
