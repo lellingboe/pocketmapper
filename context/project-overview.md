@@ -242,7 +242,13 @@ its code site; what follows is the map of where, plus the checks that live nowhe
   others give `X`), so local-aligner sequences would stop matching Foldseek's.
 - **`preprocess_name` is the alignment join key** — computed in `QTProcessor.parse_individual_qt`.
   Alignments are keyed by it, pockets by `pocket_id`, and `compare_pockets_based_on_alignment` builds
-  `preproc_to_ids` to bridge them.
+  `preproc_to_ids` to bridge them. **A local file's name is hashed with its contents**, not its
+  basename alone. Keyed by name only, `/dir1/structure.pdb:A` and `/dir2/structure.pdb:A` shared a
+  name, so the second was aligned as the first and its pocket dropped or mapped onto the wrong chain,
+  with no error; `test_core_9` / `test_local_7` cover it. Consequences: identical copies in two
+  directories still share a name, like a query and target on one chain; a file edited in place gets
+  a new name, so the preprocessed cache cannot serve a stale copy; and a local `4Q5J.cif.gz:B` no
+  longer shares a name with PDB `4Q5J:B`. PDB and AlphaFold names are unchanged.
 - **`chain_info` is split in exactly one place** — `lib.split_chain_info`, which nine call sites across
   seven modules now share. Four of them used to index the string (`chain_info[0]`), which is the domain
   chain only while a chain id is one character. `QTProcessor`'s patterns guarantee that on both the

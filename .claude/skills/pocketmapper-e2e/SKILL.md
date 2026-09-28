@@ -93,6 +93,8 @@ The `expect` field in each case decides what is asserted:
 - `rows` — must exit 0 **and** write at least one data row to `pocket_comparison.tsv`.
 - `ok` — must exit 0 and write the file; zero hits is a legitimate outcome for that pair.
 - `fail` — must exit non-zero (a rejected option combination). Nothing is asserted about output.
+- `queries=N` — must exit 0 **and** the `query` column must hold at least N distinct values. For
+  a case where the failure is one query's rows going missing, which `rows` cannot see.
 
 ## Adding a case
 

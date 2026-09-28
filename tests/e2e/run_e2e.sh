@@ -35,7 +35,9 @@ FIXTURES_DIR="$SCRIPT_DIR/fixtures"
 #          least one data row; `ok` = run must succeed and write the file, but
 #          zero hits is a legitimate outcome for that pair; `fail` = the run
 #          must exit non-zero (a rejected option combination), and nothing is
-#          asserted about its output.
+#          asserted about its output; `queries=N` = run must succeed AND the
+#          `query` column of pocket_comparison.tsv must hold at least N distinct
+#          values, for a case where losing one query's rows is the failure.
 # args     passed to `pocketmapper search` verbatim (word-split on spaces).
 #          @PDB_FSDB@ expands to $POCKETMAPPER_PDB_FSDB, @CACHE@ to the shared
 #          cache dir and @OUT@ to this case's own results dir -- the last two
@@ -70,6 +72,7 @@ test_core_5|core|ok|PISA interface vs single-residue AlphaFold pocket (mouse ort
 test_core_6|core|rows|AlphaFold passthrough vs AlphaFold passthrough|P06493:A:160,161,162,163,164,165 P24941:A:160,161,162,163,164,165
 test_core_7|core|rows|Two pockets on one query chain (pisa + passthrough)|multi_pocket_chain.txt 4Q5J:B_F
 test_core_8|core|rows|Superposing on the pocket rather than the chain, with foldseek|4Q5J:A_E 4Q5J:B_F --align_struct_method pocket
+test_core_9|core|queries=2|Same-named local files in different directories|same_name.txt same_name.txt
 
 test_open_1|core|rows|PISA interface vs an open whole-chain target|4Q5J:A_E 4Q5J:B
 test_open_2|core|rows|PISA interface vs a bare structure, chain defaulting to A|4Q5J:B_F 4Q5J
@@ -89,6 +92,7 @@ test_local_3|core local|rows|Open whole-chain target on the local aligner|4Q5J:A
 test_local_4|core local|rows|Explicit pocket superposition on the local aligner|4Q5J:A_E 4Q5J:B_F --aligner seq --align_struct_method pocket
 test_local_5|core local|fail|align_struct_method foldseek rejected on the local aligner|4Q5J:A_E 4Q5J:B_F --aligner seq --align_struct_method foldseek
 test_local_6|core local|fail|Unknown align_struct_method rejected|4Q5J:A_E 4Q5J:B_F --aligner seq --align_struct_method bogus
+test_local_7|core local|queries=2|Same-named local files on the local aligner|same_name.txt same_name.txt --aligner seq
 
 test_invalid_1|core|rows|Passthrough residue id absent from the chain is skipped|invalid_residues.txt 4Q5J:B_F --aligner seq
 test_invalid_2|core|rows|Duplicated passthrough residue ids collapsed|4Q5J:A:1101,1101,1104 4Q5J:B_F --aligner seq
@@ -317,8 +321,15 @@ while IFS='|' read -r name tags expect desc args; do
     else
         rows=$(( $(wc -l < "$comparison") - 1 ))
         [ "$rows" -lt 0 ] && rows=0
+        # Distinct values of the column headed `query`
+        queries=$(awk -F'\t' 'NR == 1 { for (i = 1; i <= NF; i++) if ($i == "query") c = i; next }
+                               c { print $c }' "$comparison" | sort -u | wc -l | tr -d ' ')
         if [ "$expect" = "rows" ] && [ "$rows" -lt 1 ]; then
             printf '  FAIL  0 comparison rows after %ds (expected >=1) -- see %s\n' "$elapsed" "$log"
+            FAIL=$((FAIL + 1)); FAILED_NAMES="$FAILED_NAMES $name"
+        elif [ "${expect#queries=}" != "$expect" ] && [ "$queries" -lt "${expect#queries=}" ]; then
+            printf '  FAIL  %d distinct queries after %ds (expected >=%s) -- see %s\n' \
+                "$queries" "$elapsed" "${expect#queries=}" "$log"
             FAIL=$((FAIL + 1)); FAILED_NAMES="$FAILED_NAMES $name"
         else
             printf '  PASS  %d comparison rows in %ds\n' "$rows" "$elapsed"

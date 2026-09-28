@@ -1,0 +1,2 @@
+same_name/a/structure.cif.gz:A:1101,1104,1105,1108,1125
+same_name/b/structure.cif.gz:A:160,161,162,163,164,165

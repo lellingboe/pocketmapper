@@ -192,8 +192,8 @@ class QTProcessor:
             pocket_method (str): Pocket method to force, or "auto" to infer it from the string.
 
         Returns:
-            QTRecord: The parsed record, with `preprocess_name` set to `<basename>_<chain>_<md5>`. None,
-                with a warning, if the entry is unusable.
+            QTRecord: The parsed record, with `preprocess_name` set to `<basename>_<chain>_<md5>`, where
+                the md5 also covers a local file's contents. None, with a warning, if the entry is unusable.
         """
         # Foldseek databases have a special format and are treated differently
         if qt in self.bundled_foldseek_dbs or pocket_method == "foldseek_db":
@@ -222,12 +222,16 @@ class QTProcessor:
             return None
         struct_path = self.determine_ref_struct_path(struct_info, struct_type)
 
-        # Generate a unique name for the structure based on its components and a hash of the name
+        # Generate a unique name for the structure: a readable stem and chain, then a hash that also covers
+        # a local file's contents, since its name says nothing about which structure it holds
         input_fname = os.path.basename(struct_info).split(".")[0]
         domain_chain, _ = split_chain_info(chain_info)
         name = input_fname + "_" + domain_chain  # e.g., "P12345_A" or "1ABC_A"
-        name_md5 = hashlib.md5(name.encode()).hexdigest()
-        preprocess_name = name + "_" + name_md5
+        hash_input = name
+        if struct_type == "local_file":
+            with open(struct_path, "rb") as f:
+                hash_input += "_" + hashlib.md5(f.read()).hexdigest()
+        preprocess_name = name + "_" + hashlib.md5(hash_input.encode()).hexdigest()
         preprocess_path = os.path.join(self.foldseek_preprocessed_structure_dir, preprocess_name + ".cif")
         preprocess_path_gz = preprocess_path + ".gz"
 
