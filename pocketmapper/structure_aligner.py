@@ -71,14 +71,9 @@ class StructureAligner:
         """
         Yield short, PDB-friendly chain identifiers for aligned output.
 
-        The output structure may hold more chains than any one input, so names are generated rather than
-        reused. "0" is skipped throughout: it is reserved for the domain chain, which
-        `apply_transformation` renames so it can be found consistently across models.
-
-        Single characters are emitted first, then two-character pairs once that space is exhausted.
-
         Yields:
-            str: A unique chain label suitable for writing into the final PDB.
+            str: A unique chain label: single characters first, then two-character pairs. "0" is never
+                yielded alone; it is reserved for the domain chain.
         """
         nice_chars = string.digits + string.ascii_letters
         for x in nice_chars[1:]:  # 0 is reserved for domain names
@@ -90,8 +85,8 @@ class StructureAligner:
         """
         Apply rigid-body transforms to a set of structures and merge them.
 
-        The first structure is the reference frame. The domain chain of each input is renamed to "0" in
-        the output so it can be recognised consistently; any motif chain gets a generated name.
+        Modifies each input structure in place: its first model is transformed, its domain chain renamed
+        to "0" and any motif chain given a name from `char_gen`.
 
         Args:
             structs (list): gemmi.Structures to align and merge.
@@ -103,7 +98,7 @@ class StructureAligner:
         Returns:
             gemmi.Structure: A merged structure holding one model per input.
         """
-        # Align everything to the first struct
+        # One model per input structure
         ref_st = gemmi.Structure()
         chain_names = self.char_gen()
 
@@ -128,23 +123,13 @@ class StructureAligner:
         """
         Build an aligned multi-structure PDB from ready-made rigid-body transforms.
 
-        The general entry point: it knows nothing about where a transform came from, only how to apply it.
-        `foldseek_transform` sources them from Foldseek's whole-chain alignment; `align_structs` sources
-        them from the pocket superposition in a pocket comparison table.
-
-        The first record is the reference frame and is always placed untransformed, so `transforms[0]` is
-        ignored. Every other entry is applied to its record's whole structure.
-
-        `transforms` is positional rather than keyed by `pocket_id` on purpose: a query can be compared
-        against itself, so the reference and a target may carry the same `pocket_id`.
-
         Args:
-            aln_records (list): Ordered records, reference first. Fields read: `pocket_id`,
-                `struct_path`, `chain_info`.
-            transforms (list): Parallel to `aln_records`. Entry 0 is ignored; entry i is either a
-                `(u, t)` pair -- a 3x3 rotation in gemmi's LEFT-multiplying convention plus a 3-vector
-                translation -- or None to drop that record from the output. A caller passing None is
-                expected to have logged why.
+            aln_records (list): Ordered records, reference first; the reference is placed untransformed.
+                Fields read: `pocket_id`, `struct_path`, `chain_info`.
+            transforms (list): Parallel to `aln_records`, since the reference and a target may share a
+                `pocket_id`. Entry 0 is ignored; entry i is either a `(u, t)` pair -- a 3x3 rotation in
+                gemmi's LEFT-multiplying convention plus a 3-vector translation -- or None to drop that
+                record from the output. A caller passing None is expected to have logged why.
             out_path (str): Destination path for the aligned PDB file.
 
         Returns:
@@ -178,7 +163,7 @@ class StructureAligner:
                 else:
                     domain_chain, motif_chain = split_chain_info(record["chain_info"])
 
-                # If everything has been successful add it things to be processed
+                # Kept only once everything above succeeded
                 structs.append(struct)
                 us.append(struct_u)
                 ts.append(struct_t)
@@ -207,13 +192,6 @@ class StructureAligner:
         """
         Write a merged structure out as a PDB with a COMPND header naming each model.
 
-        Takes the records that actually made it into `aligned_struct`, not the records the caller started
-        with: a record dropped for want of a transform used to keep its COMPND entry, so the header named
-        models the file did not contain.
-
-        The chain labels must come from a fresh `char_gen()` consumed in the same order
-        `apply_transformation` consumed its own, or the header and the coordinates disagree.
-
         Args:
             kept_records (list): Records present in `aligned_struct`, in model order.
             aligned_struct (gemmi.Structure): The merged structure to write.
@@ -226,6 +204,8 @@ class StructureAligner:
 
         model_nums = (str(x) for x in count(1))
         model_names = [record["pocket_id"] for record in kept_records]
+        # A fresh generator, consumed in model order as when the chains were named, so the header
+        # matches the coordinates
         chain_names = self.char_gen()
         header = ""
         for model_num, model_name, chain_name in zip(model_nums, model_names, chain_names):
@@ -244,24 +224,18 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
         """
         Build an aligned multi-structure PDB from Foldseek-style alignment results.
 
-        The first record in `aln_records` is the reference; every other must have a row in `alignment_df`.
-        The stored Foldseek transform strings are already in the LEFT-multiplying convention `transform`
-        wants, so they are parsed and passed straight through.
-
-        The local BLOSUM62 aligner writes "-" for `u` and `t`, so every target is dropped here and the
-        output holds the query alone -- use the pocket transforms with `transform` instead (see the
-        `align_struct_method` setting).
-
         Args:
-            aln_records (list): Ordered alignment records, reference first. Fields read: `pocket_id`,
-                `preprocess_name`, `struct_path`, `chain_info`.
+            aln_records (list): Ordered alignment records, reference first; each other record needs a
+                row in `alignment_df`. Fields read: `pocket_id`, `preprocess_name`, `struct_path`,
+                `chain_info`.
             alignment_df (pandas.DataFrame): Alignment table carrying the Foldseek transforms, indexed by
                 (query, target) `preprocess_name`.
             out_path (str): Destination path for the aligned PDB file.
 
         Returns:
             str: `out_path`, once the merged PDB is written; None when no structure could be placed
-                and nothing was written.
+                and nothing was written. A target whose row has no parseable `u` and `t` -- the seq
+                aligner writes "-" -- is dropped.
         """
         query_preprocess_name = aln_records[0]["preprocess_name"]
 
@@ -269,6 +243,7 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
         for record in aln_records[1:]:
             try:
                 row = alignment_df.loc[query_preprocess_name, record["preprocess_name"]]
+                # Foldseek's u is already LEFT-multiplying, as gemmi wants
                 struct_u = np.array([float(x) for x in row["u"].split(",")]).reshape((3, 3))
                 struct_t = np.array([float(x) for x in row["t"].split(",")])
                 transforms.append((struct_u, struct_t))
@@ -282,12 +257,6 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
         """
         Pick the targets to superpose onto each query, best first.
 
-        Targets sharing no pocket residues with the query are excluded: there is no common set of
-        residues to superpose on, and their overlap metrics are empty so they would sort arbitrarily.
-        Ranking is by `jaccard_index` then `min_overlap_similarity`; a whole-chain target -- an open
-        search, or a Foldseek-DB hit -- has no jaccard_index, so it sorts to the end and is ranked by
-        the secondary key instead.
-
         Args:
             query_ids (list): Query `pocket_id`s to select for.
             pocket_comparison_df (pandas.DataFrame): Pocket comparison table.
@@ -296,8 +265,9 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
                 superposition.
 
         Returns:
-            dict: Query `pocket_id` -> its target `pocket_id`s, best first. Queries with no usable
-                target are absent.
+            dict: Query `pocket_id` -> its target `pocket_id`s sharing pocket residues with it, ranked by
+                `jaccard_index` then `min_overlap_similarity`. A whole-chain target has no jaccard_index
+                and sorts last. Queries with no usable target are absent.
         """
         qt_id_map = {}
         for query_id in query_ids:
@@ -307,9 +277,8 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
             ]
             overlapping_count = len(candidates)
             if method == "pocket":
-                # superpose fits nothing below three overlapping residues, so those targets have no
-                # transform. Drop them here rather than when writing, or they would eat align_count
-                # slots and the run would quietly produce fewer structures than asked for.
+                # Below three overlapping residues there is no transform. Dropped before ranking, so
+                # they do not take align_count slots.
                 candidates = candidates.dropna(subset=["target_to_query_u", "target_to_query_t"])
 
             target_ids = (
@@ -339,19 +308,13 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
         """
         Build target records by rebuilding the needed structures out of a Foldseek database.
 
-        How a target id names a database entry depends on the database, and the two cases are told
-        apart by whether `target_records` holds anything at all -- never per id, or one column would
-        mix entries resolved two different ways:
-
-        - With records (a PDB database, whose hits were expanded into real pockets), an id is a
-          `pocket_id` and its record's `preprocess_name` is the entry name. One pocket id can come from
-          more than one entry -- the same chain in two assemblies -- so the first is kept; an id no
-          record covers is dropped, since the caller filters those out again by structure.
-        - Without them, each id is itself an entry name.
+        Writes the rebuilt structures, and the sub-database they come from, under `out_dir`.
 
         Args:
             fsdb_path (str): Path to the Foldseek database.
-            target_records (list): Target records, or an empty list when the ids are entry names.
+            target_records (list): Target records, or an empty list when the ids are entry names. Decides
+                for the whole call how an id is read: with records, it is a `pocket_id` whose first
+                record's `preprocess_name` is the entry name, and an id no record covers is dropped.
             target_ids (list): Target ids needing a structure.
             out_dir (str): Directory to extract the structures under.
             threads (int): Thread count for the extraction.
@@ -380,8 +343,7 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
             self.log_extra,
         )
 
-        # chain_info stays None: each extracted structure holds exactly the one chain of its database
-        # entry, which `transform` takes as the domain chain.
+        # chain_info stays None: each extracted structure holds exactly the one chain of its entry
         return {
             target_id: {
                 "pocket_id": target_id,
@@ -530,14 +492,12 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
             if "query" in alignment_df.columns:
                 alignment_df = alignment_df.set_index(["query", "target"])
         else:
-            # (query, target) is unique -- compare_pockets' existing_calcs scores each pair once.
+            # Each (query, target) pair appears once in the comparison table
             pocket_transform_df = pocket_comparison_df.dropna(
                 subset=["target_to_query_u", "target_to_query_t"]
             ).set_index(["query", "target"])[["target_to_query_u", "target_to_query_t"]]
 
-        # A record list can hold the same pocket twice -- the same entry given twice on the command
-        # line. Keying by pocket_id keeps the first of each, so a query is not written twice and a
-        # target is not superposed twice into the same file.
+        # The same entry given twice gives two records; keying by pocket_id keeps the first
         query_by_id = self.records_by_id(query_records)
         if query_ids is not None:
             self.warn_unknown_ids("query", query_ids, query_by_id)
@@ -573,10 +533,8 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
             query_record = query_by_id[query_id]
             logger.debug(f"Query record for '{query_id}': {json.dumps(query_record, indent=4)}", extra=self.log_extra)
 
-            # A `target` value need not be a target: when a query and a target share a chain they
-            # share a preprocess_name, so compare_pockets pairs every pocket on that chain with every
-            # other and some rows come back with a query-only pocket_id in the `target` column. Those
-            # have no target structure to superpose, so drop them.
+            # A query and target sharing a chain put query-only pocket_ids in the `target` column.
+            # Those have no target structure to superpose.
             missing_target_ids = [t for t in query_target_ids if t not in target_by_id]
             if missing_target_ids:
                 logger.debug(
@@ -591,7 +549,7 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
             if not top_target_records:
                 continue
 
-            # The query is the reference frame every target is superposed onto, so it must lead the list.
+            # The query is the reference frame, so it leads the list
             aln_records = [query_record] + top_target_records
             out_path = os.path.join(out_dir, f"{safe_filename(query_id)}.pdb")
             if method == "foldseek":

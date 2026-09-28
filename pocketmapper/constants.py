@@ -1,16 +1,13 @@
 """
 Shared constants and declared table schemas.
 
-This module imports nothing, which is why the tables several modules must agree on live here
-rather than beside any one of their users: `ALIGNMENT_COLUMNS` and `FOLDSEEK_FORMAT_OUTPUT` are a
-positional contract between the two aligners and the comparison, and `FOLDSEEK_AA_CODES` is the
-table behind `lib.one_letter_code`. Each constant carries its own rationale above it.
+Imports nothing, so every module can import it. Tables that several modules must agree on live here
+rather than beside any one of their users.
 """
 
 # Three-letter residue names to one-letter codes, copied verbatim from Foldseek's threeToOneAA
-# (src/strucclustutils/GemmiWrapper.cpp) so local sequences match the ones Foldseek builds. Names
-# not listed map to X there, and lib.one_letter_code does the same. gemmi's tabulated codes are not
-# a substitute: they differ on 14 of these entries. Refresh this whenever Foldseek changes its table.
+# (src/strucclustutils/GemmiWrapper.cpp); names not listed map to X there. gemmi's tabulated codes
+# are not a substitute: they differ on 14 of these entries. Refresh whenever Foldseek changes its table.
 FOLDSEEK_AA_CODES = {
     "ALA": "A",
     "ARG": "R",
@@ -153,27 +150,22 @@ FOLDSEEK_AA_CODES = {
     "MGN": "Q",
 }
 
-# The logger every module's logger sits under. Nothing in the package configures the root logger.
+# The logger every module's logger sits under
 PACKAGE_LOGGER = "pocketmapper"
 
-# The format of every handler the package builds. `stage` is not a stock LogRecord attribute:
-# lib.StageFilter supplies it from the emitting function's name for any record that does not carry
-# one, so a handler using this format must run that filter.
+# The format of every handler the package builds. `stage` is not a stock LogRecord attribute, so a
+# handler using this format needs lib.StageFilter.
 LOG_FORMAT = "%(levelname)s: %(stage)s - %(msg)s"
 
 
-# Appended to every error/warning about a missing foldseek binary, so the install line is
-# written once. Foldseek is an optional external dependency and is never bundled.
+# Install instructions for the foldseek binary, an optional dependency that is never bundled
 FOLDSEEK_INSTALL_HINT = (
     "Install it with: conda install -c conda-forge -c bioconda foldseek "
     "(precompiled binaries: https://dev.mmseqs.com/foldseek/)."
 )
 
-# The alignment table's columns, in order. This is a positional contract shared by three modules:
-# foldseek_alignment passes FOLDSEEK_FORMAT_OUTPUT to Foldseek's --format-output, the local
-# SequenceAligner builds the same columns in the same order, and pocket_comparison unpacks each row
-# positionally into an AlignmentRow. Reordering this list moves all three together; editing any one
-# of them in isolation breaks the comparison silently, which is why the list lives here.
+# The alignment table's columns, in order. The order is a positional contract, as binding as the
+# names: add, remove or reorder a column here, never in one producer or reader alone.
 ALIGNMENT_COLUMNS = [
     "query",
     "target",
@@ -197,9 +189,8 @@ ALIGNMENT_COLUMNS = [
 
 FOLDSEEK_FORMAT_OUTPUT = ",".join(ALIGNMENT_COLUMNS)
 
-# The transform sources step 8 can actually use, and the methods the setting accepts. "auto" is
-# resolved to one of the other two by resolve_align_struct_method before anything downstream reads it,
-# so StructureAligner.align_structs validates against the resolved pair rather than the whole set.
+# The transforms a structure can be superposed by, and the values the setting accepts. "auto" is
+# resolved to one of the other two at run time.
 RESOLVED_ALIGN_STRUCT_METHODS = ("pocket", "foldseek")
 ALIGN_STRUCT_METHODS = ("auto",) + RESOLVED_ALIGN_STRUCT_METHODS
 
@@ -222,12 +213,8 @@ DEFAULT_DELETE_TMP = True
 DEFAULT_CHAIN = "A"
 
 
-# The one part of `search --help` that argparse cannot generate: the examples. Every option,
-# including the twelve paths, is now built from the parser in cli.py, so nothing about them is
-# duplicated here. It hangs off the `search` subparser only -- the bare `pocketmapper --help` lists
-# subcommands and nothing else. Kept to 80 columns. Anything longer -- the input grammar, the
-# databases, the output columns, the choice of aligner -- lives in the README, which the footer
-# points at.
+# The examples for `search --help`, the one part argparse cannot generate. Kept to 80 columns;
+# anything longer belongs in the README, which the footer points at.
 CLI_SEARCH_EPILOG = """
 Examples:
   # One pair, aligned with Foldseek (the binary must be installed).

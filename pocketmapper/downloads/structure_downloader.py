@@ -50,7 +50,9 @@ class StructureDownloader:
 
     def download_missing_structures(self, records):
         """
-        Concurrently fetch multiple structures based on query records.
+        Concurrently fetch the structures a list of records names.
+
+        Writes each structure to its record's `struct_path`, unless a file is already there.
 
         Args:
             records (list of dict): A list of dictionaries, where each dict has:
@@ -89,7 +91,7 @@ class StructureDownloader:
             case "local_file":
                 return (record["struct_info"], True)
             case "foldseek_db":
-                # We assume that the foldseek db is already downloaded and available at the specified path, so we just check if the file exists
+                # Not fetched here
                 return (record["struct_info"], True)
             case _:
                 logger.warning(

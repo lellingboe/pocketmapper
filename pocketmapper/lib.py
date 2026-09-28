@@ -2,8 +2,8 @@
 Generic, stateless helpers shared across PocketMapper.
 
 Nothing here knows about the pipeline, Settings, or the Pocket shape -- each function takes
-plain values and returns plain values. Workflow logic belongs in the component modules
-(pocket_comparison, sequence_aligner, ...) rather than here.
+plain values and returns plain values. Workflow logic belongs in the component modules rather than
+here.
 """
 
 import gzip
@@ -23,8 +23,8 @@ class StageFilter(logging.Filter):
     """
     Supply a missing `stage` attribute from the name of the function that logged the record.
 
-    `LOG_FORMAT` interpolates `%(stage)s`, which is not a stock LogRecord attribute, so a record
-    logged without `extra={"stage": ...}` fails to format without this filter.
+    `LOG_FORMAT` interpolates `%(stage)s`, which is not a stock LogRecord attribute, so without this
+    filter a record logged with no `extra={"stage": ...}` fails to format.
     """
 
     def filter(self, record):
@@ -79,23 +79,16 @@ def safe_filename(name, max_len=80):
     """
     Build a filesystem-safe filename stem from a pocket_id.
 
-    A pocket_id is a raw input string, so it may be a path ("/data/foo.cif.gz:B_F") and may embed a
-    long comma-separated residue list (passthrough/VDW queries). Only the basename is kept -- a stem
-    with a directory component in it resolves outside the directory the caller joins it onto -- and
-    every remaining character outside [A-Za-z0-9._-] becomes "_".
-
-    Both of those steps are lossy, and truncation to max_len is lossy again, so an md5 of the full
-    original name is always appended: without it two distinct pocket_ids can reduce to one filename
-    and silently overwrite each other. A consequence is that the resulting files are not greppable
-    for the input string -- match on the `MOLECULE` records inside them instead.
-
     Args:
-        name (str): The pocket_id, or any raw input string.
+        name (str): The pocket_id, or any raw input string, which may be a path.
         max_len (int): Ceiling on the result's length. Defaults to 80.
 
     Returns:
-        str: A safe stem, at most max_len characters (or 32, if max_len leaves no room).
+        str: The basename of `name` with every character outside [A-Za-z0-9._-] replaced by "_",
+            truncated, and suffixed with an md5 of the full `name` so distinct names never collide.
+            At most max_len characters (or 32, if max_len leaves no room).
     """
+    # Basename only: a stem with a directory in it would resolve outside the directory it is joined onto
     name_hash = hashlib.md5(name.encode()).hexdigest()
     stem = UNSAFE_FILENAME_CHARS.sub("_", os.path.basename(name.rstrip("/")))
     stem = stem[: max(max_len - len(name_hash) - 1, 0)].rstrip("_")
@@ -122,20 +115,13 @@ def is_within(path, roots):
     """
     Report whether a path resolves to somewhere inside one of `roots`.
 
-    Guards deletions of user-settable directories. Every path in Settings can be pointed anywhere by
-    a settings file or a command-line option, so a caller about to remove one needs to know it is
-    removing something this run created rather than a directory the user named by mistake.
-
-    Both sides are resolved with `os.path.realpath` before comparing, so `..` segments and symlinks
-    cannot walk out of a root and then appear to be inside it. A root equal to the path counts as
-    containing it.
-
     Args:
         path (str): The path to test.
         roots (list): Candidate containing directories; only one has to match.
 
     Returns:
-        bool: True if `path` is inside (or equal to) any of `roots`.
+        bool: True if `path` is inside (or equal to) any of `roots`, both sides resolved with
+            `os.path.realpath` so `..` segments and symlinks cannot walk out of a root.
     """
     real_path = os.path.realpath(path)
     for root in roots:
@@ -154,16 +140,13 @@ def binary_similarity(seqA, seqB, similarity_matrix):
     """
     Fraction of positions where two aligned sequences score above zero.
 
-    Each position scores 1 if its substitution score is positive and 0 otherwise, so this measures
-    how much of the sequence is conservatively substituted rather than how strongly.
-
     Args:
         seqA (str): First sequence; must be the same length as seqB.
         seqB (str): Second sequence.
         similarity_matrix (dict): Nested residue -> residue -> score.
 
     Returns:
-        float: Score in 0..1, normalised by sequence length.
+        float: Score in 0..1: how much of the sequence is conservatively substituted, not how strongly.
     """
     seqA = seqA.replace("U", "X").upper()
     seqB = seqB.replace("U", "X").upper()
@@ -177,16 +160,14 @@ def full_similarity(seqA, seqB, similarity_matrix):
     """
     Substitution score of two aligned sequences, normalised per position.
 
-    Each position's score is divided by the score of seqA's residue against itself, so a perfect
-    match scores 1 regardless of how strongly that residue is conserved.
-
     Args:
         seqA (str): First sequence; must be the same length as seqB.
         seqB (str): Second sequence.
         similarity_matrix (dict): Nested residue -> residue -> score.
 
     Returns:
-        float: Mean normalised score over the sequence.
+        float: Mean over positions of the score divided by seqA's residue scored against itself, so a
+            perfect match scores 1 however strongly that residue is conserved.
     """
     seqA = seqA.replace("U", "X").upper()
     seqB = seqB.replace("U", "X").upper()
@@ -201,19 +182,14 @@ def read_blast_similarity_matrix(similarity_matrix_path, delimiter=" "):
     """
     Read a BLAST-format substitution matrix into a nested dict.
 
-    Comment lines are skipped and the first remaining line is taken as the residue header, which also
-    fixes the row order. Scores are stored symmetrically, so either lookup order works.
-
-    A gap row and column are added that the file does not carry: "-" against any residue scores -4
-    and against itself -1, so a caller can score an alignment containing gaps without special-casing
-    them.
-
     Args:
-        similarity_matrix_path (str): Path to the matrix file.
+        similarity_matrix_path (str): Path to the matrix file. Comment lines are skipped and the first
+            remaining line is the residue header, which also fixes the row order.
         delimiter (str): Column separator. The default " " splits on any whitespace run.
 
     Returns:
-        dict: Nested residue -> residue -> float score, including the "-" gap entries.
+        dict: Nested residue -> residue -> float score, stored symmetrically. Adds a "-" gap row and
+            column the file does not carry: -4 against any residue, -1 against itself.
     """
     similarity_matrix = {}
     file_content = open(similarity_matrix_path).read().strip().split("\n")
@@ -270,18 +246,13 @@ def parse_foldseek_pdb_entry_name(name):
     """
     Resolve a Foldseek PDB-database entry name into the PDB ID and chain it came from.
 
-    The assembly number and any chain-copy suffix are discarded, so "5ian-assembly1_B-2" and
-    "5ian-assembly2_B" both resolve to ("5IAN", "B"). The PDB ID is upper-cased to match the form
-    QTProcessor derives from user input, so a structure already fetched for a query is reused rather
-    than downloaded a second time.
-
     Args:
         name (str): A Foldseek database entry name.
 
     Returns:
-        tuple: (pdb_id, chain), or None for anything that is not a PDB-style entry name -- which is
-            also how a caller tells a PDB Foldseek database apart from one built on something else
-            (e.g. human_domains).
+        tuple: (pdb_id, chain), with pdb_id upper-cased and the assembly number and any chain-copy
+            suffix discarded -- "5ian-assembly1_B-2" and "5ian-assembly2_B" both give ("5IAN", "B").
+            None for a name that is not PDB-style.
     """
     match = FOLDSEEK_PDB_ENTRY.match(name)
     if match is None:
@@ -293,18 +264,9 @@ def split_chain_info(chain_info):
     """
     Split a chain_info field into its domain chain and its motif chain.
 
-    chain_info is the middle field of an input entry ("4Q5J:B_F"): either a lone chain, or a pair joined
-    by an underscore where the first chain carries the pocket and the second is its binding partner.
-    Callers used to derive the domain chain by indexing the string ("A_B"[0]), which truncates any chain
-    id longer than one character. The input patterns in `QTProcessor.__init__` spell a chain as a single
-    character, and `QTProcessor.validate_pocket_method` now holds a forced --query_pocket_method to them
-    too, so "4Q5J:AA_BB" is rejected rather than silently resolving to chain "A". This splits on the
-    separator regardless, so a caller building records itself gets "AA" rather than a truncation.
-
     Args:
-        chain_info (str): The chain field, "A" or "A_B". Not optional -- the one caller that can see a
-            None (`StructureAligner.transform`, for Foldseek-database records) means "the first chain in
-            the file" by it, which is an index rather than a name, and handles that itself.
+        chain_info (str): The middle field of an input entry: a lone chain "A", or "A_B" where A carries
+            the pocket and B is its binding partner. Chains of any length split correctly. Not None.
 
     Returns:
         tuple: (domain_chain, motif_chain); motif_chain is None when the entry named no partner.
@@ -335,19 +297,13 @@ def seq_to_uniprot_map(domain):
     """
     Map each 0-indexed position of a domain onto its 1-indexed UniProt position.
 
-    A domain carved out of a UniProt sequence need not be contiguous, which is why the spec is a list
-    of regions rather than a single offset: 8,961 of the 65,792 entries in the bundled human-domains
-    table are discontiguous, and a scalar offset cannot express those at all.
-
-    The result is monotonically increasing and injective as long as the regions are increasing and
-    non-overlapping, which every shipped spec is. Callers rely on both: `synthesise_target_pocket`
-    keys a dict by these values, so a repeated position would silently drop residues.
-
     Args:
-        domain (str): start1-stop1_start2-stop2_... in UniProt coords, 1-indexed and inclusive.
+        domain (str): start1-stop1_start2-stop2_... in UniProt coords, 1-indexed and inclusive. A
+            domain need not be contiguous, hence a list of regions rather than one offset.
 
     Returns:
-        dict: 0-indexed domain position -> 1-indexed UniProt position.
+        dict: 0-indexed domain position -> 1-indexed UniProt position. Increasing and injective as long
+            as the regions are increasing and non-overlapping.
     """
     regions = domain.split("_")
     seq_pos_to_uniprot_pos = {}
@@ -364,19 +320,11 @@ def read_offset_table(path):
     """
     Read an offset table: the UniProt coordinates of every entry in a Foldseek database.
 
-    The table ships beside the database it describes and is keyed by the same entry names the
-    database's `.lookup` file carries, which are also what lands in the alignment table's `target`
-    column. Values are the region specs `seq_to_uniprot_map` parses.
-
-    The whole table is read rather than sampled: it is 65,792 rows and ~1.9MB for the bundled
-    human-domains database, which is a few tens of milliseconds and well under the cost of the search
-    it accompanies.
-
     Args:
         path (str): Path to the tab-separated table. Its header row is discarded.
 
     Returns:
-        dict: entry name -> region spec.
+        dict: database entry name -> region spec, as `seq_to_uniprot_map` parses.
     """
     offsets = {}
     with open(path) as f:

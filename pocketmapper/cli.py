@@ -36,8 +36,7 @@ from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.lib import format_handler
 from pocketmapper.pocketmapper import PocketMapper
 
-# Accepted spellings for a boolean option value. Fire used to `ast.literal_eval` the token, so
-# the True/False spellings must keep working exactly as written.
+# Accepted spellings for a boolean option value, matched case-insensitively
 TRUE_VALUES = ("true", "1", "yes")
 FALSE_VALUES = ("false", "0", "no")
 
@@ -66,13 +65,6 @@ def bool_arg(value):
 def build_parser():
     """
     Build the top-level parser and its one `search` subcommand.
-
-    Option help here is the whole per-option reference -- it is what `search --help` prints, so it
-    must stay in step with the `Settings` dataclass and the README's Options tables. Every `Settings`
-    field is reachable from here; the job file is a convenience, never the only route to one.
-    Only what argparse cannot generate (the examples) lives in `CLI_SEARCH_EPILOG`, which hangs off
-    the `search` subparser alone: the bare `pocketmapper --help` is the subcommand list and nothing
-    more.
 
     Returns:
         argparse.ArgumentParser: The configured parser.
@@ -277,12 +269,8 @@ def cli(argv=None):
     """
     Console-script entry point.
 
-    Adds the console handler to the `pocketmapper` logger for the length of the call; `search()`
-    sets that logger's level from `verbosity`.
-
-    Exits 1 on `PocketMapperError`, which has already been logged with full stage context at the raise
-    site. Modules raise rather than calling `exit()` precisely so the package stays embeddable -- keep
-    it that way when adding error paths, and keep every exit in this module.
+    Adds a stdout handler to the `pocketmapper` logger for the length of the call. Calls `sys.exit(1)`
+    on a `PocketMapperError`.
 
     Args:
         argv (list, optional): Argument list to parse. Defaults to sys.argv[1:].
@@ -293,8 +281,7 @@ def cli(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    # No subcommand is not an error: fire printed its group help and exited 0 here, and CI's compat
-    # job runs the bare entry point to prove the install works.
+    # No subcommand is not an error: print the help and exit 0
     if args.command is None:
         parser.print_help()
         return
@@ -330,7 +317,7 @@ def cli(argv=None):
             fsdb_dir=args.fsdb_dir,
         )
     except PocketMapperError:
-        # Already logged with full stage context at the raise site.
+        # Already logged at the raise site
         sys.exit(1)
     finally:
         package_logger.removeHandler(handler)

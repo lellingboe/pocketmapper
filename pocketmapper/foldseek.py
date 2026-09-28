@@ -26,14 +26,13 @@ def check_foldseek():
     """
     Report whether the Foldseek binary is installed and runnable.
 
-    Probes by actually running `foldseek -h`, which exits 0 without touching any input, rather than
-    only resolving the name off PATH: a binary that is present but not executable, built for another
-    architecture, or on a noexec mount resolves fine and then fails at the first real subcommand.
-    Foldseek's output is discarded and nothing is raised; the reason for a False is logged at debug.
+    Runs `foldseek -h`, discarding its output. The reason for a False is logged at debug.
 
     Returns:
         bool: True if `foldseek -h` ran and exited 0.
     """
+    # Run rather than only resolved off PATH: a binary that is not executable, built for another
+    # architecture or on a noexec mount resolves fine and fails at the first real subcommand
     try:
         subprocess.run(
             [FOLDSEEK_BINARY, "-h"],
@@ -51,8 +50,7 @@ def run_foldseek(args, log_extra=None):
     """
     Run one Foldseek subcommand, logging the command first and raising on failure.
 
-    Output is not captured, so Foldseek writes its own progress to stdout/stderr. Verbosity is
-    Foldseek's to control, through whatever flags `args` carries.
+    Output is not captured, so Foldseek writes its own progress to stdout/stderr.
 
     Args:
         args (list): The subcommand and its arguments, without the binary name; it is prepended here.
@@ -84,10 +82,6 @@ def run_foldseek(args, log_extra=None):
 def extract_fsdb_structures(db_path, entry_names, out_dir, threads, log_extra=None):
     """
     Rebuild PDB files for named entries of a Foldseek database.
-
-    Carves the requested entries out into a sub-database and converts that to one PDB per entry, which
-    is the only way back to coordinates for a database target: the database stores structures in its own
-    encoding and the original files are not kept.
 
     Writes two directories under `out_dir`: `fsdb/` for the sub-database and its input list, and
     `fsdb_structures/` for the PDBs. Both are created if missing.
@@ -140,17 +134,14 @@ def bundled_human_domains_path(filename):
     """
     Resolve a file shipped in the package's `human_domains` directory.
 
-    Anchored on the `pocketmapper` package rather than on `human_domains` itself: that directory holds
-    only Foldseek DB files and has no __init__.py, so passing it to `files()` resolves a namespace
-    package, which importlib.resources only learned to handle in 3.12. Going through the parent regular
-    package works on every supported version.
-
     Args:
         filename (str): Name of the file within the `human_domains` directory.
 
     Returns:
         str: Absolute path to that file.
     """
+    # Anchored on the parent package: `human_domains` has no __init__.py, and importlib.resources only
+    # resolves a namespace package from 3.12
     return str(files("pocketmapper").joinpath("human_domains", filename))
 
 
@@ -166,12 +157,9 @@ def bundled_foldseek_dbs(fsdb_dir):
     """
     The Foldseek database names accepted in place of a structure, mapped to what is known about each.
 
-    Takes `fsdb_dir` rather than being a constant because `pdb` is downloaded into it on first use, so
-    its path is not known until the cache directory is settled. `human_domains` ships inside the
-    package and is fixed at import.
-
     Args:
-        fsdb_dir (str): Cache directory for downloaded Foldseek databases.
+        fsdb_dir (str): Cache directory for downloaded Foldseek databases, where `pdb` is placed.
+            `human_domains` ships inside the package.
 
     Returns:
         dict: DB name -> {"db_path": path to the database, "offset_path": path to the UniProt offset

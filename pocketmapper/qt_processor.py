@@ -9,7 +9,7 @@ in `QTProcessor.__init__`. A caller may force a pocket method instead of the def
 the chains and residues its method reads.
 
 The original input string is kept verbatim as `pocket_id`, which is the identifier used throughout
-the results. Orchestration lives in `pocketmapper.py`; this module only parses.
+the results. This module only parses.
 """
 
 # TODO Folder input - iterate through files in folder with correct format
@@ -79,8 +79,7 @@ class QTProcessor:
             fsdb_dir (str): Directory holding downloaded Foldseek databases, used to locate the
                 bundled `pdb` database.
         """
-        # Held on the instance, not built per function: process_qt_cmdline_input names the side
-        # being processed and the determine_* helpers it drives all log under that name.
+        # On the instance so every helper logs under the side process_qt_cmdline_input names
         self.log_extra = {"stage": "Processing Inputs"}
         logger.debug("Started")
 
@@ -93,19 +92,14 @@ class QTProcessor:
         self.uniprot_regex = r"^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})$"  # https://www.uniprot.org/help/accession_numbers
 
         # Pocket method -> (the pocket-info pattern that spells it, what an entry must carry to use
-        # it). Every pattern spells a chain as a single character, which is what lib.split_chain_info
-        # relies on. One table for both directions: determine_pocket_method picks the first method
-        # whose pattern the entry matches, and validate_pocket_method checks an entry against the
-        # pattern of the method it was given, so an inferred method and a forced one cannot disagree.
+        # it). Every pattern spells a chain as a single character. Both inference and validation read
+        # this one table, so an inferred method and a forced one cannot disagree.
         self.pocket_methods = {
             "whole_chain": (r"^[A-Za-z0-9]?\:?$", "a single chain and no residue list, e.g. '4Q5J:B'"),
             "pisa": (r"^[A-Za-z0-9]_[A-Za-z0-9]$", "a chain pair, e.g. '4Q5J:B_F'"),
             "passthrough": (r"^[A-Za-z0-9]\:(\d+\,?)+$", "a chain and a residue list, e.g. '4Q5J:A:10,11,12'"),
-            # The partner chain is required, though vdw is tried last and a bare chain would be
-            # claimed by whole_chain long before reaching it. That made the pattern's optional
-            # partner unreachable when inferring, and wrong when validating: a forced vdw on "4Q5J:A"
-            # matched, then reached gemmi as chain None. A trailing residue list still matches and is
-            # still ignored -- the contacts are what define the pocket.
+            # The partner chain is required. A trailing residue list matches but is ignored: the
+            # contacts define the pocket.
             "vdw": (r"^[A-Za-z0-9]_[A-Za-z0-9](\:(\d+\,?)*)?$", "a chain pair, e.g. '4Q5J:A_B'"),
         }
 
@@ -125,12 +119,9 @@ class QTProcessor:
         """
         The pocket method values a caller may pass, in the order they are reported.
 
-        Wider than the keys of `pocket_methods` by "auto", which infers the method from each entry,
-        and by "foldseek_db", which names a whole database rather than a way of deriving a pocket from
-        a structure. Neither has a pocket-info pattern of its own.
-
         Returns:
-            tuple: The accepted `pocket_method` values.
+            tuple: The keys of `pocket_methods`, plus "auto" (infer per entry) and "foldseek_db" (a
+                whole database), neither of which has a pocket-info pattern.
         """
         return ("auto",) + tuple(self.pocket_methods) + ("foldseek_db",)
 
@@ -138,7 +129,8 @@ class QTProcessor:
         """
         Parse one side of the comparison -- a query or a target -- into a DataFrame of `QTRecord`s.
 
-        Call it once per side; `name` only labels the side in log messages and errors.
+        Sets the instance's log stage to name this side, so later calls to any method log under it.
+        An entry that cannot be parsed is skipped with a warning.
 
         Args:
             qt_input (str): A query or target string ("struct_info:chain_info:residue_info"), or a
@@ -174,9 +166,8 @@ class QTProcessor:
             raise PocketMapperError(msg)
 
         records = []
-        if pocket_method != "foldseek_db" and os.path.isfile(
-            qt_input
-        ):  # if it's a file, process each line as a separate query/target
+        # A file holds one entry per line
+        if pocket_method != "foldseek_db" and os.path.isfile(qt_input):
             try:
                 with open(qt_input) as f:
                     for line in f.readlines():
@@ -187,18 +178,13 @@ class QTProcessor:
         else:
             records.append(self.parse_individual_qt(qt_input, pocket_method=pocket_method))
 
-        records = [
-            r for r in records if r is not None
-        ]  # removing any None entries that may have been added due to errors
+        # None marks an entry that could not be parsed
+        records = [r for r in records if r is not None]
         return pd.DataFrame([asdict(r) for r in records])
 
     def parse_individual_qt(self, qt, pocket_method):
         """
         Parse one input string into a `QTRecord`.
-
-        Also computes `preprocess_name` -- `<basename>_<chain><md5>` -- which is the key alignments are
-        stored under, while pockets are keyed by `pocket_id`. One `preprocess_name` can serve several
-        pocket_ids, since the same chain can carry more than one pocket.
 
         Args:
             qt (str): One input entry, "struct_info:chain_info:residue_info", or the name of a Foldseek
@@ -206,8 +192,8 @@ class QTProcessor:
             pocket_method (str): Pocket method to force, or "auto" to infer it from the string.
 
         Returns:
-            QTRecord: The parsed record, or None if the structure type or pocket method could not be
-                determined -- both are logged as warnings so one bad line does not abort the batch.
+            QTRecord: The parsed record, with `preprocess_name` set to `<basename>_<chain>_<md5>`. None,
+                with a warning, if the entry is unusable.
         """
         # Foldseek databases have a special format and are treated differently
         if qt in self.bundled_foldseek_dbs or pocket_method == "foldseek_db":
@@ -225,9 +211,7 @@ class QTProcessor:
         chain_info = parts[1] if len(parts) > 1 else None
         residue_info = parts[2] if len(parts) > 2 else None
 
-        # An entry that names no chain is an open search over DEFAULT_CHAIN. A chain is still required
-        # downstream -- preprocess_name bakes it in, and the pocket methods all index by it -- so fill
-        # it in here rather than carrying a None through the pipeline.
+        # An entry that names no chain is an open search over DEFAULT_CHAIN
         if not chain_info:
             chain_info = DEFAULT_CHAIN
 
@@ -254,15 +238,11 @@ class QTProcessor:
             logger.warning(f"Could not determine pocket method for {qt}", extra=self.log_extra)
             return None
 
-        # Run unconditionally rather than only for a forced method: for an inferred one it is a
-        # tautology, since the method was chosen by the pattern it is checked against, and running it
-        # either way makes "a record carries what its pocket method needs" hold for every record.
+        # Also run for an inferred method, where it is a tautology, so every record is checked
         if not self.validate_pocket_method(qt, resolved_pocket_method, struct_type):
             return None
 
-        # The residue list IS the pocket on the passthrough path, so it is normalised here rather than
-        # where the pocket is built -- before any structure is fetched. The pattern above has already
-        # established that there is a list; what is left is the ids it holds.
+        # The residue list is the passthrough pocket, so it is checked before any structure is fetched
         if resolved_pocket_method == "passthrough":
             residue_info = self.parse_residue_info(qt, residue_info)
             if residue_info is None:
@@ -289,20 +269,14 @@ class QTProcessor:
         """
         Normalise a passthrough entry's residue list.
 
-        Rejects a list that cannot name residues at all -- absent, or holding anything but positive
-        integers -- and collapses repeats. A repeat would otherwise reach `Pocket.res_auth_ids` twice
-        and pair the two sides of a comparison off by one, with no error. Both checks still earn their
-        place next to the passthrough pattern, which requires a list of digits: the absent case because
-        this method is usable on its own, and the integer case because "0" is digits and is not a
-        residue id.
-
         Args:
             qt (str): The whole input entry, named in the log messages.
             residue_info (str | None): The entry's `residue_info` portion.
 
         Returns:
-            str: The comma-joined residue ids, repeats dropped and the typed order kept, or None if
-                the list is unusable -- logged as a warning, so one bad entry does not abort a batch.
+            str: The comma-joined residue ids in canonical form, repeats dropped (with a warning) and the
+                typed order kept. None, with a warning, if the list is absent or holds anything but
+                positive integers.
         """
         if not residue_info:
             logger.warning(
@@ -322,6 +296,7 @@ class QTProcessor:
                 )
                 return None
             res_id = str(int(res_id))  # Canonical, so "07" and "7" are recognised as the same residue
+            # A repeat would pair the two sides of a comparison off by one
             if res_id in res_ids:
                 if res_id not in duplicates:  # An id repeated three times is still one message
                     duplicates.append(res_id)
@@ -339,15 +314,12 @@ class QTProcessor:
         """
         Classify a structure identifier as "pdb", "alphafold" or "local_file".
 
-        The regexes are tried before the filesystem check, so an identifier that also happens to name a
-        file in the working directory is still read as an accession.
-
         Args:
             struct_str (str): The `struct_info` portion of an input entry.
 
         Returns:
             str: One of "pdb", "alphafold", "local_file", or None if nothing matched (logged as a
-                warning).
+                warning). Accession patterns win over a file of the same name.
 
         Raises:
             PocketMapperError: If `struct_str` names a directory, which is not supported.
@@ -406,19 +378,13 @@ class QTProcessor:
         """
         Determine the pocket method from the entry's pocket info and structure type.
 
-        An entry that names no pocket -- a bare chain, or no chain at all -- is an open search:
-        "whole_chain", meaning every CA-bearing residue of the chain is treated as the pocket.
-
-        Which methods are reachable depends on the structure type, as `struct_type_pocket_methods`
-        lays out: PISA is PDB-only, so a local file with a chain pair resolves to "vdw" instead, and
-        an AlphaFold model, being a single chain, reaches neither "pisa" nor "vdw".
-
         Args:
             qt_str (str): The full input entry; everything after the first ":" is the pocket info.
             struct_type (str): As returned by `determine_struct_type`.
 
         Returns:
-            str: One of "whole_chain", "pisa", "passthrough", "vdw", or None if no pattern matched.
+            str: The first of `struct_type_pocket_methods[struct_type]` whose pattern matches -- so
+                "whole_chain" for an entry naming no pocket -- or None if none does.
         """
         pocket_info_str = self.pocket_info(qt_str)
         logger.debug(f"Determining pocket method for {pocket_info_str} using regex patterns", extra=self.log_extra)
@@ -431,18 +397,14 @@ class QTProcessor:
         """
         Check that an entry can supply what its pocket method needs.
 
-        Two ways it cannot: the method is unavailable for this kind of structure -- PISA needs the
-        PDB's interface data, and a chain pair means nothing on a single-chain AlphaFold model -- or
-        the entry does not spell the chains and residues the method reads.
-
         Args:
             qt_str (str): The full input entry, named in the log messages.
             pocket_method (str): The method resolved for it, inferred or forced.
             struct_type (str): As returned by `determine_struct_type`.
 
         Returns:
-            bool: True if the entry is usable, False if it is not -- logged as a warning, so one bad
-                entry does not abort a batch.
+            bool: True if the entry is usable. False, with a warning, if the method is unavailable for
+                `struct_type` or the entry does not spell the chains and residues the method reads.
         """
         supported = self.struct_type_pocket_methods.get(struct_type, ())
         if pocket_method not in supported:

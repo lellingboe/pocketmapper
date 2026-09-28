@@ -55,17 +55,13 @@ def is_transient_error(error):
     """
     Decide whether a failed request is worth another attempt.
 
-    An HTTP status counts as transient only when it describes the server or the moment: any 5xx,
-    plus the 408, 425 and 429 timing statuses. Every other 4xx describes the request itself, so a
-    missing entry costs one attempt rather than the whole retry budget. Failures below HTTP --
-    name resolution, refused or reset connections, timeouts and short reads -- are all transient.
-    Anything else, including a local filesystem failure while writing the file, is permanent.
-
     Args:
         error (BaseException): The exception raised by the failed attempt.
 
     Returns:
-        bool: True if repeating the request could plausibly succeed.
+        bool: True for any 5xx, a 408, 425 or 429, and failures below HTTP -- name resolution, refused
+            or reset connections, timeouts and short reads. False for every other 4xx and anything
+            else, including a local filesystem failure while writing the file.
     """
     # HTTPError first: it subclasses URLError, so the isinstance below would otherwise claim it.
     if isinstance(error, HTTPError):
@@ -161,9 +157,8 @@ def download_file(url, out_fpath, transform=None, max_retries=5, base_delay=0.25
     """
     Download `url` to `out_fpath`, retrying transient failures with exponential backoff.
 
-    Requests are not paced: a delay is waited only after a failed attempt, starting at `base_delay`
-    and doubling up to `max_delay`. A permanent failure such as a 404 gives up after the first
-    attempt. Nothing is shared between calls, so any number may run concurrently.
+    Sleeps only after a failed attempt, starting at `base_delay` and doubling up to `max_delay`. Holds
+    no state between calls, so any number may run concurrently.
 
     Args:
         url (str): Address to fetch.

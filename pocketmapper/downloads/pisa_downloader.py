@@ -77,10 +77,9 @@ class PisaDownloader:
         """
         Populate the interface cache for a list of PDB entries.
 
-        Entries already cached in `interface_dir` are skipped, so only the missing ones cost requests.
-        The remainder are taken through all four stages -- summaries downloaded then parsed for the
-        assembly ids, assemblies downloaded then flattened. The three directories are created if they
-        do not exist.
+        Entries already in `interface_dir` cost no requests. For the rest, creates the three
+        directories if needed, caches the summaries and assembly responses, writes one
+        `<pdb_code>.json` per entry into `interface_dir`, and writes `error_path` if anything failed.
 
         Args:
             pdb_list (list): PDB codes, in any case.
@@ -92,8 +91,7 @@ class PisaDownloader:
         Returns:
             dict: Stage name -> the ids that stage could not handle, keyed `summary_downloading`,
                 `summary_parsing`, `assembly_downloading` and `assembly_parsing`. A stage with
-                nothing to report is absent, so an empty dict means a clean run. Writes one
-                `<pdb_code>.json` per entry into `interface_dir`.
+                nothing to report is absent, so an empty dict means a clean run.
         """
 
         existing_files = glob(r"*.json", root_dir=interface_dir)
@@ -197,8 +195,8 @@ class PisaDownloader:
         """
         Download the PISA interfaces for every assembly of every entry.
 
-        One request per assembly, paced by the shared downloader. An assembly already on disk counts
-        as a success without costing a request.
+        Writes one response per assembly into `asm_dir`. An assembly already there counts as a success
+        without costing a request.
 
         Args:
             asm_dict (dict): pdb_code -> list of assembly ids, as returned by `parse_summaries`.
@@ -227,14 +225,9 @@ class PisaDownloader:
         """
         Flatten each entry's assemblies into one interface file keyed by chain pair.
 
-        Interfaces from every assembly of an entry are merged into a single dict keyed by the two chain
-        ids sorted and concatenated (e.g. "BF"), which is how `PisaParser` looks them up. Where two
-        assemblies describe the same chain pair the later one wins, and an entry left with no usable
-        interface gets no file at all.
-
-        Only two-molecule interfaces with single-character chain ids are kept -- a pocket is defined
-        against exactly one partner chain, and multi-character ids do not survive the concatenated key.
-        Skipping one is routine, so it is reported alongside the genuine failures rather than raised.
+        Writes `<pdb_code>.json` into `interface_dir` for each entry with at least one usable interface:
+        every assembly's interfaces merged into one dict keyed by the two chain ids sorted and
+        concatenated (e.g. "BF"), a later assembly winning on a repeated pair.
 
         Args:
             asm_dict (dict): pdb_code -> list of assembly ids.
@@ -244,8 +237,8 @@ class PisaDownloader:
         Returns:
             list: What did not make it into a file -- `<pdb_code>_<assembly_id>` for an assembly that
                 could not be read, `<pdb_code>_<assembly_id>_parse_error` for one that raised, and
-                `<pdb_code>_<assembly_id>_<interface_id>` for each skipped interface. Writes one
-                `<pdb_code>.json` per entry that has at least one usable interface.
+                `<pdb_code>_<assembly_id>_<interface_id>` for each interface skipped for not having
+                exactly two molecules with single-character chain ids.
         """
         logger.info(
             f"Parsing {sum(len(v) for v in asm_dict.values())} PISA assemblies into per-interface files",
@@ -281,7 +274,8 @@ class PisaDownloader:
                             )
                             failure.append(f"{pdb_code}_{asm_id}_{interface_id}")
                             continue
-                        # Checking the chain ids are single character
+                        # Checking the chain ids are single character: longer ones would not survive the
+                        # concatenated key
                         # TODO - Find a way to handle multi character chain ids
                         chain_ids = []
                         for molecule in interface["molecules"]:

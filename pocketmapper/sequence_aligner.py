@@ -2,9 +2,8 @@
 Local pairwise sequence alignment, the `--aligner seq` alternative to Foldseek.
 
 Biopython's PairwiseAligner over BLOSUM62 stands in for the structural aligner and produces the
-same alignment table, so the rest of the pipeline cannot tell the two apart. It has no structural
-information to offer, so it writes "-" for the `u` and `t` transform columns -- which is why
-structural superposition by `align_struct_method="foldseek"` yields the query alone on this path.
+same alignment table. It has no structural information to offer, so it writes "-" for the `u` and
+`t` transform columns.
 """
 
 from itertools import product
@@ -28,15 +27,13 @@ class SequenceAligner:
         """
         Map anything outside the 20 standard amino acids to "X".
 
-        BLOSUM62 is only defined over the standard alphabet, so an unmapped residue code would raise
-        rather than score.
-
         Args:
             peptide (str): A single-letter sequence.
 
         Returns:
             str: The sequence with non-standard codes replaced by "X".
         """
+        # BLOSUM62 would raise rather than score a code outside its alphabet
         processed_peptide = list(peptide)
         common_aas = list("ACDEFGHIKLMNPQRSTVWY")
 
@@ -71,13 +68,6 @@ class SequenceAligner:
         """
         Align every query against every target and build the alignment table.
 
-        Sequences are extracted once per `preprocess_name` and reused across pairs, so a chain appearing
-        on both sides is parsed only once.
-
-        The returned columns are pinned to `constants.ALIGNMENT_COLUMNS`. That order is a positional
-        contract shared with `foldseek_alignment` and with `pocket_comparison`, which unpacks each row
-        into an `AlignmentRow` by position -- see the note above the constant.
-
         Args:
             query_records (list): QTRecord dicts for the query side.
             target_records (list): QTRecord dicts for the target side.
@@ -86,10 +76,8 @@ class SequenceAligner:
             pandas.DataFrame: One row per query/target pair, columns in `ALIGNMENT_COLUMNS` order.
         """
 
-        # building a mapping of preprocess_name to sequence for all queries and targets (to avoid redundant structure parsing and sequence extraction during alignment) - this assumes that preprocess_name is unique across queries and targets, which should be the case if they are in the format "P12345_A" or "1ABC_A"
-        # Reads the full reference structure rather than the per-chain files under
-        # foldseek_preprocessed_structure_dir: that preprocessing only runs on the Foldseek branch, and
-        # we select the chain ourselves below, so the split copies buy us nothing here.
+        # One sequence per preprocess_name, so a chain on both sides is parsed once. Read from the full
+        # reference structure, selecting the chain here.
         name_to_seq = {}
         for record in query_records + target_records:
             name = record["preprocess_name"]
@@ -155,6 +143,5 @@ class SequenceAligner:
             }
 
             result_rows.append(result)
-        # Columns are pinned to the shared contract rather than left to dict order: pocket_comparison
-        # unpacks these rows positionally, so the order matters as much as the names.
+        # Pinned to the shared column order rather than left to dict order
         return pd.DataFrame(result_rows, columns=ALIGNMENT_COLUMNS)

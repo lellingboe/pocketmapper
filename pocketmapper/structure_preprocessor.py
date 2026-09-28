@@ -55,11 +55,7 @@ class StructurePreprocessor:
         """
         Update the internal cache of files present in the output directory.
 
-        Holds bare filenames, so `preprocess_records` must test `os.path.basename(...)` for membership --
-        testing the joined output path can never match and silently re-splits every chain on every run.
-
-        A `<name>.cif.gz.part` left by an interrupted write lands here too, but can never match a
-        `.cif.gz` lookup, so it is inert.
+        The cache holds bare filenames, not paths.
         """
         self.cache = set(os.listdir(self.out_dir))
 
@@ -67,16 +63,16 @@ class StructurePreprocessor:
         """
         Split each record's reference structure down to its single alignment chain.
 
-        The single-chain copy is cached under the output directory set by `set_output_directory()` and
-        then copied into `search_dir` for Foldseek to index. Records already in a Foldseek database are
-        passed through untouched.
+        Writes each single-chain copy to its `preprocess_path_gz`, unless the cache already holds it, and
+        copies it into `search_dir` as `<preprocess_name>.cif.gz`.
 
         Args:
             records (list): QTRecord dicts carrying `struct_path` and the `preprocess_*` paths.
             search_dir (str): Directory Foldseek will read the single-chain structures from.
 
         Returns:
-            dict: pocket_id -> whether preprocessing succeeded.
+            dict: pocket_id -> whether preprocessing succeeded. Foldseek-database records count as
+                succeeded untouched; records already marked unsuccessful are absent.
         """
         status_dict = {}
 
@@ -90,13 +86,9 @@ class StructurePreprocessor:
             struct_info = record["struct_info"]
             chain_info = record["chain_info"]  # e.g., A_B or A
             chain, _ = split_chain_info(chain_info)
-            # Ensuring divided structure is in the cache directory
-            out_path = record[
-                "preprocess_path"
-            ]  # e.g., /path/to/foldseek_preprocessed_structure_dir/P12345_A_<md5>.cif
-            out_path_gz = record[
-                "preprocess_path_gz"
-            ]  # e.g., /path/to/foldseek_preprocessed_structure_dir/P12345_A_<md5>.cif.gz
+            # Ensuring divided structure is in the cache directory, e.g. <cache>/P12345_A_<md5>.cif.gz
+            out_path = record["preprocess_path"]
+            out_path_gz = record["preprocess_path_gz"]
 
             if os.path.basename(out_path_gz) not in self.cache:
                 ref_path = record["struct_path"]  # e.g., /path/to/alphafold_dir/P12345.cif.gz
@@ -115,10 +107,7 @@ class StructurePreprocessor:
                         extra=self.log_extra,
                     )
                     status_dict[record["pocket_id"]] = False
-                    # Bail out here. Falling through would delete every chain (none match), write an
-                    # empty structure for Foldseek to index, and then let the `= True` at the end of
-                    # this loop clobber the False above -- and the cache would serve that empty file
-                    # on every later run.
+                    # Falling through would write, and cache, an empty structure marked as a success
                     continue
 
                 # Detaching all non interaction chains
@@ -129,16 +118,14 @@ class StructurePreprocessor:
                 # Output the domain and motif pdb file
                 groups = gemmi.MmcifOutputGroups(False, atoms=True, group_pdb=True)
                 st.make_mmcif_document(groups).write_file(out_path)
-                # The gzip goes to a .part first and is moved into place only once complete: the cache
-                # trusts any .cif.gz it finds, so a truncated one under the real name would be served
-                # for good.
+                # Through a .part: the cache trusts any .cif.gz it finds, so a truncated one would stick
                 part_path_gz = f"{out_path_gz}.part"
                 gzip_file(out_path, part_path_gz)
                 os.replace(part_path_gz, out_path_gz)
                 os.remove(out_path)
 
             search_path = os.path.join(search_dir, f"{record['preprocess_name']}.cif.gz")
-            shutil.copyfile(out_path_gz, search_path)  # copying to foldseek directory
+            shutil.copyfile(out_path_gz, search_path)
 
             status_dict[record["pocket_id"]] = True
 
