@@ -100,12 +100,14 @@ def build_parser():
         "Required unless the job file sets target.",
     )
     search.add_argument(
+        "-j",
         "--job_file",
         default=None,
         metavar="PATH",
         help='JSON file of {"option": value}, query and target included; it overrides CLI args. ' "(default: none)",
     )
     search.add_argument(
+        "-v",
         "--verbosity",
         type=int,
         default=DEFAULT_VERBOSITY,
@@ -113,6 +115,7 @@ def build_parser():
         help=f"Log level: 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. (default: {DEFAULT_VERBOSITY})",
     )
     search.add_argument(
+        "-a",
         "--aligner",
         default=DEFAULT_ALIGNER,
         metavar="STR",
@@ -120,6 +123,7 @@ def build_parser():
         f"(default: {DEFAULT_ALIGNER})",
     )
     search.add_argument(
+        "-q",
         "--query_pocket_method",
         default=DEFAULT_POCKET_METHOD,
         metavar="STR",
@@ -127,12 +131,14 @@ def build_parser():
         f"(default: {DEFAULT_POCKET_METHOD})",
     )
     search.add_argument(
+        "-t",
         "--target_pocket_method",
         default=DEFAULT_POCKET_METHOD,
         metavar="STR",
         help=f"As --query_pocket_method, for targets; also accepts foldseek_db. (default: {DEFAULT_POCKET_METHOD})",
     )
     search.add_argument(
+        "-T",
         "--threads",
         type=int,
         default=None,
