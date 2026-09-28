@@ -154,8 +154,9 @@ so the wait is legible. Add a cap here if that becomes untenable.
 - **`expand_fsdb_pdb_targets` is not in the package, on purpose.** It builds new target records
   (through `QTProcessor`) and downloads their structures, which is record work rather than pocket
   work, so it is its own pipeline step on `PocketMapper`, run just before `get_pockets`. It shares the
-  PISA cache with `pisa_pockets` through `pisa.download_pisa_interfaces`, which alone decides
-  where under `pocket_dir` PISA responses go.
+  PISA cache with `pisa_pockets`, under `pocket_dir/pisa/`. Each spells out the four paths it hands
+  `PisaDownloader`, so **a change to the cache layout must be made at both call sites** or the two
+  steps stop sharing a cache.
 
 ## Downloads
 
@@ -182,7 +183,7 @@ Four consequences no single file states:
   host. It is also why `download_missing_summaries` and `download_missing_assemblies` no longer sleep
   themselves — the helper owns pacing, and a caller-side sleep would double it.
 - **The delay registry is module-level and never decays**, so it outlives any one `PisaDownloader` —
-  which matters, because `download_pisa_interfaces` builds a fresh one on each of its two calls per run.
+  which matters, because `pisa_pockets` and `expand_fsdb_pdb_targets` each build a fresh one per run.
   It equally outlives a whole `search()`, so a library caller running several in one process carries an
   elevated delay across all of them; `reset_host_delays` is the escape hatch.
 - **Only 5xx and 408/425/429 are retried.** A whitelist among 4xx rather than a blacklist of 404, so an
@@ -196,8 +197,8 @@ which cannot match `x.json.part`, the other PISA stages check an exact path, and
 
 **The PISA failure report is the caller's file, not the downloader's.** `download_missing_interfaces`
 returns what each stage could not handle and writes `error_path` only when there is something to write;
-`download_pisa_interfaces` hands both of its two calls per run the same
-`pocket_dir/pisa_responses/errors.json`. So a second call with failures replaces the first call's
+`pisa_pockets` and `expand_fsdb_pdb_targets` both hand it the same
+`pocket_dir/pisa/errors.json`. So a second call with failures replaces the first call's
 report, and a clean second call leaves the first's file in place. Date it by its mtime, not by its
 existence.
 
@@ -213,10 +214,10 @@ Two things that file does not say about itself:
   the interface cache and is reparsed on every later run — from cached assemblies, so at no request
   cost, but it is also why such an entry reappears in every report.
 
-**The flattened cache is `pisa_responses/interface_pairs/`, not `interfaces/`.** The old directory holds
-files keyed by concatenated chain ids (`"BF"`), which the parser no longer reads; renaming the
-directory makes every entry reflatten from cached assemblies instead of being silently missed. An
-existing `interfaces/` is dead and can be deleted.
+**The cache lives under `pocket_dir/pisa/`; an existing `pocket_dir/pisa_responses/` is dead** and can
+be deleted. Nothing migrates it, so the first run after the move refetches every entry from PISA. Its
+`interfaces/` held files keyed by concatenated chain ids (`"BF"`), which the parser no longer reads, and
+the flattened cache keeps the name `interface_pairs/` so it can never be mistaken for one.
 
 **The input grammar still allows only single-character chains**, so a multi-character interface is
 reachable from the cache but not from an input entry. On the Foldseek PDB-DB path,

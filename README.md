@@ -233,7 +233,7 @@ Everything is written under `--results_dir`:
 | `incorrect_mapping.json` | Pockets dropped because their own sequence disagreed with the aligner's for that chain — typically assembly vs asymmetric unit numbering. Only written if any were dropped. |
 
 Under `--cache_dir` and surviving between runs: the downloaded mmCIF files (`pdb_structures/` and
-`alphafold_structures/`), the raw PISA API responses (`pockets/pisa_responses/`), and the derived
+`alphafold_structures/`), the raw PISA API responses (`pockets/pisa/`), and the derived
 pockets themselves (`pockets/pisa_pockets.json`, `passthrough_pockets.json`, `vdw_pockets.json`,
 `whole_chain_pockets.json`). The pocket files are written for inspection only and never read back;
 each pocket is an object of metadata fields plus a `residues` map keyed by author residue number.

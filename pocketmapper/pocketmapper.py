@@ -46,6 +46,7 @@ from pocketmapper.constants import DEFAULT_VERBOSITY
 from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT
 from pocketmapper.constants import FOLDSEEK_INSTALL_HINT
 from pocketmapper.constants import PACKAGE_LOGGER
+from pocketmapper.downloads.pisa_downloader import PisaDownloader
 from pocketmapper.downloads.structure_downloader import StructureDownloader
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import bundled_foldseek_dbs
@@ -57,7 +58,6 @@ from pocketmapper.lib import jsonify_dict
 from pocketmapper.lib import parse_foldseek_pdb_entry_name
 from pocketmapper.pocket_comparison import compare_pockets
 from pocketmapper.pockets.pisa import PisaParser
-from pocketmapper.pockets.pisa import download_pisa_interfaces
 from pocketmapper.pockets.pocket_fetcher import PocketFetcher
 from pocketmapper.qt_processor import QTProcessor
 from pocketmapper.sequence_aligner import SequenceAligner
@@ -925,7 +925,15 @@ class PocketMapper:
             extra=log_extra,
         )
 
-        interface_dir = download_pisa_interfaces(pdb_list, self.settings.pocket_dir)
+        pisa_dir = os.path.join(self.settings.pocket_dir, "pisa")
+        interface_dir = os.path.join(pisa_dir, "interface_pairs")
+        PisaDownloader().download_missing_interfaces(
+            pdb_list=pdb_list,
+            summary_dir=os.path.join(pisa_dir, "summaries"),
+            asm_dir=os.path.join(pisa_dir, "assemblies"),
+            interface_dir=interface_dir,
+            error_path=os.path.join(pisa_dir, "errors.json"),
+        )
 
         # Building one record per interface the hit chain takes part in
         parser = PisaParser()
