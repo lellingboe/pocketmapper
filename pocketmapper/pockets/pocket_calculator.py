@@ -4,7 +4,8 @@ Van der Waals contact pockets, computed directly from coordinates.
 This is the `vdw` pocket method: rather than reading a precomputed interface, it walks two chains
 atom by atom and keeps the residues whose van der Waals radii approach within 0.4 A. That makes it
 the only interface method available for a local file, which has no PISA data. It needs two chains,
-so it is not offered for an AlphaFold model, which is always a single chain.
+so it is not offered for an AlphaFold model, which is always a single chain. `vdw_pockets` is the
+method's builder.
 """
 
 import logging
@@ -13,10 +14,12 @@ from itertools import product
 
 import gemmi
 from numpy.linalg import norm
+from tqdm import tqdm
 
 from pocketmapper.lib import one_letter_code
-from pocketmapper.pocket import Pocket
-from pocketmapper.pocket import PocketResidue
+from pocketmapper.lib import split_chain_info
+from pocketmapper.pockets.pocket import Pocket
+from pocketmapper.pockets.pocket import PocketResidue
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +33,7 @@ class PocketCalculator:
         """
         Residues of the domain chain that make van der Waals contact with the motif chain.
 
-        `seq_pos` is counted over CA-bearing residues of the domain chain only, which is the index the
-        alignment is keyed on -- see `pocket_parser.parse_pocket_from_struct`.
-
-        Atom pairs more than 20 A apart end the scan for that residue pair, which is a large speedup and
-        safe because no van der Waals radii reach that far.
+        A `gemmi.Structure` passed in has `setup_entities()` called on it.
 
         Args:
             structure (gemmi.Structure | str): A parsed structure, or a path gemmi will read.
@@ -74,7 +73,7 @@ class PocketCalculator:
                 for atom1, atom2 in product(res1, res2):
                     distance = norm(list(atom1.pos - atom2.pos))
                     if distance > 20.0:
-                        break  # skip distant atoms to save time
+                        break  # no van der Waals radii reach this far, so skip the rest of the pair
                     vdw_range = atom1.element.vdw_r + atom2.element.vdw_r
                     overlap = vdw_range - distance
                     if overlap > -0.4:
@@ -103,15 +102,11 @@ class PocketCalculator:
         pocket.ca_sequence = "".join(ca_sequence)
         return pocket
 
+    # Not called by any pocket method; kept deliberately for planned ATP-pocket work. Do not remove
+    # as dead code.
     def atp_pocket_overlap(self, struct_path, atp_chain_id, name):
         """
-        Pocket residues of a chain that contact its own bound ATP ligand.
-
-        Unlike `pocket_overlap`, which takes contacts between two polymer chains, this walks the polymer
-        against the ATP HETATM residue in the same chain.
-
-        NOTE: retained deliberately -- not currently called by `search()` or any pocket method, and kept
-        for planned ATP-pocket work. Do not remove as dead code.
+        Residues of a chain's polymer that contact the ATP residue in the same chain.
 
         Args:
             struct_path (str): Path to an mmCIF structure.
@@ -174,3 +169,26 @@ class PocketCalculator:
         # the gap visible; it is filled in here rather than left to break later.
         pocket.ca_sequence = "".join(ca_sequence)
         return {name: pocket}
+
+
+def vdw_pockets(records, pocket_dir):
+    """
+    Build a Pocket per record from the residues of its first chain in van der Waals contact with its second.
+
+    Args:
+        records (list): QTRecord dicts with `pocket_method == "vdw"`.
+        pocket_dir (str): Unused.
+
+    Returns:
+        dict: pocket_id -> Pocket. A record whose structure file is missing maps to None.
+    """
+    pockets = {}
+    pc = PocketCalculator()
+    for record in tqdm(records):
+        domain_chain, motif_chain = split_chain_info(record["chain_info"])
+        pockets[record["pocket_id"]] = pc.pocket_overlap(
+            structure=record["struct_path"],
+            domain_chain=domain_chain,
+            motif_chain=motif_chain,
+        )
+    return pockets

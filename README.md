@@ -360,7 +360,7 @@ which needs no binary but produces no whole-chain transform and cannot search a 
 **Using PocketMapper as a library.** `PocketMapper().search(...)` runs the same workflow as the CLI and
 writes the same files; results come back through `results_dir`, not as a return value. The individual
 components (`qt_processor`, `downloads.structure_downloader`, `downloads.pisa_downloader`,
-`sequence_aligner`, `structure_aligner`, `pocket_calculator`, ...) are each usable on their own.
+`sequence_aligner`, `structure_aligner`, `pockets.pocket_fetcher`, ...) are each usable on their own.
 Note that `search()` deletes its temporary directories on the way out.
 
 Logging goes through the `pocketmapper` logger and never touches the root logger, so your own logging

@@ -79,7 +79,7 @@ jobs:
               importlib.import_module(m.name)
               print('ok', m.name)
               count += 1
-          assert count >= 19, f'walked only {count} modules; a subpackage was lost'
+          assert count >= 21, f'walked only {count} modules; a subpackage was lost'
           "
       # The bare entry point, which is what proves the console script resolves and
       # the package imports. argparse prints the top-level help and exits 0.

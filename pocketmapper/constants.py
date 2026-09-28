@@ -197,7 +197,7 @@ ALIGNMENT_COLUMNS = [
 
 FOLDSEEK_FORMAT_OUTPUT = ",".join(ALIGNMENT_COLUMNS)
 
-# The transform sources step 7 can actually use, and the methods the setting accepts. "auto" is
+# The transform sources step 8 can actually use, and the methods the setting accepts. "auto" is
 # resolved to one of the other two by resolve_align_struct_method before anything downstream reads it,
 # so StructureAligner.align_structs validates against the resolved pair rather than the whole set.
 RESOLVED_ALIGN_STRUCT_METHODS = ("pocket", "foldseek")

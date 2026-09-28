@@ -1,7 +1,7 @@
 """
 Pocket comparison: map two pockets onto a shared alignment and score their overlap.
 
-This is step 6 of the pipeline -- it consumes the alignment table written by the Foldseek or
+This is step 7 of the pipeline -- it consumes the alignment table written by the Foldseek or
 BLOSUM62 aligner together with the Pockets produced by the pocket methods, and returns the
 rows that become pocket_comparison.tsv.
 
@@ -36,8 +36,8 @@ from pocketmapper.lib import full_similarity
 from pocketmapper.lib import read_blast_similarity_matrix
 from pocketmapper.lib import read_offset_table
 from pocketmapper.lib import seq_to_uniprot_map
-from pocketmapper.pocket import Pocket
-from pocketmapper.pocket import PocketResidue
+from pocketmapper.pockets.pocket import Pocket
+from pocketmapper.pockets.pocket import PocketResidue
 
 logger = logging.getLogger(__name__)
 

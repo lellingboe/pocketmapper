@@ -4,7 +4,7 @@ Project implementation specifics. Cross-module and derived facts only. Anything 
 ## Pipeline
 
 `cli.py` holds the argparse parser and the console-script `cli()`; it is **the only module that knows
-about argv or exit codes**, and `search()` is its one subcommand. The seven steps of `search()` are listed
+about argv or exit codes**, and `search()` is its one subcommand. The eight steps of `search()` are listed
 in the `pocketmapper.py` module docstring.
 
 Two parsing details are load-bearing and documented at the parser: query and target are optional
@@ -45,8 +45,8 @@ Two things that follow:
 
 ### Pocket shape
 
-Every pocket method returns a `pocket.Pocket` — the dataclass declares which fields exist, which are
-optional and why, and `pocket_parser.parse_pocket_from_struct` shows how `seq_pos` and `whole_chain`
+Every pocket method returns a `pockets.pocket.Pocket` — the dataclass declares which fields exist, which are
+optional and why, and `pockets.pocket_parser.parse_pocket_from_struct` shows how `seq_pos` and `whole_chain`
 are derived. Residues live under `residues`, keyed by author seqid as a string.
 
 One thing the class states that no producer would: `res_auth_ids` is not `list(residues)`. It is the
@@ -58,11 +58,11 @@ returns each side's ids in its own `res_auth_ids` order and `superpose` pairs th
 for position, so a pocket ordered any other way is superposed against the wrong residues -- wrong
 `rmsd`, `ca_dists` and transforms, with `overlap_count` and every identity column still correct,
 and no warning. Only the passthrough method takes its order from user input; the rest walk the chain
-(`pocket_calculator`, the whole-chain path) or sort (`pisa_parser`, `retrieve_passthrough_pockets`).
+(`vdw_pockets`, `whole_chain_pockets`) or sort (`pisa_parser`, `passthrough_pockets`).
 
 ### Open searches
 
-README's "Open searches" covers the output shape; `retrieve_whole_chain_pockets` and
+README's "Open searches" covers the output shape; `pocket_parser.whole_chain_pockets` and
 `compare_pocket_pair` cover the per-pocket suppression of the `target_*` columns.
 
 A `target` value is not guaranteed to be a target. A query and target sharing a chain share a
@@ -74,7 +74,7 @@ looking a target record up; without that it raises a bare pandas `KeyError`.
 
 When the target is a bundled Foldseek DB, `self.fsdb_target` is set: no target structures are fetched or
 preprocessed, and `foldseek.extract_fsdb_structures` reconstructs target PDBs via `createsubdb` +
-`convert2pdb` for whichever entries step 7 selected.
+`convert2pdb` for whichever entries step 8 selected.
 Of the five Foldseek subcommands the package runs, **`createsubdb` is the only one that takes no
 `--threads`** — it accepts just `--subdb-mode`, `--id-mode` and `-v`, and passing the flag makes it exit
 non-zero. `run_foldseek` therefore adds no flags of its own; every caller builds its own argument list.
@@ -137,6 +137,26 @@ hits across ~3,620 entries, and PISA is fetched per entry behind a sleep, so the
 Reruns are cheap from the interface cache, and `expand_fsdb_pdb_targets` logs both counts before starting
 so the wait is legible. Add a cap here if that becomes untenable.
 
+## Pockets
+
+`pockets/` holds everything that turns a record into a `Pocket`, including the shape itself
+(`pockets/pocket.py`). `PocketFetcher.fetch_pockets` is its one entry point, and
+`PocketMapper.get_pockets` only filters both sides to `success` rows and hands them over.
+
+- **`POCKET_BUILDERS` in `pocket_fetcher` is the whole table of pocket methods.** Each builder lives
+  beside the primitive it wraps — `pisa_pockets` in `pisa_parser`, `vdw_pockets` in
+  `pocket_calculator`, `passthrough_pockets` and `whole_chain_pockets` in `pocket_parser` — and all
+  four share the signature `(records, pocket_dir)`, the three that ignore `pocket_dir` included, so
+  the fetcher needs no per-method case. A new method is one row plus one builder.
+- **Records are dicts, not a DataFrame**, the same currency `StructureDownloader` and
+  `StructureAligner` take, so a library caller needs no pandas. The fetcher reads no `success` field;
+  filtering is the caller's job.
+- **`expand_fsdb_pdb_targets` is not in the package, on purpose.** It builds new target records
+  (through `QTProcessor`) and downloads their structures, which is record work rather than pocket
+  work, so it is its own pipeline step on `PocketMapper`, run just before `get_pockets`. It shares the
+  PISA cache with `pisa_pockets` through `pisa_parser.download_pisa_interfaces`, which alone decides
+  where under `pocket_dir` PISA responses go.
+
 ## Downloads
 
 `downloads/` holds what fetches bytes over HTTP, and nothing else. `foldseek.py` and
@@ -197,8 +217,8 @@ Two things that file does not say about itself:
 Breaking one of these generally produces silently wrong output rather than an error. Each is documented at
 its code site; what follows is the map of where, plus the checks that live nowhere else.
 
-- **`seq_pos` is the value everything hinges on** — declared on `pocket.PocketResidue`, set in
-  `pocket_parser.parse_pocket_from_struct`, used in `pocket_comparison.map_pocket_into_alignment`. A new
+- **`seq_pos` is the value everything hinges on** — declared on `pockets.pocket.PocketResidue`, set in
+  `pockets.pocket_parser.parse_pocket_from_struct`, used in `pocket_comparison.map_pocket_into_alignment`. A new
   pocket method computing it any other way yields zero overlap with no error. Check it by comparing a
   pocket against itself: `overlap_count == pocket_len`. It is also **not** the reported residue id:
   `synthesise_target_pocket` keys its residues by UniProt position while leaving `seq_pos` the
@@ -218,7 +238,7 @@ its code site; what follows is the map of where, plus the checks that live nowhe
   becoming chain `A` — but the split stays in one place regardless, because a library caller can build a
   record itself and reach the same call sites. Never re-derive a domain or motif chain inline.
 - **A passthrough pocket's `res_auth_ids` are all keys of its `residues`** — enforced in
-  `retrieve_passthrough_pockets`, which skips the whole entry when they are not.
+  `pocket_parser.passthrough_pockets`, which skips the whole entry when they are not.
   `map_pocket_into_alignment` and `describe_pocket` both index `residues` by every `res_auth_ids` id,
   so an id the chain cannot supply used to surface as a `KeyError` out of `compare_pockets`' re-raise
   -- one typo aborting the run. Syntax and repeats are caught earlier, in
@@ -235,12 +255,12 @@ its code site; what follows is the map of where, plus the checks that live nowhe
 - **Two transform sources, chosen by `align_struct_method`** — `StructureAligner`'s class docstring names
   them; `pocket_comparison.parse_pocket_transform` is the only legitimate reader of the pocket transform
   and carries the measured evidence. Never hand a raw `target_to_query_*` cell to gemmi.
-- **Step 7 is `StructureAligner.align_structs`, not a pipeline method** — `PocketMapper.align_structs`
+- **Step 8 is `StructureAligner.align_structs`, not a pipeline method** — `PocketMapper.align_structs`
   only unpacks the `Settings` and the two `fsdb_*` flags into it. Selection, transform lookup and
   writing all live in the component, so a change to any of them belongs there and is reachable without
   running a search.
 
-**Changing step 6 without changing behaviour**: capture `compare_pockets`' arguments from a real run and
+**Changing step 7 without changing behaviour**: capture `compare_pockets`' arguments from a real run and
 diff old output against new. Nothing else covers that path.
 
 ## Logging and errors
@@ -434,10 +454,10 @@ Each module's own docstring states its remit. Not stated anywhere in the code:
 The CLI is confined to `cli.py`, so nothing else here needs a terminal. Two levels of
 entry: `PocketMapper().search(...)` does the same work as the CLI, or drive a component directly —
 `qt_processor`, `downloads.structure_downloader`, `structure_preprocessor`, `downloads.pisa_downloader`,
-`pisa_parser`, `sequence_aligner`, `structure_aligner`, `pocket_calculator`, `foldseek` are each
-separately usable.
+`pockets.pocket_fetcher` (or a single method's builder), `sequence_aligner`, `structure_aligner`,
+`foldseek` are each separately usable.
 
-- **Step 7 is the one step that can be deferred.** `search(align_count=0)` writes everything but the
+- **Step 8 is the one step that can be deferred.** `search(align_count=0)` writes everything but the
   aligned structures, and `StructureAligner.align_structs` then produces them from the run's own outputs
   — `pm.query_df` / `pm.target_df` as records, plus the two result paths off `pm.settings`. Verified: the
   PDBs come out byte-identical to those of a normal run, on both the structure and the Foldseek-DB path.

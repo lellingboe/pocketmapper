@@ -22,9 +22,7 @@ class PocketResidue:
     """
     One residue of a pocket, keyed in `Pocket.residues` by its author seqid as a string.
 
-    Which fields are populated depends on the producer, and the gaps are load-bearing rather than
-    accidental: a pocket synthesised for a Foldseek-database hit carries `seq_pos` alone, which is
-    what suppresses the descriptive target_* columns and the RMSD block downstream.
+    Fields a producer cannot fill are left at None.
     """
 
     res_code: str | None = None
@@ -50,9 +48,8 @@ class Pocket:
     """
     A pocket on a single chain. The chain itself is implicit in the pocket_id this is stored under.
 
-    `pocket_comparison` must never write to one of these. Each side's projection onto an alignment is
-    returned as a `MappedPocket` instead, which is what lets the same Pocket be read straight out of
-    the pocket collection on every alignment row rather than deep-copied.
+    Read-only once built: consumers must never write to one, since the same instance is read
+    without copying wherever the pocket is used.
     """
 
     # The ordered pocket residue list, and NOT the same thing as `list(residues)`. The two diverge on

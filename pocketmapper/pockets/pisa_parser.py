@@ -4,16 +4,23 @@ Reading of cached PISA interface data into pocket residue sets.
 Consumes the JSON files `PisaDownloader` writes and turns one interface into the Pocket the rest of
 the pipeline expects. This is the `pisa` pocket method, available for PDB entries only --
 AlphaFold models and local files have no PISA data.
+
+`download_pisa_interfaces` fixes where under a pocket directory the PISA cache lives, and
+`pisa_pockets` is the method's builder: download, parse, then add coordinates from the structure.
 """
 
 import json
 import logging
 import os
 
+from tqdm import tqdm
+
+from pocketmapper.downloads.pisa_downloader import PisaDownloader
 from pocketmapper.lib import one_letter_code
 from pocketmapper.lib import split_chain_info
-from pocketmapper.pocket import Pocket
-from pocketmapper.pocket import PocketResidue
+from pocketmapper.pockets.pocket import Pocket
+from pocketmapper.pockets.pocket import PocketResidue
+from pocketmapper.pockets.pocket_parser import parse_pocket_from_struct
 
 logger = logging.getLogger(__name__)
 
@@ -27,17 +34,14 @@ class PisaParser:
         """
         Load the cached interface file for a PDB entry, or None if there isn't one.
 
-        PisaDownloader writes these files under a lower-cased PDB code while callers hold whatever case
-        the user typed, so the name is tried verbatim first and then lower-cased. Without that an
-        upper-cased input finds nothing on a case-sensitive filesystem.
-
         Args:
-            pdb_id (str): PDB entry to load, in any case.
+            pdb_id (str): PDB entry to load, in any case. Tried verbatim, then lower-cased.
             in_dir (str): Directory of parsed interface files.
 
         Returns:
             dict: The entry's interfaces keyed by sorted chain pair, or None if not cached.
         """
+        # Files are written under the lower-cased code, while pdb_id arrives as the user typed it.
         for candidate in (pdb_id, pdb_id.lower()):
             in_path = os.path.join(in_dir, f"{candidate}.json")
             if os.path.exists(in_path):
@@ -49,18 +53,14 @@ class PisaParser:
         """
         List the chains a given chain shares a PISA interface with.
 
-        Interface files are keyed by the two chain ids of the interface, sorted and concatenated
-        (e.g. "BF"), so a chain's partners are the other half of every key it appears in. A
-        homodimer key ("BB") yields the chain itself.
-
         Args:
             pdb_id (str): PDB entry the chain belongs to.
             chain_id (str): Chain whose partners are wanted.
-            in_dir (str): Directory of parsed interface files written by PisaDownloader.
+            in_dir (str): Directory of parsed interface files.
 
         Returns:
-            list[str]: Partner chain ids, in file order. Empty if there is no data for this entry
-                or the chain takes part in no interface.
+            list[str]: Partner chain ids, in file order; a homodimer yields `chain_id` itself. Empty if
+                there is no data for this entry or the chain takes part in no interface.
         """
         log_extra = {"stage": "Calculating Pockets"}
         pisa_data = self.load_interfaces(pdb_id, in_dir)
@@ -68,6 +68,8 @@ class PisaParser:
             logger.debug(f"Could not load PISA data for {pdb_id}", extra=log_extra)
             return []
 
+        # Keys are the interface's two chain ids, sorted and concatenated ("BF"); a partner is the
+        # other half of every key the chain appears in.
         partners = []
         for interface_chains in pisa_data:
             if chain_id not in interface_chains:
@@ -81,23 +83,17 @@ class PisaParser:
 
     def get_pockets_from_records(self, records, in_dir):
         """
-        Build a Pocket per record from its PISA interface.
-
-        The pocket is the set of residues on the record's own chain that take part in any bond of the
-        interface, across all five bond types. Records whose entry, interface or domain chain cannot be
-        resolved are logged and skipped, so the result may be smaller than `records`.
-
-        Only the interface with exactly two molecules is usable, since the pocket is defined against a
-        single partner.
+        Build a Pocket per record from the residues its chain contributes to any bond of its interface.
 
         Args:
             records (list): QTRecord dicts; reads `struct_info`, `chain_info` and `pocket_id`.
-            in_dir (str): Directory of parsed interface files written by PisaDownloader.
+            in_dir (str): Directory of parsed interface files.
 
         Returns:
-            dict: pocket_id -> Pocket, carrying `res_auth_ids` and one residue per interface residue.
-                Lacks the CA data `pocket_parser.parse_pocket_from_struct` adds later, so `ca_sequence`,
-                `has_coords` and every residue's `seq_pos`/`ca_coords` are still at their defaults.
+            dict: pocket_id -> Pocket with residue codes but no coordinates: `ca_sequence`,
+                `has_coords` and every residue's `seq_pos` and `ca_coords` are left at their defaults.
+                A record whose entry, interface or domain chain cannot be resolved, or whose interface
+                does not have exactly two molecules, is skipped with a warning.
         """
         log_extra = {"stage": "Calculating Pockets"}
         bond_types = ["hydrogen_bonds", "salt_bridges", "disulfide_bonds", "covalent_bonds", "other_bonds"]
@@ -166,3 +162,67 @@ class PisaParser:
             pockets[record["pocket_id"]] = pocket
 
         return pockets
+
+
+def download_pisa_interfaces(pdb_list, pocket_dir):
+    """
+    Download PISA summaries, assemblies and interfaces for `pdb_list` under `pocket_dir/pisa_responses/`.
+
+    Only entries not already cached are fetched, one paced request at a time, so an uncached list can
+    take a long time. When any entry fails, `pisa_responses/errors.json` is overwritten with the
+    failures.
+
+    Args:
+        pdb_list (list): PDB IDs to fetch interfaces for.
+        pocket_dir (str): Pocket cache directory.
+
+    Returns:
+        str: The directory of parsed interface files.
+    """
+    pisa_response_dir = os.path.join(pocket_dir, "pisa_responses")
+    interface_dir = os.path.join(pisa_response_dir, "interfaces")
+    PisaDownloader().download_missing_interfaces(
+        pdb_list=pdb_list,
+        summary_dir=os.path.join(pisa_response_dir, "summaries"),
+        asm_dir=os.path.join(pisa_response_dir, "assemblies"),
+        interface_dir=interface_dir,
+        error_path=os.path.join(pisa_response_dir, "errors.json"),
+    )
+    return interface_dir
+
+
+def pisa_pockets(records, pocket_dir):
+    """
+    Build a Pocket per record from the PDBe PISA interface it names, with coordinates from its structure.
+
+    Downloads any PISA files not already cached under `pocket_dir`, as `download_pisa_interfaces`.
+
+    Args:
+        records (list): QTRecord dicts with `pocket_method == "pisa"`.
+        pocket_dir (str): Pocket cache directory.
+
+    Returns:
+        dict: pocket_id -> Pocket. A record whose interface cannot be resolved is skipped with a
+            warning; one whose structure or chain cannot be read maps to None.
+    """
+    log_extra = {"stage": "Retrieving PISA Pockets"}
+
+    pdb_list = list(dict.fromkeys(record["struct_info"] for record in records))
+    logger.debug(f"PDBs for which to retrieve PISA pockets: {pdb_list}", extra=log_extra)
+    interface_dir = download_pisa_interfaces(pdb_list, pocket_dir)
+
+    pockets = PisaParser().get_pockets_from_records(records=records, in_dir=interface_dir)
+    logger.debug(f"PISA pockets before coordinates: {pockets}", extra=log_extra)
+
+    # PisaParser gives residue ids but no geometry; this second pass fills in seq_pos and the CA
+    # coordinates on the same Pocket, which is what the comparison and superposition need.
+    for record in tqdm(records):
+        if record["pocket_id"] in pockets:
+            domain_chain, _ = split_chain_info(record["chain_info"])
+            pockets[record["pocket_id"]] = parse_pocket_from_struct(
+                struct=record["struct_path"],
+                chain_id=domain_chain,
+                pocket_residues=[int(x) for x in pockets[record["pocket_id"]].res_auth_ids],
+                pocket=pockets[record["pocket_id"]],
+            )
+    return pockets
