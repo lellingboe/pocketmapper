@@ -480,5 +480,5 @@ entry: `PocketMapper().search(...)` does the same work as the CLI, or drive a co
   rmtrees are guarded rather than unconditional: `temp_dir` is settable, so `lib.is_within` skips (with
   a warning) a path that does not resolve under `cache_dir` or `results_dir`. The guard bounds the
   damage from a mistyped path; it is not a reason to point the setting at a directory you care about.
-- Results come back through files — `search()` returns `None`, so read `pocket_comparison.tsv` /
-  `alignment.tsv` from `results_dir` (paths available on `Settings`).
+- Results come back through files — `search()` returns only the resolved `Settings` as a dict, so
+  read `pocket_comparison.tsv` / `alignment.tsv` from the paths it names.
