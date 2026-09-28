@@ -27,19 +27,11 @@ class PocketResidue:
 
     res_code: str | None = None
     res_code_single: str | None = None
-    # The residue's index among the CA-bearing residues of its chain -- the value that maps a pocket
-    # into the alignment, so a producer computing it any other way yields zero overlap with no error.
-    # -1 marks a pocket residue with no CA atom, which Foldseek ignores and which therefore falls
-    # outside every aligned region. None means no producer ever reached this residue: PISA lists
-    # interface residues that need not exist in the parsed chain, and `map_pocket_into_alignment`
-    # will raise on those rather than skip them. Pre-existing, and left as a hard failure.
+    # Index among the chain's CA-bearing residues, which is the residue's position in the alignment.
+    # -1 for a pocket residue with no CA atom; None if the residue was never found in the chain.
     seq_pos: int | None = None
     ca_coords: list | None = None
-    # Written by the PISA and vdw producers, read by nothing. Kept because PISA supplies real values.
-    # Deliberately left unset by the synthesised Foldseek-database pocket even when that pocket is
-    # numbered in UniProt coordinates: there the UniProt position IS the key in `Pocket.residues`, so
-    # writing it here would duplicate the key with no consumer to keep the two honest, and would give
-    # the field a different meaning than it carries on the PISA and vdw paths.
+    # UniProt position, where the producer has one; otherwise -1 or None.
     uniprot_pos: str | int | None = None
 
 
@@ -52,20 +44,14 @@ class Pocket:
     without copying wherever the pocket is used.
     """
 
-    # The ordered pocket residue list, and NOT the same thing as `list(residues)`. The two diverge on
-    # the PISA path: this is seeded from the PISA interface while `residues` is filled in chain order
-    # and may miss interface residues absent from the parsed chain. The order is load-bearing --
-    # `overlap_ids` returns ids in this order and the two sides' overlap lists have to correspond
-    # position for position.
+    # Pocket residue ids in ascending order. Not `list(residues)`: its order can differ, and it may
+    # name ids that `residues` lacks.
     res_auth_ids: list = field(default_factory=list)
     residues: dict = field(default_factory=dict)
-    # The CA sequence of the WHOLE chain, not of the pocket. `seq_identity` compares it against the
-    # sequence the aligner reported for that chain, so a pocket-only sequence would never match.
+    # CA sequence of the WHOLE chain, not of the pocket.
     ca_sequence: str = ""
-    # False until at least one pocket residue is found with CA coordinates; a pocket that never gets
-    # there is skipped by the comparison rather than compared as empty.
+    # False until at least one pocket residue is found.
     pocket_exists: bool = False
     has_coords: bool = False
-    # True for an open search, where the whole chain stands in for a pocket. Flagged on the pocket
-    # itself rather than on the run so one search can mix open and pocketed targets.
+    # True when the whole chain stands in for a pocket (an open search).
     whole_chain: bool = False

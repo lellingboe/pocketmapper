@@ -17,12 +17,9 @@ from pocketmapper.pockets.pocket_parser import whole_chain_pockets
 
 logger = logging.getLogger(__name__)
 
-# pocket_method -> (log label, dedup keys, builder). Insertion order is the merge order. A new pocket
-# method is one row here plus its builder, and nothing else.
-#
-# Only pisa dedups: its pocket is fully determined by structure and chain, and the Foldseek-DB
-# expansion generates the same pair once per hit. The other methods must not dedup on structure and
-# chain -- two passthrough pockets on one chain differ only in `residue_info`.
+# pocket_method -> (log label, dedup keys, builder), in merge order.
+# Only pisa dedups: its pocket is fully determined by structure and chain. The others must not --
+# two passthrough pockets on one chain differ only in `residue_info`.
 POCKET_BUILDERS = {
     "pisa": ("PISA", ("struct_info", "chain_info"), pisa_pockets),
     "passthrough": ("passthrough", None, passthrough_pockets),

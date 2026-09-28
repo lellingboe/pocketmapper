@@ -42,7 +42,7 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
     """
     log_extra = {"stage": "Parsing Pocket from Structure"}
 
-    # Ensure st is a gemmi.Structure object
+    # Accept a parsed structure or a path
     if isinstance(struct, gemmi.Structure):
         st = struct
     else:
@@ -52,7 +52,7 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
         st = gemmi.read_structure(struct)
 
     # Verify the specified chain exists and get it
-    chain = st[0].find_chain(chain_id)  # Assuming we are interested in the first model
+    chain = st[0].find_chain(chain_id)  # first model only
     if not isinstance(chain, gemmi.Chain):
         logger.critical(f"Chain {chain_id} not found in structure {struct}.", extra=log_extra)
         return None
@@ -60,8 +60,7 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
     # seq_pos is the residue's index among the chain's CA-bearing residues -- the alignment's coordinate
     # system. Starts at -1 so the first CA-bearing residue is 0.
     seq_pos = -1
-    # An open search has no residue list to seed res_auth_ids from -- it is filled in as the chain is
-    # walked, so it holds exactly the CA-bearing residues, in chain order.
+    # With no residue list, res_auth_ids is filled with every CA-bearing residue as the chain is walked
     whole_chain = pocket_residues is None
     if whole_chain:
         pocket_residues = []
@@ -72,15 +71,14 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
     for res in chain:
         res_id = res.seqid.num
         ca_atom = res.get_ca()
-        if ca_atom is None:  # Foldseek only uses residues with CA atom coords
+        if ca_atom is None:  # only CA-bearing residues are indexed
             if res_id in pocket_residues:
                 logger.debug(
                     f"{st.name}:{chain_id}:{res_id} ({res.name}) does not have CA coords and cannot be compared",
                     extra=log_extra,
                 )
                 if str(res_id) in pocket.residues:
-                    # -1 falls outside every aligned region, so the residue is ignored in the later
-                    # comparison -- which matches Foldseek, which never saw it either.
+                    # -1 marks a pocket residue with no CA, which has no alignment position
                     pocket.residues[str(res_id)].seq_pos = -1
             continue
         seq_pos += 1
@@ -91,17 +89,14 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
         elif res_id not in pocket_residues:  # Only recording residue info for pocket residues
             continue
 
-        # setdefault rather than assignment: on the pisa path the residue already exists and carries
-        # res_code/uniprot_pos from the interface, which must survive being given coordinates.
+        # setdefault: a residue already on `pocket` keeps the fields it carries
         residue = pocket.residues.setdefault(str(res_id), PocketResidue())
         residue.res_code = res.name
         residue.res_code_single = res_single_code
         residue.seq_pos = seq_pos
         residue.ca_coords = list(ca_atom.pos)
 
-        pocket.pocket_exists = (
-            True  # If at least one pocket residue has CA coords, we can include this pocket in the comparison
-        )
+        pocket.pocket_exists = True
         pocket.has_coords = True
     pocket.ca_sequence = "".join(ca_sequence)
     return pocket
@@ -128,11 +123,10 @@ def passthrough_pockets(records, pocket_dir):
         pocket = parse_pocket_from_struct(
             struct=record["struct_path"],
             chain_id=domain_chain,
-            # Ascending, not as typed: res_auth_ids order is what pairs residues across pockets.
+            # Ascending, whatever order the ids were typed in
             pocket_residues=sorted(int(x) for x in record["residue_info"].split(",")),
         )
-        # A missing structure or chain gives None back, which would fail later with an opaque
-        # TypeError inside compare_pockets.
+        # A missing structure or chain gives None
         if pocket is None:
             logger.warning(
                 f"Could not parse chain {domain_chain} of {record['struct_info']} for {record['pocket_id']}, "
@@ -140,8 +134,7 @@ def passthrough_pockets(records, pocket_dir):
                 extra=log_extra,
             )
             continue
-        # residues holds exactly the requested ids the chain walk reached with CA coordinates, so
-        # anything else left in res_auth_ids is an id the comparison would raise a KeyError on.
+        # residues holds only the requested ids found with a CA atom
         unusable = [res_id for res_id in pocket.res_auth_ids if res_id not in pocket.residues]
         if unusable:
             logger.warning(
@@ -176,9 +169,7 @@ def whole_chain_pockets(records, pocket_dir):
             chain_id=domain_chain,
             pocket_residues=None,  # None means the whole chain
         )
-        # A missing structure or chain gives None back. Storing that would fail later with an opaque
-        # TypeError inside compare_pockets, so drop the entry and say which one it was -- an unreadable
-        # chain is much more likely here, where the chain can come from the default rather than the user.
+        # A missing structure or chain gives None
         if pocket is None:
             logger.warning(
                 f"Could not parse chain {record['chain_info']} of {record['struct_info']} for {record['pocket_id']}, "

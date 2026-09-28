@@ -46,7 +46,7 @@ class PocketCalculator:
         """
         log_extra = {"stage": "VdW Pocket Calculation"}
 
-        # Ensure st is a gemmi.Structure object
+        # Accept a parsed structure or a path
         if isinstance(structure, gemmi.Structure):
             pass
         else:
@@ -63,7 +63,7 @@ class PocketCalculator:
         ca_num = 0
         ca_sequence = []
         for res1 in domain_residues:
-            if "CA" not in res1:  #
+            if "CA" not in res1:  # only CA-bearing residues are indexed
                 continue
             res_single_code = one_letter_code(res1.name)
             ca_sequence.append(res_single_code)
@@ -90,12 +90,10 @@ class PocketCalculator:
                         ca_coords=list(res1.get_ca().pos),
                     )
 
-            # Counts CA-bearing domain residues, so it must advance once per res1 (in step with
-            # ca_sequence above), not once per res1/res2 pair. Downstream, seq_pos is the residue's
-            # index within this chain's CA sequence, which is what maps it into the alignment.
+            # Once per CA-bearing domain residue, in step with ca_sequence, not once per res1/res2 pair
             ca_num += 1
 
-        # Residues are added in chain order, which is the order the comparison relies on.
+        # Residues are added in chain order, so this is ascending
         pocket.res_auth_ids = list(pocket.residues)
         pocket.pocket_exists = True
         pocket.has_coords = True
@@ -135,7 +133,7 @@ class PocketCalculator:
         pocket = Pocket()
         ca_sequence = []
         for residue in chain.get_polymer():
-            # Foldseek skips residues with no CA atom
+            # Only CA-bearing residues are indexed
             if "CA" not in residue:
                 continue
             ca_sequence.append(one_letter_code(residue.name))
@@ -164,9 +162,6 @@ class PocketCalculator:
         pocket.res_auth_ids = list(pocket.residues)
         pocket.pocket_exists = True
         pocket.has_coords = True
-        # This method predates the declared shape and used to omit ca_sequence entirely, which would
-        # have raised in seq_identity the moment it was wired into search(). Declaring the field made
-        # the gap visible; it is filled in here rather than left to break later.
         pocket.ca_sequence = "".join(ca_sequence)
         return {name: pocket}
 

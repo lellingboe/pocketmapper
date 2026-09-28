@@ -41,7 +41,7 @@ class PisaParser:
         Returns:
             dict: The entry's interfaces keyed by sorted chain pair, or None if not cached.
         """
-        # Files are written under the lower-cased code, while pdb_id arrives as the user typed it.
+        # Cached files are named by the lower-cased code; pdb_id may be in any case.
         for candidate in (pdb_id, pdb_id.lower()):
             in_path = os.path.join(in_dir, f"{candidate}.json")
             if os.path.exists(in_path):
@@ -101,16 +101,13 @@ class PisaParser:
         for record in records:
             pdb_id = record["struct_info"]
 
-            # Loading PISA pocket file
+            # Load the entry's interfaces
             pisa_data = self.load_interfaces(pdb_id, in_dir)
             if pisa_data is None:
                 logger.warning(f"Could not load PISA data for {pdb_id}", extra=log_extra)
                 continue
 
-            # Extracting the relevant interface. A pisa entry always names two chains, and QTProcessor
-            # now rejects one that does not -- but this parser is usable on records a caller built
-            # itself, and sorting a None below would raise where every other malformed record here is
-            # skipped with a warning.
+            # Extract the interface. A record with no partner chain is skipped, not left to raise in sorted().
             domain_chain, motif_chain = split_chain_info(record["chain_info"])
             if motif_chain is None:
                 logger.warning(f"No partner chain in chain_info '{record['chain_info']}' for {pdb_id}", extra=log_extra)
@@ -121,12 +118,12 @@ class PisaParser:
                 continue
             pisa_data = pisa_data[interface_chains]
 
-            # Checking the interfaces features 2 molecules
+            # A pocket is defined against a single partner
             if not len(pisa_data["molecules"]) == 2:
                 logger.warning(f"More than two molecules in {pdb_id} interface {interface_chains}", extra=log_extra)
                 continue
 
-            # Getting the molecule id for the domain chain
+            # Find the molecule id of the domain chain
             pocket_mol_id = None
             for mol in pisa_data["molecules"]:
                 if mol["chain_id"] == domain_chain:
@@ -136,11 +133,9 @@ class PisaParser:
                 logger.warning(f"Could not find domain chain in {pdb_id} interface {interface_chains}", extra=log_extra)
                 continue
 
-            # Making output pocket
             pocket = Pocket()
 
-            # Getting the pocket residues. Residues are keyed as strings to match the author seqids
-            # parse_pocket_from_struct will later use when it adds coordinates to this same Pocket.
+            # Collect the domain chain's residues across all bond types, keyed by author seqid as a string
             all_res_auth_ids = set()
             for bond_type in bond_types:
                 bonds_dict = pisa_data[bond_type]
@@ -154,8 +149,7 @@ class PisaParser:
                         uniprot_pos=bonds_dict[f"atom_site_{pocket_mol_id}_unp_nums"][i],
                     )
 
-            # Sorted numerically: the bond types are walked in list order, so insertion order into
-            # residues is arbitrary, and res_auth_ids is the ordering the comparison relies on.
+            # Sorted numerically: walking the bond types leaves the residues in arbitrary order
             pocket.res_auth_ids = [str(x) for x in sorted(int(x) for x in all_res_auth_ids)]
             pocket.pocket_exists = len(pocket.res_auth_ids) > 0
 
@@ -214,8 +208,7 @@ def pisa_pockets(records, pocket_dir):
     pockets = PisaParser().get_pockets_from_records(records=records, in_dir=interface_dir)
     logger.debug(f"PISA pockets before coordinates: {pockets}", extra=log_extra)
 
-    # PisaParser gives residue ids but no geometry; this second pass fills in seq_pos and the CA
-    # coordinates on the same Pocket, which is what the comparison and superposition need.
+    # PisaParser gives residue ids only; add seq_pos and CA coordinates to the same Pocket
     for record in tqdm(records):
         if record["pocket_id"] in pockets:
             domain_chain, _ = split_chain_info(record["chain_info"])

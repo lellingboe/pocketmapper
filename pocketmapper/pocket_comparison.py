@@ -234,7 +234,8 @@ def synthesise_target_pocket(aln, ctx):
         # residues into one dict entry and hand the survivor the wrong seq_pos.
         #
         # seq_pos only -- no codes and no coordinates. That absence is load-bearing: it is what
-        # suppresses the code-mismatch check and the RMSD block downstream.
+        # suppresses the code-mismatch check and the RMSD block downstream. uniprot_pos stays unset
+        # too: when the ids are UniProt positions, writing it would duplicate the key.
         residues={res_id: PocketResidue(seq_pos=k) for k, res_id in enumerate(res_ids)},
         pocket_exists=True,
         has_coords=False,
