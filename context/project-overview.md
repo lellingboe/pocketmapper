@@ -509,7 +509,7 @@ entry: `PocketMapper().search(...)` does the same work as the CLI, or drive a co
   one given both ways, as the CLI does.
 - **`search()` has side effects**: for the length of the call it sets the `pocketmapper` logger's level
   and attaches the `info.log` handler (see "Logging and errors"; the root logger is never touched), and
-  `delete_tmp` `shutil.rmtree`s `temp_dir` at the end unless `delete_tmp=False`, which keeps it. `configure_workflow` also empties `temp_dir` on the way in. Both
+  `delete_tmp` `shutil.rmtree`s `temp_dir` at the end unless `delete_tmp=0`, which keeps it. `configure_workflow` also empties `temp_dir` on the way in. Both
   rmtrees are guarded rather than unconditional: `temp_dir` is settable, so `lib.is_within` skips (with
   a warning) a path that does not resolve under `cache_dir` or `results_dir`. The guard bounds the
   damage from a mistyped path; it is not a reason to point the setting at a directory you care about.

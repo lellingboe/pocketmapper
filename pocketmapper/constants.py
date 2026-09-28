@@ -197,6 +197,9 @@ ALIGN_STRUCT_METHODS = ("auto",) + RESOLVED_ALIGN_STRUCT_METHODS
 # The chain aligners the `aligner` setting accepts: Foldseek, or the local BLOSUM62 sequence aligner.
 ALIGNERS = ("foldseek", "seq")
 
+# The values the `delete_tmp` setting accepts: 1 deletes temp_dir at the end of the run, 0 keeps it.
+DELETE_TMP_VALUES = (0, 1)
+
 # Defaults for the search options that have a static value. Options whose default depends on the run
 # (results_dir, threads and the derived paths) default to None and are resolved at run time.
 DEFAULT_CACHE_DIR = "pocketmapper_cache"
@@ -206,7 +209,7 @@ DEFAULT_ALIGN_STRUCT_METHOD = "auto"
 # "auto" infers the pocket method from each entry.
 DEFAULT_POCKET_METHOD = "auto"
 DEFAULT_ALIGNER = "foldseek"
-DEFAULT_DELETE_TMP = True
+DEFAULT_DELETE_TMP = 1
 
 # The chain used when an entry names a structure but no chain at all ("4Q5J"). AlphaFold models are
 # always a single chain A, and it is the first chain of most PDB entries.

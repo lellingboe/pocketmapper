@@ -118,13 +118,13 @@ split a run's outputs across directories.
 #### Temp options
 
 Scratch space for a single run: emptied before the run uses it and deleted when it ends — set
-`--delete_tmp False` to keep it for inspection. The per-run query and target structures and Foldseek's
+`--delete_tmp 0` to keep it for inspection. The per-run query and target structures and Foldseek's
 own scratch all live inside it.
 
 | Option | Default | Summary |
 | --- | --- | --- |
 | `--temp_dir` | `<results_dir>/tmp` | Per-run scratch, emptied before use and deleted at the end of the run. |
-| `--delete_tmp` | `True` | Delete `--temp_dir` at the end of the run; `False` keeps it. |
+| `--delete_tmp` | `1` | `1` deletes `--temp_dir` at the end of the run; `0` keeps it. |
 
 ### Input format
 Query and target entries are colon-separated:
@@ -338,7 +338,7 @@ path under it).
 `target_structures/` and `foldseek_tmp/`, so a rerun into the same `--results_dir` never hands Foldseek
 what the previous run left behind. Both the emptying and the deletion are skipped with a warning when
 `temp_dir` does not resolve to somewhere under `--cache_dir` or `--results_dir` — a mistyped
-`--temp_dir` costs you a stray directory, not its contents. `--delete_tmp False` keeps it: it holds the
+`--temp_dir` costs you a stray directory, not its contents. `--delete_tmp 0` keeps it: it holds the
 per-run inputs the aligner was actually given, which is what you want when a run returns nothing and
 you need to see why.
 

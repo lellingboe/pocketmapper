@@ -43,6 +43,7 @@ from pocketmapper.constants import DEFAULT_CACHE_DIR
 from pocketmapper.constants import DEFAULT_DELETE_TMP
 from pocketmapper.constants import DEFAULT_POCKET_METHOD
 from pocketmapper.constants import DEFAULT_VERBOSITY
+from pocketmapper.constants import DELETE_TMP_VALUES
 from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT
 from pocketmapper.constants import FOLDSEEK_INSTALL_HINT
 from pocketmapper.constants import PACKAGE_LOGGER
@@ -92,8 +93,8 @@ class Settings:
     align_struct_method: str
     verbosity: int
     threads: int
-    # Delete temp_dir at the end of the run; False keeps it for inspection.
-    delete_tmp: bool
+    # 1 deletes temp_dir at the end of the run; 0 keeps it for inspection.
+    delete_tmp: int
     pdb_dir: str
     alphafold_dir: str
     pocket_dir: str
@@ -227,7 +228,7 @@ class PocketMapper:
 
         For the length of the call, sets the `pocketmapper` logger's level and adds a handler writing
         to `log_path`; both are restored on return. Empties `temp_dir` on the way in and, unless
-        `delete_tmp` is False, deletes it on the way out.
+        `delete_tmp` is 0, deletes it on the way out.
 
         Args:
             query (str, optional): Query identifier, string or path to a list. Required here or in
@@ -253,8 +254,8 @@ class PocketMapper:
                 'pisa', 'passthrough', 'vdw', 'whole_chain' or 'foldseek_db' -- or 'auto' (the
                 default) to infer it per entry from the input string.
             target_pocket_method (str, optional): As `query_pocket_method`, for the target side.
-            delete_tmp (bool, optional): Delete temp_dir at the end of the run. Defaults to
-                DEFAULT_DELETE_TMP; False keeps it for inspection.
+            delete_tmp (int, optional): 1 deletes temp_dir at the end of the run; 0 keeps it for
+                inspection. Defaults to DEFAULT_DELETE_TMP.
             pdb_dir (str, optional): Cache of fetched PDB structures.
                 Defaults to <cache_dir>/pdb_structures.
             alphafold_dir (str, optional): Cache of fetched AlphaFold structures.
@@ -354,7 +355,8 @@ class PocketMapper:
 
         Raises:
             PocketMapperError: If the job file is missing, unreadable or names an unknown setting, if
-                query or target is given both ways or neither way, or if a directory cannot be made.
+                query or target is given both ways or neither way, if a directory cannot be made, or
+                if `delete_tmp` is not 1 or 0.
         """
         log_extra = {"stage": "Configuring Settings"}
 
@@ -436,6 +438,9 @@ class PocketMapper:
         # 4d. Same reasoning as 4b/4c: after configure_logging so the resolution is visible, and
         # before the settings are logged and dumped, so job_settings.json records a concrete count.
         values["threads"] = self.resolve_threads(values["threads"])
+
+        # 4e. Before the settings are dumped, so job_settings.json records a checked value.
+        values["delete_tmp"] = self.resolve_delete_tmp(values["delete_tmp"])
 
         settings = Settings(**values)
         logger.info(f"Settings: {json.dumps(asdict(settings), indent=4)}", extra=log_extra)
@@ -603,6 +608,29 @@ class PocketMapper:
             raise PocketMapperError(msg)
 
         return threads
+
+    def resolve_delete_tmp(self, delete_tmp):
+        """
+        Validate the `delete_tmp` setting.
+
+        Args:
+            delete_tmp (int): 1 to delete temp_dir at the end of the run, 0 to keep it.
+
+        Returns:
+            int: The value, unchanged.
+
+        Raises:
+            PocketMapperError: If the value is not one of DELETE_TMP_VALUES, including a bool.
+        """
+        log_extra = {"stage": "Configuring Settings"}
+
+        # A job file can hold any JSON value, and True == 1
+        if isinstance(delete_tmp, bool) or delete_tmp not in DELETE_TMP_VALUES:
+            msg = f"delete_tmp must be 1 or 0, got {delete_tmp!r}."
+            logger.critical(msg, extra=log_extra)
+            raise PocketMapperError(msg)
+
+        return delete_tmp
 
     def configure_query_target(self):
         """
@@ -1121,7 +1149,7 @@ class PocketMapper:
 
     def delete_tmp(self):
         """
-        Delete this run's scratch directory, unless `delete_tmp` is False.
+        Delete this run's scratch directory, unless `delete_tmp` is 0.
 
         A `temp_dir` resolving outside both `cache_dir` and `results_dir` is kept and warned about.
 
@@ -1132,8 +1160,8 @@ class PocketMapper:
 
         path = self.settings.temp_dir
 
-        if not self.settings.delete_tmp:
-            logger.info(f"delete_tmp is False; keeping {path}", extra=log_extra)
+        if self.settings.delete_tmp == 0:
+            logger.info(f"delete_tmp is 0; keeping {path}", extra=log_extra)
             return
 
         if not is_within(path, [self.settings.cache_dir, self.settings.results_dir]):

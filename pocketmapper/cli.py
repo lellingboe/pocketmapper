@@ -36,31 +36,6 @@ from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.lib import format_handler
 from pocketmapper.pocketmapper import PocketMapper
 
-# Accepted spellings for a boolean option value, matched case-insensitively
-TRUE_VALUES = ("true", "1", "yes")
-FALSE_VALUES = ("false", "0", "no")
-
-
-def bool_arg(value):
-    """
-    Parse a boolean option value from the command line.
-
-    Args:
-        value (str): The token following the option.
-
-    Returns:
-        bool: The parsed value.
-
-    Raises:
-        argparse.ArgumentTypeError: If the token is not a recognised boolean spelling.
-    """
-    lowered = value.strip().lower()
-    if lowered in TRUE_VALUES:
-        return True
-    if lowered in FALSE_VALUES:
-        return False
-    raise argparse.ArgumentTypeError(f"expected True or False, got {value!r}")
-
 
 def build_parser():
     """
@@ -260,12 +235,10 @@ def build_parser():
     )
     temp_paths.add_argument(
         "--delete_tmp",
-        nargs="?",
-        const=True,
-        type=bool_arg,
+        type=int,
         default=DEFAULT_DELETE_TMP,
-        metavar="BOOL",
-        help=f"Delete --temp_dir at the end of the run; False keeps it. (default: {DEFAULT_DELETE_TMP})",
+        metavar="INT",
+        help=f"1 deletes --temp_dir at the end of the run; 0 keeps it. (default: {DEFAULT_DELETE_TMP})",
     )
 
     return parser
