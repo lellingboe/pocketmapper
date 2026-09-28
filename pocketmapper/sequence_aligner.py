@@ -87,7 +87,9 @@ class SequenceAligner:
             st = gemmi.read_structure(path)  # format inferred from the extension, so local .pdb inputs work too
             st.setup_entities()
             aln_chain, _ = split_chain_info(record["chain_info"])
-            seq = "".join([one_letter_code(res.name) for res in st[0][aln_chain].get_polymer() if "CA" in res])
+            # first_conformer: a microheterogeneous position is one residue, as Foldseek reads it
+            residues = st[0][aln_chain].get_polymer().first_conformer()
+            seq = "".join([one_letter_code(res.name) for res in residues if "CA" in res])
             name_to_seq[name] = seq
 
         # Performing pairwise alignment

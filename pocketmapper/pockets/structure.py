@@ -68,7 +68,8 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
         pocket = Pocket(res_auth_ids=[] if whole_chain else [str(x) for x in pocket_residues])
     pocket.whole_chain = whole_chain
     ca_sequence = []
-    for res in chain:
+    # first_conformer: a microheterogeneous position is one residue, as Foldseek reads it
+    for res in chain.first_conformer():
         res_id = res.seqid.num
         ca_atom = res.get_ca()
         if ca_atom is None:  # only CA-bearing residues are indexed

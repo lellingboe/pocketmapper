@@ -56,8 +56,9 @@ class VdWCalculator:
             structure = gemmi.read_structure(structure)
         structure.setup_entities()
 
-        domain_residues = structure[0][domain_chain].get_polymer()
-        motif_residues = structure[0][motif_chain].get_polymer()
+        # first_conformer: a microheterogeneous position is one residue, as Foldseek reads it
+        domain_residues = structure[0][domain_chain].get_polymer().first_conformer()
+        motif_residues = structure[0][motif_chain].get_polymer().first_conformer()
 
         pocket = Pocket()
         ca_num = 0

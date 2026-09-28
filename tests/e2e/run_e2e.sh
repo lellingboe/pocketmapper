@@ -73,6 +73,7 @@ test_core_6|core|rows|AlphaFold passthrough vs AlphaFold passthrough|P06493:A:16
 test_core_7|core|rows|Two pockets on one query chain (pisa + passthrough)|multi_pocket_chain.txt 4Q5J:B_F
 test_core_8|core|rows|Superposing on the pocket rather than the chain, with foldseek|4Q5J:A_E 4Q5J:B_F --align_struct_method pocket
 test_core_9|core|queries=2|Same-named local files in different directories|same_name.txt same_name.txt
+test_core_10|core|rows|Microheterogeneous residue (4Z0Y:A 252 is HS8 and HIS)|4Z0Y:A_E 4Z0Y:C_G
 
 test_open_1|core|rows|PISA interface vs an open whole-chain target|4Q5J:A_E 4Q5J:B
 test_open_2|core|rows|PISA interface vs a bare structure, chain defaulting to A|4Q5J:B_F 4Q5J

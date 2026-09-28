@@ -255,6 +255,14 @@ its code site; what follows is the map of where, plus the checks that live nowhe
   gemmi's `find_tabulated_residue(...).one_letter_code` looks like the obvious source and is wrong here:
   on gemmi 0.7.5 it disagrees on 14 of those names (`SEC` gives `U`, not `C`; `BAL`, `KYN`, `HZP` and
   others give `X`), so local-aligner sequences would stop matching Foldseek's.
+- **Every chain walk reads `first_conformer()`** — `parse_pocket_from_struct`, `vdw_pockets` and
+  `SequenceAligner` all do. A microheterogeneous position (4Z0Y:A 252 holds both `HS8` and `HIS`) is two
+  gemmi residues with one seqid; Foldseek reads it as one, so a walk counting both shifts every later
+  `seq_pos` by one. `MIN_SEQ_IDENTITY` catches it, but only by dropping the pocket into
+  `incorrect_mapping.json`. `test_core_10` covers it.
+- **A pocket that fails `MIN_SEQ_IDENTITY` produces no rows at all.** It used to still score the pair
+  that tripped the check, so one row per rejected pocket reached `pocket_comparison.tsv` with shifted
+  `seq_pos` — correct only if every pocket residue sat before the shift.
 - **`preprocess_name` is the alignment join key** — computed in `QTProcessor.parse_individual_qt`.
   Alignments are keyed by it, pockets by `pocket_id`, and `compare_pockets_based_on_alignment` builds
   `preproc_to_ids` to bridge them. **A local file's name is hashed with its contents**, not its
