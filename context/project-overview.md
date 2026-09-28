@@ -133,7 +133,7 @@ Being delta-encoded it is already near entropy — zstd -19 takes only 16% off i
 writes or reads a compressed structure DB, so there is nothing to gain by compressing what ships.
 
 **No cap on how many hits get enriched**, by choice. `4Q5J:B_F` against the bundled `pdb` DB returns ~4,970
-hits across ~3,620 entries, and PISA is fetched per entry behind a sleep, so the first run takes hours.
+hits across ~3,620 entries, and PISA is fetched per assembly behind a sleep, so the first run takes hours.
 Reruns are cheap from the interface cache, and `expand_fsdb_pdb_targets` logs both counts before starting
 so the wait is legible. Add a cap here if that becomes untenable.
 
@@ -193,7 +193,22 @@ Four consequences no single file states:
 
 A leftover `.part` is inert in every cache directory: `download_missing_interfaces` globs `*.json`,
 which cannot match `x.json.part`, the other PISA stages check an exact path, and
-`StructureDownloader` tests for an exact `.cif.gz` destination.
+`StructureDownloader` tests for an exact `.cif.gz` destination. The same holds for a leftover
+`summaries/_batch.json`, since no PDB code starts with `_`.
+
+**Entry summaries are the one batched request.** `download_missing_summaries` POSTs
+`summary_batch_size` ids at a time to `/pdb/entry/summary/` and splits the response into the same
+per-entry files a single GET would give, so ~3,620 requests become ~73. The PISA interface endpoint
+takes one assembly per call and has no batched form. Three behaviours of the API, measured on
+2026-09-28, shape the code:
+
+- **An unknown id is silently omitted**, not reported, so a code missing from its batch's response is
+  counted as a failure. A batch with *no* known id returns 404, which fails the whole batch.
+- **Somewhere between 800 and 900 ids the API returns 500.** That is transient to `is_transient_error`,
+  so an oversized batch would be retried five times and permanently double the host's pacing. The
+  default of 50 stays well clear.
+- The summary is the same whether fetched singly or in a batch (verified over 450 cached entries),
+  so switching left `parse_summaries` and the existing cache untouched.
 
 **The PISA failure report is the caller's file, not the downloader's.** `download_missing_interfaces`
 returns what each stage could not handle and writes `error_path` only when there is something to write;

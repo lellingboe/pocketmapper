@@ -114,7 +114,7 @@ def escalate_host_delay(url, max_delay):
         return delay
 
 
-def write_through_part(url, out_fpath, transform, log_extra):
+def write_through_part(url, out_fpath, transform, log_extra, data=None):
     """
     Fetch `url` and place it at `out_fpath`, writing through a `.part` file.
 
@@ -130,6 +130,7 @@ def write_through_part(url, out_fpath, transform, log_extra):
             before it is placed, or None to place it unchanged.
         log_extra (dict or None): `extra` mapping for the log records, or None to log them under
             this function's own name.
+        data (bytes, optional): Request body. Given, the request is a POST. Defaults to None.
 
     Returns:
         None
@@ -141,7 +142,7 @@ def write_through_part(url, out_fpath, transform, log_extra):
     raw_fpath = f"{out_fpath}.raw.part" if transform else part_fpath
     try:
         logger.debug(f"Fetching {url} -> {raw_fpath}", extra=log_extra)
-        urlretrieve(url, raw_fpath)
+        urlretrieve(url, raw_fpath, data=data)
         if transform:
             transform(raw_fpath, part_fpath)
         os.replace(part_fpath, out_fpath)
@@ -192,7 +193,7 @@ def download_file(url, out_fpath, transform=None, max_retries=5, base_delay=0.25
     return False
 
 
-def download_api(url, out_fpath, max_retries=5, base_delay=0.25, max_delay=30.0, log_extra=None):
+def download_api(url, out_fpath, max_retries=5, base_delay=0.25, max_delay=30.0, log_extra=None, data=None):
     """
     Download a REST response to `out_fpath`, pacing requests to the host it came from.
 
@@ -210,6 +211,7 @@ def download_api(url, out_fpath, max_retries=5, base_delay=0.25, max_delay=30.0,
         max_delay (float): Ceiling on the host's delay. Defaults to 30.0.
         log_extra (dict, optional): `extra` mapping for the log records. Defaults to None, which
             logs them under this function's own name.
+        data (bytes, optional): Request body. Given, the request is a POST. Defaults to None.
 
     Returns:
         bool: True once the response is in place, False if every attempt failed.
@@ -217,7 +219,7 @@ def download_api(url, out_fpath, max_retries=5, base_delay=0.25, max_delay=30.0,
     for attempt in range(1, max_retries + 1):
         sleep(get_host_delay(url, base_delay))
         try:
-            write_through_part(url, out_fpath, None, log_extra)
+            write_through_part(url, out_fpath, None, log_extra, data=data)
             return True
         except Exception as e:
             if attempt == max_retries or not is_transient_error(e):

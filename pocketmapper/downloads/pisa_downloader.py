@@ -1,8 +1,8 @@
 """
 Download and flatten PDBe PISA interface data into a per-entry cache.
 
-Three stages, each cached on disk so a rerun costs nothing: entry summaries give the assembly ids,
-one request per assembly gives its interfaces, and those are flattened into a single
+Three stages, each cached on disk so a rerun costs nothing: entry summaries, fetched in batches,
+give the assembly ids, one request per assembly gives its interfaces, and those are flattened into a single
 `<pdb_code>.json` per entry keyed by sorted chain pair -- the shape `PisaParser` reads.
 
 Every request is spaced to stay within the PDBe API's tolerance, which is what makes the first run
@@ -39,7 +39,7 @@ class PisaDownloader:
     response for a later run to trust.
     """
 
-    def __init__(self, max_retries=5, base_delay=0.25, max_delay=30.0):
+    def __init__(self, max_retries=5, base_delay=0.25, max_delay=30.0, summary_batch_size=50):
         """
         Configure the retry and rate-limiting behaviour shared by every request.
 
@@ -47,19 +47,23 @@ class PisaDownloader:
             max_retries (int): Attempts per URL before giving up. Defaults to 5.
             base_delay (float): Seconds between requests, before any backoff. Defaults to 0.25.
             max_delay (float): Ceiling on the doubling backoff delay. Defaults to 30.0.
+            summary_batch_size (int): Entries per summary request. The API fails with a 500 somewhere
+                above 800, so keep it well below that. Defaults to 50.
         """
         self.log_extra = {"stage": "Downloading PISA Interfaces"}
         self.max_retries = max_retries
         self.base_delay = base_delay
         self.max_delay = max_delay
+        self.summary_batch_size = summary_batch_size
 
-    def fetch_with_backoff(self, url, out_fname):
+    def fetch_with_backoff(self, url, out_fname, data=None):
         """
         Download `url` to `out_fname` under this instance's pacing and retry settings.
 
         Args:
             url (str): Address to fetch.
             out_fname (str): Path to write the response to.
+            data (bytes, optional): Request body. Given, the request is a POST. Defaults to None.
 
         Returns:
             bool: True on success, False once the attempts are exhausted.
@@ -71,6 +75,7 @@ class PisaDownloader:
             base_delay=self.base_delay,
             max_delay=self.max_delay,
             log_extra=self.log_extra,
+            data=data,
         )
 
     def download_missing_interfaces(self, pdb_list, summary_dir, asm_dir, interface_dir, error_path):
@@ -133,6 +138,11 @@ class PisaDownloader:
         """
         Download the PDBe entry summary for each code, which names its assemblies.
 
+        Codes are requested `summary_batch_size` at a time. Each batch response is written to
+        `_batch.json` in `summary_dir`, split into one `<pdb_code>.json` per entry, and deleted. The API
+        silently omits an entry it has no summary for, so a code absent from its batch's response
+        counts as a failure, as does every code in a batch whose request failed.
+
         Args:
             pdb_codes (list): Lower-cased PDB codes to fetch.
             summary_dir (str): Directory to cache summaries in; already-present files are not refetched.
@@ -144,16 +154,36 @@ class PisaDownloader:
         logger.info(f"Downloading {len(pdb_codes)} PISA summaries", extra=self.log_extra)
         success = []
         failure = []
-        for pdb_code in tqdm(pdb_codes):
-            out_fname = os.path.join(summary_dir, f"{pdb_code}.json")
-            if os.path.exists(out_fname):
+        to_fetch = []
+        for pdb_code in dict.fromkeys(pdb_codes):
+            if os.path.exists(os.path.join(summary_dir, f"{pdb_code}.json")):
                 success.append(pdb_code)
             else:
-                url = f"https://www.ebi.ac.uk/pdbe/api/v2/pdb/entry/summary/{pdb_code}"
-                if self.fetch_with_backoff(url, out_fname):
+                to_fetch.append(pdb_code)
+
+        url = "https://www.ebi.ac.uk/pdbe/api/v2/pdb/entry/summary/"
+        batch_fname = os.path.join(summary_dir, "_batch.json")
+        for start in tqdm(range(0, len(to_fetch), self.summary_batch_size)):
+            end = start + self.summary_batch_size
+            batch = to_fetch[start:end]
+            try:
+                if not self.fetch_with_backoff(url, batch_fname, data=",".join(batch).encode()):
+                    failure.extend(batch)
+                    continue
+                with open(batch_fname) as f:
+                    data = json.load(f)
+                for pdb_code in batch:
+                    if pdb_code not in data:
+                        failure.append(pdb_code)
+                        continue
+                    out_fname = os.path.join(summary_dir, f"{pdb_code}.json")
+                    with open(f"{out_fname}.part", "w") as f:
+                        json.dump({pdb_code: data[pdb_code]}, f)
+                    os.replace(f"{out_fname}.part", out_fname)
                     success.append(pdb_code)
-                else:
-                    failure.append(pdb_code)
+            finally:
+                if os.path.exists(batch_fname):
+                    os.remove(batch_fname)
         if len(failure) > 0:
             logger.warning(f"Failed to download {len(failure)} summaries", extra=self.log_extra)
         return success, failure
