@@ -2,13 +2,13 @@
 The declared shape of a pocket: the one structure every pocket method returns.
 
 This module imports nothing, for the same reason `constants.py` gives: a shape that five producers
-and one consumer must agree on belongs beside none of them. `pocket_parser` builds a Pocket from a
-structure, `pisa_parser` and `pocket_calculator` from interface data and coordinates respectively,
+and one consumer must agree on belongs beside none of them. `structure` builds a Pocket from a
+structure, `pisa` and `vdw` from interface data and coordinates respectively,
 and `pocket_comparison` synthesises one for a Foldseek-database hit -- all four then hand the same
 thing to `pocket_comparison.compare_pockets`.
 
 Every field carries a default. A producer that legitimately cannot fill one -- a PISA pocket before
-`pocket_parser.parse_pocket_from_struct` enriches it, a synthesised database pocket with no
+`structure.parse_pocket_from_struct` enriches it, a synthesised database pocket with no
 coordinates -- leaves it at its default rather than omitting it, so no consumer has to guess whether
 to read a field with `.get` or straight indexing.
 """

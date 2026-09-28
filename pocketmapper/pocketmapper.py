@@ -55,8 +55,8 @@ from pocketmapper.lib import is_within
 from pocketmapper.lib import jsonify_dict
 from pocketmapper.lib import parse_foldseek_pdb_entry_name
 from pocketmapper.pocket_comparison import compare_pockets
-from pocketmapper.pockets.pisa_parser import PisaParser
-from pocketmapper.pockets.pisa_parser import download_pisa_interfaces
+from pocketmapper.pockets.pisa import PisaParser
+from pocketmapper.pockets.pisa import download_pisa_interfaces
 from pocketmapper.pockets.pocket_fetcher import PocketFetcher
 from pocketmapper.qt_processor import QTProcessor
 from pocketmapper.sequence_aligner import SequenceAligner

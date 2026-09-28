@@ -46,7 +46,7 @@ Two things that follow:
 ### Pocket shape
 
 Every pocket method returns a `pockets.pocket.Pocket` — the dataclass declares which fields exist, which are
-optional and why, and `pockets.pocket_parser.parse_pocket_from_struct` shows how `seq_pos` and `whole_chain`
+optional and why, and `pockets.structure.parse_pocket_from_struct` shows how `seq_pos` and `whole_chain`
 are derived. Residues live under `residues`, keyed by author seqid as a string.
 
 One thing the class states that no producer would: `res_auth_ids` is not `list(residues)`. It is the
@@ -58,11 +58,11 @@ returns each side's ids in its own `res_auth_ids` order and `superpose` pairs th
 for position, so a pocket ordered any other way is superposed against the wrong residues -- wrong
 `rmsd`, `ca_dists` and transforms, with `overlap_count` and every identity column still correct,
 and no warning. Only the passthrough method takes its order from user input; the rest walk the chain
-(`vdw_pockets`, `whole_chain_pockets`) or sort (`pisa_parser`, `passthrough_pockets`).
+(`vdw_pockets`, `whole_chain_pockets`) or sort (`pisa`, `passthrough_pockets`).
 
 ### Open searches
 
-README's "Open searches" covers the output shape; `pocket_parser.whole_chain_pockets` and
+README's "Open searches" covers the output shape; `structure.whole_chain_pockets` and
 `compare_pocket_pair` cover the per-pocket suppression of the `target_*` columns.
 
 A `target` value is not guaranteed to be a target. A query and target sharing a chain share a
@@ -144,17 +144,17 @@ so the wait is legible. Add a cap here if that becomes untenable.
 `PocketMapper.get_pockets` only filters both sides to `success` rows and hands them over.
 
 - **`POCKET_BUILDERS` in `pocket_fetcher` is the whole table of pocket methods.** Each builder lives
-  beside the primitive it wraps — `pisa_pockets` in `pisa_parser`, `vdw_pockets` in
-  `pocket_calculator`, `passthrough_pockets` and `whole_chain_pockets` in `pocket_parser` — and all
-  four share the signature `(records, pocket_dir)`, the three that ignore `pocket_dir` included, so
-  the fetcher needs no per-method case. A new method is one row plus one builder.
+  beside the primitive it wraps — `pisa_pockets` in `pisa`, `vdw_pockets` in `vdw`,
+  `passthrough_pockets` and `whole_chain_pockets` in `structure` — and all four share the signature
+  `(records, pocket_dir)`, the three that ignore `pocket_dir` included, so the fetcher needs no
+  per-method case. A new method is one row plus one builder.
 - **Records are dicts, not a DataFrame**, the same currency `StructureDownloader` and
   `StructureAligner` take, so a library caller needs no pandas. The fetcher reads no `success` field;
   filtering is the caller's job.
 - **`expand_fsdb_pdb_targets` is not in the package, on purpose.** It builds new target records
   (through `QTProcessor`) and downloads their structures, which is record work rather than pocket
   work, so it is its own pipeline step on `PocketMapper`, run just before `get_pockets`. It shares the
-  PISA cache with `pisa_pockets` through `pisa_parser.download_pisa_interfaces`, which alone decides
+  PISA cache with `pisa_pockets` through `pisa.download_pisa_interfaces`, which alone decides
   where under `pocket_dir` PISA responses go.
 
 ## Downloads
@@ -218,7 +218,7 @@ Breaking one of these generally produces silently wrong output rather than an er
 its code site; what follows is the map of where, plus the checks that live nowhere else.
 
 - **`seq_pos` is the value everything hinges on** — declared on `pockets.pocket.PocketResidue`, set in
-  `pockets.pocket_parser.parse_pocket_from_struct`, used in `pocket_comparison.map_pocket_into_alignment`. A new
+  `pockets.structure.parse_pocket_from_struct`, used in `pocket_comparison.map_pocket_into_alignment`. A new
   pocket method computing it any other way yields zero overlap with no error. Check it by comparing a
   pocket against itself: `overlap_count == pocket_len`. It is also **not** the reported residue id:
   `synthesise_target_pocket` keys its residues by UniProt position while leaving `seq_pos` the
@@ -238,7 +238,7 @@ its code site; what follows is the map of where, plus the checks that live nowhe
   becoming chain `A` — but the split stays in one place regardless, because a library caller can build a
   record itself and reach the same call sites. Never re-derive a domain or motif chain inline.
 - **A passthrough pocket's `res_auth_ids` are all keys of its `residues`** — enforced in
-  `pocket_parser.passthrough_pockets`, which skips the whole entry when they are not.
+  `structure.passthrough_pockets`, which skips the whole entry when they are not.
   `map_pocket_into_alignment` and `describe_pocket` both index `residues` by every `res_auth_ids` id,
   so an id the chain cannot supply used to surface as a `KeyError` out of `compare_pockets`' re-raise
   -- one typo aborting the run. Syntax and repeats are caught earlier, in
@@ -302,7 +302,7 @@ How the `extra` is built follows one rule, and there is exactly one spelling for
 A class with a single coherent stage sets `self.log_extra` once in `__init__` and never mutates it
 (`StructureDownloader`, `PisaDownloader`, `StructureAligner`, `StructurePreprocessor`). Anything spanning
 several stages builds a local `log_extra` per function, or passes the dict inline when the function has
-only one call (`pocketmapper.py`, `pisa_parser`, `pocket_parser`, `pocket_comparison`, ...). `QTProcessor`
+only one call (`pocketmapper.py`, `pisa`, `structure`, `pocket_comparison`, ...). `QTProcessor`
 is the one deliberate `.update()`: `process_qt_cmdline_input` names the side being processed and the
 `determine_*` helpers it drives all log under that name, which is call-scoped context rather than drift.
 `PocketMapper` itself holds no stage state — it used to, and the stage a step logged under then depended

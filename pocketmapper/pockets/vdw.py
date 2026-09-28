@@ -24,7 +24,7 @@ from pocketmapper.pockets.pocket import PocketResidue
 logger = logging.getLogger(__name__)
 
 
-class PocketCalculator:
+class VdWCalculator:
     """
     Computes pockets from van der Waals contacts between chains.
     """
@@ -178,7 +178,7 @@ def vdw_pockets(records, pocket_dir):
         dict: pocket_id -> Pocket. A record whose structure file is missing maps to None.
     """
     pockets = {}
-    pc = PocketCalculator()
+    pc = VdWCalculator()
     for record in tqdm(records):
         domain_chain, motif_chain = split_chain_info(record["chain_info"])
         pockets[record["pocket_id"]] = pc.pocket_overlap(

@@ -20,7 +20,7 @@ from pocketmapper.lib import one_letter_code
 from pocketmapper.lib import split_chain_info
 from pocketmapper.pockets.pocket import Pocket
 from pocketmapper.pockets.pocket import PocketResidue
-from pocketmapper.pockets.pocket_parser import parse_pocket_from_struct
+from pocketmapper.pockets.structure import parse_pocket_from_struct
 
 logger = logging.getLogger(__name__)
 
