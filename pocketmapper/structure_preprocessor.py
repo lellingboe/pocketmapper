@@ -100,7 +100,7 @@ class StructurePreprocessor:
 
             if os.path.basename(out_path_gz) not in self.cache:
                 ref_path = record["struct_path"]  # e.g., /path/to/alphafold_dir/P12345.cif.gz
-                st = gemmi.read_structure(ref_path, format=gemmi.CoorFormat.Mmcif)
+                st = gemmi.read_structure(ref_path)
 
                 # Taking first model and deleting the rest
                 del st[1:]
