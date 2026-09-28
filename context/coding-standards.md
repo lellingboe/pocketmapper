@@ -15,7 +15,7 @@
 ## Docstrings
 - **Google-style**
   - A one-line summary
-  - Paragraphs with any details important when calling the function
+  - Paragraphs detailing unexpected side-effects the caller should know
   - `Args:` / `Returns:` / `Raises:`
 - **Function docstrings are local**
   - Limit information to what the function does
