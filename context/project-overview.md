@@ -3,453 +3,235 @@ Project implementation specifics. Cross-module and derived facts only. Anything 
 
 ## Pipeline
 
-`cli.py` holds the argparse parser and the console-script `cli()`; it is **the only module that knows
-about argv or exit codes**, and `search()` is its one subcommand. The eight steps of `search()` are listed
-in the `pocketmapper.py` module docstring.
-
-Two parsing details are load-bearing and documented at the parser: query and target are optional
-positionals with no `--query`/`--target` spelling, because a job file may supply them instead — and
-`configure_workflow` requires each from exactly one of the two — and every static default is a real
-value from `constants`, shared with `search()`'s signature. The job file is layered *on top of* the
-parsed arguments, so nothing needs to tell a default apart from a value the user typed.
+`cli.py` is **the only module that knows about argv or exit codes**; `search` is its one subcommand. The
+eight steps of `search()` are in the `pocketmapper.py` module docstring. Parser details (optional
+query/target positionals, defaults from `constants`) are documented at the parser. The job file is layered
+on top of parsed arguments, so nothing distinguishes a default from a typed value.
 
 ### Input grammar
 
-`struct_info[:chain_info[:residue_info]]`; either side may instead be a file with one such string per line.
-README's "Input format" table documents the forms; the `qt_processor.py` module docstring points at the two
-methods that implement them.
+`struct_info[:chain_info[:residue_info]]`, or a file of such lines. Forms: README "Input format".
 
-One consequence neither states: a local-file entry like `4Q5J.cif.gz:B_F` resolves to `vdw`, not `pisa` —
-`B_F` matches the vdw regex and PISA is PDB-only. That is how the mixed-input e2e fixtures reach the vdw
-code.
-
-**Two tables in `QTProcessor.__init__` are the whole grammar**, and both directions read them:
-`pocket_methods` maps a method to its pocket-info pattern and to the phrase a warning uses, and
-`struct_type_pocket_methods` maps a structure type to the methods it supports, in the order they are tried.
-`determine_pocket_method` takes the first method whose pattern matches; `validate_pocket_method` checks an
-entry against the pattern of the method it was *given*. That second direction is what a forced
-`--query_pocket_method` / `--target_pocket_method` goes through, so a forced method is now constrained
-exactly as an inferred one is and the two cannot drift. It runs for inferred methods too, where it is a
-tautology, so the invariant holds for every record rather than for the forced ones alone.
-
-Two things that follow:
-
-- **The vdw pattern's partner chain is required, and was not always.** It used to be optional, which
-  inference could never exercise — `whole_chain` is tried first and claims any bare chain — but which made
-  a forced `vdw` on `4Q5J:A` validate and then reach gemmi as chain `None`. Tightening it is inference-neutral;
-  verified by replaying the old per-struct_type ladder against the new loop over 400 generated entries.
-- **A rejected entry is skipped, not fatal.** `validate_pocket_method` warns and returns False, the record
-  is dropped, and `configure_query_target` raises only when a side ends up empty — so one bad line in a
-  batch file does not stop the rest. The exception is an unrecognised method *name*, which is a whole-run
-  setting rather than one entry: `process_qt_cmdline_input` raises on it before parsing anything.
+- A local file like `4Q5J.cif.gz:B_F` resolves to `vdw`, not `pisa` (PISA is PDB-only). This is how the
+  mixed-input e2e fixtures reach vdw.
+- **Two tables in `QTProcessor.__init__` are the whole grammar**: `pocket_methods` (method → pattern,
+  warning phrase) and `struct_type_pocket_methods` (struct type → methods, in try order).
+  `determine_pocket_method` takes the first match; `validate_pocket_method` checks every record (forced or
+  inferred) against its method's pattern, so forced and inferred cannot drift.
+- **vdw's partner chain is required.** When optional, a forced `vdw` on `4Q5J:A` reached gemmi as chain `None`.
+  Tightening is inference-neutral (`whole_chain` claims bare chains first) — verified by replaying the old
+  per-struct_type ladder against the loop over 400 generated entries.
+- **A rejected entry is skipped, not fatal**; `configure_query_target` raises only when a side ends up
+  empty. An unrecognised method *name* raises up front in `process_qt_cmdline_input`.
 
 ### Pocket shape
 
-Every pocket method returns a `pockets.pocket.Pocket` — the dataclass declares which fields exist, which are
-optional and why, and `pockets.structure.parse_pocket_from_struct` shows how `seq_pos` and `whole_chain`
-are derived. Residues live under `residues`, keyed by author seqid as a string.
+`pockets.pocket.Pocket` declares the fields; `parse_pocket_from_struct` derives `seq_pos`/`whole_chain`.
+`residues` is keyed by author seqid string. `res_auth_ids` is not `list(residues)`: it is the ordered list
+the comparison walks (PISA seeds it from the interface; `residues` is chain order).
 
-One thing the class states that no producer would: `res_auth_ids` is not `list(residues)`. It is the
-ordered residue list the comparison walks, and on the PISA path it is seeded from the interface while
-`residues` is filled in chain order.
-
-**Every producer must emit it in ascending residue order**, and nothing checks that. `overlap_ids`
-returns each side's ids in its own `res_auth_ids` order and `superpose` pairs the two lists position
-for position, so a pocket ordered any other way is superposed against the wrong residues -- wrong
-`rmsd`, `ca_dists` and transforms, with `overlap_count` and every identity column still correct,
-and no warning. Only the passthrough method takes its order from user input; the rest walk the chain
-(`vdw_pockets`, `whole_chain_pockets`) or sort (`pisa`, `passthrough_pockets`).
+**Every producer must emit `res_auth_ids` ascending; nothing checks.** `overlap_ids` + `superpose` pair the
+two sides position by position, so misordering gives wrong `rmsd`, `ca_dists` and transforms while
+`overlap_count` and identities stay correct — no warning. vdw/whole_chain walk the chain; pisa/passthrough sort.
 
 ### Open searches
 
-README's "Open searches" covers the output shape; `structure.whole_chain_pockets` and
-`compare_pocket_pair` cover the per-pocket suppression of the `target_*` columns.
-
-A `target` value is not guaranteed to be a target. A query and target sharing a chain share a
-`preprocess_name`, so `compare_pockets` pairs every pocket on that chain with every other and some rows
-carry a query-only `pocket_id` in `target`. `StructureAligner.align_structs` filters those out before
-looking a target record up; without that it raises a bare pandas `KeyError`.
+A query and target on one chain share a `preprocess_name`, so some rows carry a query-only `pocket_id` in
+`target`. `StructureAligner.align_structs` filters them before target lookup (else a bare pandas
+`KeyError`). Output shape: README "Open searches".
 
 ### Foldseek-DB targets
 
-When the target is a bundled Foldseek DB, `self.fsdb_target` is set: no target structures are fetched or
-preprocessed, and `foldseek.extract_fsdb_structures` reconstructs target PDBs via `createsubdb` +
-`convert2pdb` for whichever entries step 8 selected.
-Of the five Foldseek subcommands the package runs, **`createsubdb` is the only one that takes no
-`--threads`** — it accepts just `--subdb-mode`, `--id-mode` and `-v`, and passing the flag makes it exit
-non-zero. `run_foldseek` therefore adds no flags of its own; every caller builds its own argument list.
+With `self.fsdb_target` set, no target structures are fetched; `foldseek.extract_fsdb_structures` rebuilds
+the step-8 selection via `createsubdb` + `convert2pdb`.
 
-`StructureAligner.align_structs` reaches that helper through one `fsdb_path` argument, and reads a
-selected target id two ways depending on whether it was given any target records at all — records mean
-the ids are `pocket_id`s to map through `preprocess_name` (the PDB DB), no records mean the ids are
-entry names themselves (any other DB). The choice is made once for the whole call rather than per id,
-so one run's `fsdb_structures/` can never mix entries resolved both ways.
+- **`createsubdb` rejects `--threads`** (exits non-zero); it is the only one of the five subcommands that
+  does. Hence `run_foldseek` adds no flags; each caller builds its own list.
+- `align_structs` interprets target ids once per call: given target records → `pocket_id`s mapped through
+  `preprocess_name` (PDB DB); none → entry names (other DBs). So `fsdb_structures/` never mixes the two.
+- Target pocket: `expand_fsdb_pdb_targets` (PDB DB) or `synthesise_target_pocket` (other). **PDB hits
+  with no usable PISA data are dropped.**
+- **One `pocket_id` can sit behind two `preprocess_name`s** (`4q5j-assembly1_B`, `-assembly2_B` →
+  `4Q5J:B_F`). `existing_calcs` scores only the first; the transform is whichever assembly Foldseek listed first.
+- **Pockets come from the AU, Foldseek's `tseq` from the assembly.** Verified to agree normally (4Q5J
+  self-comparison: `overlap_count == pocket_len`, identity 1.0, RMSD ~1e-14); a populated
+  `incorrect_mapping.json` signals divergent numbering.
+- `--align_struct_method pocket` is rejected for any FSDB target in `configure_query_target`.
 
-What the target "pocket" is depends on the DB — `expand_fsdb_pdb_targets` for a PDB DB, and
-`pocket_comparison.synthesise_target_pocket` for any other. On the PDB path, **hits with no usable PISA
-data are dropped**, not compared against a stand-in.
+**UniProt renumbering** (`offset_table.tsv`; resolved in `compare_pockets_based_on_alignment`, applied in
+`synthesise_target_pocket`):
+- Only bundled `human_domains` (the one `bundled_foldseek_dbs` entry with `offset_path`), looked up by
+  resolved DB path. User DBs keep 0-indexed positions, logged at INFO.
+- Only `target_overlap_ids` changes — verified against a same-environment baseline.
+- Missing entry or short spec aborts the run (no per-row fallback: it would mix coordinate systems in one
+  column). **Refresh the table whenever `BUNDLED_HUMAN_DOMAINS_DB` moves.**
 
-Three consequences of the PDB path that are not visible from any single file:
+**Bundled DB ships without `.source`**; strip it from any refresh. It duplicates `.lookup` and nothing
+reads it (verified: `easy-search`, `createsubdb`, `convert2pdb` all work without it); saves 1.7 MB.
+`.lookup` must stay (`extract_fsdb_structures` reads it).
 
-- **One `pocket_id` can sit behind two `preprocess_name`s** (`4q5j-assembly1_B` and `4q5j-assembly2_B` both
-  resolve to `4Q5J:B_F`). The pocket is computed once and `compare_pockets`' `existing_calcs` scores only
-  the first assembly's alignment row, so the transform used is whichever assembly Foldseek reported first.
-- **Pockets come from the wwPDB asymmetric unit while Foldseek's `tseq` comes from the assembly.** These
-  agree in the ordinary case (verified: a 4Q5J self-comparison through a PDB-named DB gives
-  `overlap_count == pocket_len`, identity 1.0, RMSD ~1e-14), and the `MIN_SEQ_IDENTITY` guard catches them
-  when they don't — a populated `incorrect_mapping.json` signals that an entry's assembly and AU numbering
-  diverged.
-- **`--align_struct_method pocket` is rejected for any Foldseek-DB target**, in `configure_query_target`
-  before anything is fetched. The rejection site gives the reason for both kinds of DB.
+The DB is otherwise at its floor: `_ca` is 70 of 98 MB, 11.2M residues at 6.33 B each
+(`--coord-store-mode 2`, smallest mode). zstd -19 saves only 16% and foldseek cannot read a compressed DB.
 
-**Target residue ids are UniProt coordinates when the DB ships an offset table.** A non-PDB DB's
-entries are domains carved out of UniProt sequences, so `synthesise_target_pocket`'s residue *labels*
-are renumbered through `offset_table.tsv` — resolved in `compare_pockets_based_on_alignment`, applied
-in `synthesise_target_pocket`, both of which carry the reasoning. Three things follow that no single
-file states:
-
-- **Only the bundled `human_domains` DB is renumbered.** It is the one entry in
-  `foldseek.bundled_foldseek_dbs` with a non-None `offset_path`, and `compare_pockets_based_on_alignment`
-  looks that up by the target's resolved DB path rather than by name — so a DB you supply yourself keeps
-  0-indexed positions within the entry, logged at INFO because the same column then means different
-  things on different runs.
-- **`target_overlap_ids` is the only column affected**, since a whole-chain pocket already suppresses
-  the other `target_*` columns and has no coordinates to superpose. Verified: against a
-  same-environment baseline, a `human_domains` search changes that column and nothing else.
-- **The table and the DB are now coupled.** A hit whose entry is missing from the table, or whose spec
-  is shorter than the alignment reaches, aborts the run rather than falling back — a per-row fallback
-  would mix two coordinate systems inside one column with nothing in the row to tell them apart.
-  Refresh the table whenever `BUNDLED_HUMAN_DOMAINS_DB` moves.
-
-**The bundled DB ships without its `.source` file**, and a refreshed one must be stripped the same way.
-Foldseek's `createdb` writes `.source` alongside `.lookup`, but it duplicates the same key-to-name mapping
-and nothing reads it: verified by running `easy-search`, `createsubdb` and `convert2pdb` against a copy with
-it removed. `.lookup` is the one that must survive — `extract_fsdb_structures` reads it to turn entry
-names into database keys. Dropping `.source` saves 1.7 MB in the repo and in both distributions.
-
-The DB is otherwise at its floor. `_ca` is 70 of its 98 MB, holding 11.2M residues at 6.33 bytes each, which
-is `foldseek createdb --coord-store-mode 2` (uint16 deltas), the default and the smallest of the three modes.
-Being delta-encoded it is already near entropy — zstd -19 takes only 16% off it — and no foldseek module
-writes or reads a compressed structure DB, so there is nothing to gain by compressing what ships.
-
-**No cap on how many hits get enriched**, by choice. `4Q5J:B_F` against the bundled `pdb` DB returns ~4,970
-hits across ~3,620 entries, and PISA is fetched per assembly behind a sleep, so the first run takes hours.
-Reruns are cheap from the interface cache, and `expand_fsdb_pdb_targets` logs both counts before starting
-so the wait is legible. Add a cap here if that becomes untenable.
+**No cap on enriched hits**, by choice. `4Q5J:B_F` vs bundled `pdb`: ~4,970 hits / ~3,620 entries, hours
+on first run (per-assembly PISA behind a sleep); reruns hit the cache. Add a cap here if needed.
 
 ## Pockets
 
-`pockets/` holds everything that turns a record into a `Pocket`, including the shape itself
-(`pockets/pocket.py`). `PocketFetcher.fetch_pockets` is its one entry point, and
-`PocketMapper.get_pockets` only filters both sides to `success` rows and hands them over.
+`PocketFetcher.fetch_pockets` is the entry point; `PocketMapper.get_pockets` filters to `success` rows.
 
-- **`POCKET_BUILDERS` in `pocket_fetcher` is the whole table of pocket methods.** Each builder lives
-  beside the primitive it wraps — `pisa_pockets` in `pisa`, `vdw_pockets` in `vdw`,
-  `passthrough_pockets` and `whole_chain_pockets` in `structure` — and all four share the signature
-  `(records, pocket_dir)`, the three that ignore `pocket_dir` included, so the fetcher needs no
-  per-method case. A new method is one row plus one builder.
-- **Records are dicts, not a DataFrame**, the same currency `StructureDownloader` and
-  `StructureAligner` take, so a library caller needs no pandas. The fetcher reads no `success` field;
-  filtering is the caller's job.
-- **`expand_fsdb_pdb_targets` is not in the package, on purpose.** It builds new target records
-  (through `QTProcessor`) and downloads their structures, which is record work rather than pocket
-  work, so it is its own pipeline step on `PocketMapper`, run just before `get_pockets`. It shares the
-  PISA cache with `pisa_pockets`, under `pocket_dir/pisa/`. Each spells out the four paths it hands
-  `PisaDownloader`, so **a change to the cache layout must be made at both call sites** or the two
-  steps stop sharing a cache.
+- **`POCKET_BUILDERS` in `pocket_fetcher` is the whole method table.** Builders live beside their
+  primitive and all take `(records, pocket_dir)`. A new method = one row + one builder.
+- Records are dicts, not DataFrames. The fetcher ignores `success`; filtering is the caller's job.
+- **`expand_fsdb_pdb_targets` lives on `PocketMapper`, not in `pockets/`** (it builds records and
+  downloads). It shares `pocket_dir/pisa/` with `pisa_pockets`; both spell out the four `PisaDownloader`
+  paths, so **a cache-layout change must be made at both sites.**
 
 ## Downloads
 
-Lives in `pocketmapper/downloads/CLAUDE.md`, which loads when working under `downloads/`. Read it
-before changing how anything is fetched, paced, retried or cached.
+See `pocketmapper/downloads/CLAUDE.md` before changing fetching, pacing, retries or caching.
 
 ## Invariants
 
-Breaking one of these generally produces silently wrong output rather than an error. Each is documented at
-its code site; what follows is the map of where, plus the checks that live nowhere else.
+Breaking these gives silently wrong output. Each is documented at its code site; this is the map plus
+checks that live nowhere else.
 
-- **`seq_pos` is the value everything hinges on** — declared on `pockets.pocket.PocketResidue`, set in
-  `pockets.structure.parse_pocket_from_struct`, used in `pocket_comparison.map_pocket_into_alignment`. A new
-  pocket method computing it any other way yields zero overlap with no error. Check it by comparing a
-  pocket against itself: `overlap_count == pocket_len`. It is also **not** the reported residue id:
-  `synthesise_target_pocket` keys its residues by UniProt position while leaving `seq_pos` the
-  0-indexed alignment coordinate, and that separation is the only reason renumbering is safe.
-- **Residue letters come from `lib.one_letter_code`, and its table mirrors Foldseek, not gemmi.**
-  `constants.FOLDSEEK_AA_CODES` is Foldseek's `threeToOneAA` copied verbatim (139 names, the rest `X`).
-  gemmi's `find_tabulated_residue(...).one_letter_code` looks like the obvious source and is wrong here:
-  on gemmi 0.7.5 it disagrees on 14 of those names (`SEC` gives `U`, not `C`; `BAL`, `KYN`, `HZP` and
-  others give `X`), so local-aligner sequences would stop matching Foldseek's.
-- **Foldseek's letters are compared case-insensitively.** `createdb` lowercases every residue whose CA
-  B-factor is below `--mask-bfactor-threshold` (default 0), which some old entries hit wholesale — 4ER4,
-  2ER6 and 2ER9 have near-zero B-factors, up to a tenth of them negative. Compared as written, each masked
-  residue was a false `unknown_ids.json` entry, pulled `seq_identity` toward `MIN_SEQ_IDENTITY`, and
-  lowered `overlap_identity` against any unmasked partner. `compare_pockets` uppercases the four
-  sequence columns of each row; `alignment.tsv` keeps Foldseek's casing.
-- **Every chain walk reads `first_conformer()`** — `parse_pocket_from_struct`, `vdw_pockets` and
-  `SequenceAligner` all do. A microheterogeneous position (4Z0Y:A 252 holds both `HS8` and `HIS`) is two
-  gemmi residues with one seqid; Foldseek reads it as one, so a walk counting both shifts every later
-  `seq_pos` by one. `MIN_SEQ_IDENTITY` catches it, but only by dropping the pocket into
-  `incorrect_mapping.json`. `test_core_10` covers it.
-- **A pocket that fails `MIN_SEQ_IDENTITY` produces no rows at all.** It used to still score the pair
-  that tripped the check, so one row per rejected pocket reached `pocket_comparison.tsv` with shifted
-  `seq_pos` — correct only if every pocket residue sat before the shift.
-- **`preprocess_name` is the alignment join key** — computed in `QTProcessor.parse_individual_qt`.
-  Alignments are keyed by it, pockets by `pocket_id`, and `compare_pockets_based_on_alignment` builds
-  `preproc_to_ids` to bridge them. **A local file's name is hashed with its contents**, not its
-  basename alone. Keyed by name only, `/dir1/structure.pdb:A` and `/dir2/structure.pdb:A` shared a
-  name, so the second was aligned as the first and its pocket dropped or mapped onto the wrong chain,
-  with no error; `test_core_9` / `test_local_7` cover it. Consequences: identical copies in two
-  directories still share a name, like a query and target on one chain; a file edited in place gets
-  a new name, so the preprocessed cache cannot serve a stale copy; and a local `4Q5J.cif.gz:B` no
-  longer shares a name with PDB `4Q5J:B`. PDB and AlphaFold names are unchanged.
-- **`chain_info` is split in exactly one place** — `lib.split_chain_info`, which nine call sites across
-  seven modules now share. Four of them used to index the string (`chain_info[0]`), which is the domain
-  chain only while a chain id is one character. `QTProcessor`'s patterns guarantee that on both the
-  inferred and the forced path now (see "Input grammar"), so `4Q5J:AA_BB` is rejected rather than silently
-  becoming chain `A` — but the split stays in one place regardless, because a library caller can build a
-  record itself and reach the same call sites. Never re-derive a domain or motif chain inline.
-- **A passthrough pocket's `res_auth_ids` are all keys of its `residues`** — enforced in
-  `structure.passthrough_pockets`, which skips the whole entry when they are not.
-  `map_pocket_into_alignment` and `describe_pocket` both index `residues` by every `res_auth_ids` id,
-  so an id the chain cannot supply used to surface as a `KeyError` out of `compare_pockets`' re-raise
-  -- one typo aborting the run. Syntax and repeats are caught earlier, in
-  `QTProcessor.parse_residue_info`, before anything is fetched. The repeat is the dangerous one: it
-  reached `res_auth_ids` twice and paired the two sides' overlap lists off by one, so `pocket_len`,
-  `jaccard_index`, `rmsd` and `ca_dists` all came out wrong with nothing in the row to show it.
-- **Two tables have declared schemas** — `constants.ALIGNMENT_COLUMNS` and
-  `pocket_comparison.POCKET_COMPARISON_COLUMNS`. A new column goes into the constant, never into one
-  producer alone; see the note above `ALIGNMENT_COLUMNS`.
-- **`compare_pockets` must not write to a `Pocket`** — stated on the `Pocket` class itself.
-- **Aligned structures are named by `lib.safe_filename(query_id)`, not by `pocket_id`** — so
-  `aligned_structures/*.pdb` filenames aren't greppable for an input string. Match on the `MOLECULE`
-  records inside instead.
-- **Two transform sources, chosen by `align_struct_method`** — `StructureAligner`'s class docstring names
-  them; `pocket_comparison.parse_pocket_transform` is the only legitimate reader of the pocket transform
-  and carries the measured evidence. Never hand a raw `target_to_query_*` cell to gemmi.
-- **Step 8 is `StructureAligner.align_structs`, not a pipeline method** — `PocketMapper.align_structs`
-  only unpacks the `Settings` and the two `fsdb_*` flags into it. Selection, transform lookup and
-  writing all live in the component, so a change to any of them belongs there and is reachable without
-  running a search.
+- **`seq_pos`** — declared on `PocketResidue`, set in `parse_pocket_from_struct`, used in
+  `map_pocket_into_alignment`. Computed any other way → zero overlap, no error. Check: pocket vs itself
+  gives `overlap_count == pocket_len`. It is not the reported id; `synthesise_target_pocket` keeps
+  `seq_pos` 0-indexed while keying by UniProt position, which is what makes renumbering safe.
+- **Residue letters mirror Foldseek, not gemmi.** `constants.FOLDSEEK_AA_CODES` is Foldseek's
+  `threeToOneAA` verbatim (139 names, rest `X`). gemmi 0.7.5's `one_letter_code` disagrees on 14 (`SEC`→`U`;
+  `BAL`, `KYN`, `HZP`→`X`).
+- **Foldseek letters compare case-insensitively.** `createdb` lowercases residues with CA B-factor below
+  threshold (default 0); 4ER4, 2ER6, 2ER9 hit this wholesale. `compare_pockets` uppercases the four
+  sequence columns; `alignment.tsv` keeps Foldseek's casing.
+- **Every chain walk reads `first_conformer()`** (`parse_pocket_from_struct`, `vdw_pockets`,
+  `SequenceAligner`). Microheterogeneity (4Z0Y:A 252: `HS8`+`HIS`) otherwise shifts later `seq_pos` by
+  one. `test_core_10` covers it.
+- **A pocket failing `MIN_SEQ_IDENTITY` yields no rows** (goes to `incorrect_mapping.json`).
+- **`preprocess_name` is the alignment join key** (`QTProcessor.parse_individual_qt`);
+  `preproc_to_ids` bridges it to `pocket_id`. **Local files are hashed with their contents**: by
+  basename, `/dir1/structure.pdb:A` and `/dir2/structure.pdb:A` collide and one is silently mis-aligned
+  (`test_core_9`, `test_local_7`). Hence identical copies share a name, in-place edits get a new one, and
+  local `4Q5J.cif.gz:B` ≠ PDB `4Q5J:B`.
+- **`chain_info` is split only by `lib.split_chain_info`.** Indexing `chain_info[0]` breaks on
+  multi-char chains; patterns reject `4Q5J:AA_BB`, but library callers bypass them.
+- **Passthrough `res_auth_ids` must all be keys of `residues`** — `passthrough_pockets` skips the entry
+  otherwise (else a `KeyError` aborts the run). Syntax and repeats are caught in
+  `QTProcessor.parse_residue_info`; a repeat would silently misalign overlap lists (wrong `pocket_len`,
+  `jaccard_index`, `rmsd`, `ca_dists`).
+- **Declared schemas**: `constants.ALIGNMENT_COLUMNS`, `POCKET_COMPARISON_COLUMNS`. New columns go in the
+  constant.
+- **`compare_pockets` must not write to a `Pocket`.**
+- **Aligned structures are named `lib.safe_filename(query_id)`**, not by `pocket_id`; grep the
+  `MOLECULE` records instead.
+- **Two transform sources by `align_struct_method`** (see `StructureAligner` docstring). Only
+  `parse_pocket_transform` may read the pocket transform; never pass a raw `target_to_query_*` cell to gemmi.
+- **Step 8 lives in `StructureAligner.align_structs`**; `PocketMapper.align_structs` only unpacks settings.
 
 **Changing step 7 without changing behaviour**: capture `compare_pockets`' arguments from a real run and
-diff old output against new. Nothing else covers that path.
+diff old vs new output. Nothing else covers it.
 
 ## Logging and errors
 
-**The package never touches the root logger.** Every module logs through its own
-`logger = logging.getLogger(__name__)`, so all records go to `constants.PACKAGE_LOGGER`
-(`pocketmapper`) and the loggers beneath it, and from there propagate to whatever the host application
-set up. `pocketmapper/__init__.py` gives that logger a `NullHandler`, the standard library convention.
-Handlers are added in exactly two places, each removed again in a `finally`:
+**The package never touches the root logger.** Modules use `logging.getLogger(__name__)` under
+`constants.PACKAGE_LOGGER`, which has a `NullHandler`. Never call `logging.info(...)` etc. directly.
+Handlers are added in two places, each removed in a `finally`:
+- **`cli()` adds stdout** before `search()`, because `configure_workflow` can `critical` on a bad job file
+  before `configure_logging` (inherited root WARNING lets it through).
+- **`search()` adds `info.log`** and sets the level from `verbosity`; `reset_logging` undoes both, so a
+  second `search()` doesn't write into the first log. Handlers have no level of their own.
 
-- **`cli()` adds the stdout handler.** It is added before `search()` runs because `configure_workflow` can
-  `logger.critical` on a bad job file *before* `configure_logging`. At that point the package logger has
-  no level of its own, so it inherits the root level (WARNING), which lets criticals through.
-- **`search()` adds the `info.log` file handler** in `configure_logging` and sets the package logger's
-  level from `verbosity`. `reset_logging` removes the handler and restores the previous level. Without
-  that, a second `search()` in one process would also write into the first run's log. Neither handler
-  has a level of its own, so the logger's level alone decides what both print.
+A library caller gets no console output unless it prints `pocketmapper.*`; `lib.format_handler` applies
+the CLI format plus `lib.StageFilter`, which fills `%(stage)s` from `funcName` when absent. Declared
+stages are Title Case step names; a function name in the stage column means none was declared. Omitting
+`extra` is fine where the function name is the best label.
 
-Consequences:
+`extra` is always named **`log_extra`**. Single-stage classes (`StructureDownloader`, `PisaDownloader`,
+`StructureAligner`, `StructurePreprocessor`) set `self.log_extra` once and never mutate it; others build
+it per function. `QTProcessor`'s `.update()` in `process_qt_cmdline_input` is the one deliberate
+exception (call-scoped side name). `PocketMapper` holds no stage state.
 
-- **A library caller gets no console output from pocketmapper** unless their own logging config prints
-  `pocketmapper.*` records. `lib.format_handler` gives any handler the CLI's format.
-- **`info.log` holds only pocketmapper's records.** It used to also catch third-party loggers such as
-  urllib3, when its handler sat on the root logger.
-
-`LOG_FORMAT` interpolates `%(stage)s`, which is not a stock LogRecord attribute. `lib.StageFilter`
-fills it in from `record.funcName` for any record that arrives without one, so a missing `stage` falls
-back to the emitting function's name instead of failing to format. `lib.format_handler` attaches the
-filter together with the format, so the two cannot be separated.
-
-- **A declared stage and a defaulted one look different on purpose.** Declared stages are Title Case
-  phrases naming a pipeline step ("Foldseek Alignment"); a defaulted one is a function name
-  (`write_through_part`). The difference is the signal that nothing declared a stage there.
-- **Passing no `extra` is now a legitimate choice**, taken where the function name is already the best
-  label — the `"Initialized"`/`"Started"` debug lines in three constructors, and the optional
-  `log_extra` parameters of `foldseek.run_foldseek` and the two `downloads.lib_download` entry points.
-
-How the `extra` is built follows one rule, and there is exactly one spelling for it: **`log_extra`**.
-A class with a single coherent stage sets `self.log_extra` once in `__init__` and never mutates it
-(`StructureDownloader`, `PisaDownloader`, `StructureAligner`, `StructurePreprocessor`). Anything spanning
-several stages builds a local `log_extra` per function, or passes the dict inline when the function has
-only one call (`pocketmapper.py`, `pisa`, `structure`, `pocket_comparison`, ...). `QTProcessor`
-is the one deliberate `.update()`: `process_qt_cmdline_input` names the side being processed and the
-`determine_*` helpers it drives all log under that name, which is call-scoped context rather than drift.
-`PocketMapper` itself holds no stage state — it used to, and the stage a step logged under then depended
-on which earlier step had last updated it. Its only logging state is the handler and saved level that
-`reset_logging` undoes.
-
-Never call `logging.info(...)` and the like directly. Those go to the root logger and skip the package's
-level and handlers.
-
-Errors are `logger.critical(...)` then `raise PocketMapperError(...)`; `cli()` catches and exits 1.
-
-That convention now holds on the Foldseek path too, which is most of what `foldseek.run_foldseek` buys:
-five of the six invocations used to be a bare `subprocess.run(..., check=True)`, so a failing Foldseek
-surfaced as a `CalledProcessError` traceback rather than a message. Exit code was 1 either way.
-
-**No `exit()`/`sys.exit()` inside modules** — deliberately removed, which no code comment can show. There
-are now none: the last survivor was `_check_help_search`, deleted along with `search()`'s `help` parameter
-when argparse took over `--help`. The only `sys.exit` in the package is in `cli.py`'s `cli()`, which is
-the boundary and is meant to have one.
+Errors: `logger.critical(...)` then `raise PocketMapperError(...)`; `cli()` catches and exits 1. Foldseek
+goes through `run_foldseek` so failures follow this too. **No `exit()`/`sys.exit()` outside `cli()`.**
 
 ## Settings
 
-**Every `Settings` field is reachable from the command line**, and the job file sets nothing the
-CLI cannot. The file is a convenience for keeping a long invocation reproducible, never the only route
-to a setting. The layering is in `configure_workflow`: job file over `search()`'s arguments, then
-`resolve_paths` and the `resolve_*` methods. `Settings` has no defaults and is built once, from the
-finished values, so every field has a concrete type. The two pocket methods keep `"auto"` there,
-unlike `align_struct_method`, because they are inferred per entry rather than once per run.
+**Every `Settings` field is reachable from the CLI**; the job file sets nothing the CLI can't. Layering
+is in `configure_workflow` (job file over args, then `resolve_*`). `Settings` has no defaults and is built
+once. Pocket methods keep `"auto"` (inferred per entry); `align_struct_method` is resolved per run. A reused
+`job_settings.json` names every field, so it pins everything.
 
-**A reused `job_settings.json` pins everything.** It is a valid job file, but it names every field, so
-no command-line option changes anything in it.
+A new option goes in **five hand-maintained places**: `Settings`, the `search()` signature + its
+`arguments` dict, the parser in `cli.py`, `cli()`'s kwarg block (easiest to forget), and README Options.
+Static defaults are `constants.DEFAULT_*` shared by parser and signature; run-dependent defaults are `None`
+and resolved in `configure_workflow`. Miss one → option silently ignored. Check: `dataclasses.fields(Settings)`,
+`inspect.signature(PocketMapper.search)`, `arguments` keys, subparser `_actions` dests and `cli()`'s
+`x=args.x` lines must match (modulo `job_file`).
 
-A new option goes in **five hand-maintained places**: the `Settings` dataclass, the `search()` signature
-together with the `arguments` dict directly beneath it (one site — the dict mirrors the signature and
-sits next to it precisely so the two cannot drift), the parser in `cli.py`, `cli()`'s kwarg block in the
-same file, and the README's Options tables. None is generated from the dataclass. A static default
-goes in `constants` as a `DEFAULT_*` name, used by both the parser and the signature, so it is written
-once; a default that depends on the run is `None` in both and resolved in `configure_workflow`. Miss
-one and the option is silently ignored — `cli()` is the one that reads like boilerplate and is easiest to forget.
+Options are grouped by lifetime in `build_parser` and README alike: `aligned structure`, `cache`,
+`out`, `temp`. A new path setting picks a group in both.
 
-Nothing enforces the agreement, but it is checkable in a few lines: `dataclasses.fields(Settings)`,
-`inspect.signature(PocketMapper.search)`, the `arguments` keys, the subparser's `_actions` dests and
-`cli()`'s `x=args.x` lines must all name the same fields (modulo `job_file`, which is not a field). The `query` and `target` positionals carry those dests, so
-they line up with the rest.
+**`temp_dir` is one option, three dirs** (`query_structures/`, `target_structures/`, `foldseek_tmp/`),
+computed in `configure_temp_dir` and held on `PocketMapper`, not `Settings`. Only the first two are
+created (Foldseek makes its own). `temp_dir` is emptied on entry so reruns can't feed `createdb` stale
+structures; emptying is `lib.is_within`-guarded, creation is not. It runs after `configure_logging` so the
+skip warning reaches `info.log`.
 
-Options are grouped by lifetime in both places a human reads them — argparse's argument groups in
-`build_parser`, and the README's matching subsections. The path fields alone roughly double the
-option count, so leaving them ungrouped would bury `--aligner` and `--query_pocket_method` among
-them. The four groups are `aligned structure options`, `cache options` (what survives a run),
-`out options` (what the run produces) and `temp options` (what `delete_tmp` removes at the end);
-`--cache_dir`, `--results_dir` and `--temp_dir` head the group whose defaults derive from them. Adding
-a path setting means picking one of those groups in both places.
+`results_dir` must stay in `dirs_to_create` in its own right, or `--aligned_structure_dir` elsewhere
+leaves `info.log` with no directory.
 
-**`temp_dir` has exactly one option and three directories.** `query_structures/`, `target_structures/`
-and `foldseek_tmp/` are computed in `configure_temp_dir` and held on the `PocketMapper` instance, not
-declared on `Settings` — a `Settings` field has to be reachable from the command line (above), and
-placing these individually is what `--temp_dir` replaced. Only the first two are created: Foldseek
-makes its own. `temp_dir` is emptied there rather than merely created, so a rerun into the same
-`results_dir` cannot hand `createdb` the previous run's structures; the emptying is guarded by
-`lib.is_within` and the creation deliberately is not, since a run pointed outside both roots still
-needs somewhere to work. That step sits after `configure_logging` for the same reason 4b/4c do —
-otherwise the skip warning would be logged before the run's level and `info.log` handler are in place.
-
-`results_dir` is in `configure_workflow`'s `dirs_to_create` in its own right, and has to stay there.
-Every other path in that list is settable away from `results_dir`, so without it `configure_logging`'s
-file handler is one `--aligned_structure_dir` away from opening a log in a directory nothing made.
-
-`search --help` *is* generated, from the parser's `help=` strings; `constants.CLI_SEARCH_EPILOG`
-carries only the examples, which is all argparse cannot produce. It hangs off the `search` subparser
-alone; the bare `pocketmapper --help` is the subcommand list and nothing more.
-
-Resolution order, the `aligner` check and the tri-state `align_struct_method` setting are documented where
-they are resolved — the `Settings` docstring and the `# 4b.` / `# 4c.` comments in `configure_workflow`, which
-give the reasons those call sites are load-bearing. Keep new resolution logic there. `aligner` has no auto
-mode: `foldseek`, the default, fails the run at 4b when the binary cannot run, before anything is fetched.
+`search --help` is generated from `help=` strings; `CLI_SEARCH_EPILOG` holds only examples. Resolution
+order, the `aligner` check and tri-state `align_struct_method`: `Settings` docstring and `# 4b.`/`# 4c.` in
+`configure_workflow`. `aligner` has no auto mode; a broken `foldseek` fails at 4b before fetching.
 
 ## Python versions
 
-Supported: **3.10 – 3.14**, verified by running the full e2e suite on each end. Four hand-maintained
-places have to agree: `requires-python` in `pyproject.toml`, the `Programming Language :: Python` classifiers
-beside it, `[tool.black] target-version`, and the README's Installation line. The `compat` CI job pins the
-range in one more place, as a matrix.
+**3.10 – 3.14**, verified by full e2e at both ends. Four places must agree: `requires-python`, the
+classifiers, `[tool.black] target-version`, README Installation; CI `compat` matrix is a fifth.
 
-- **The floor is 3.10 and going lower buys nothing.** Three `match` statements (`qt_processor.py` x2,
-  `downloads/structure_downloader.py`) and the PEP 604 `str | None` field annotations on `Pocket`, `PocketResidue`,
-  `QTRecord` and `Settings` all require it. No module carries `from __future__ import annotations`, so those
-  annotations are evaluated at import rather than deferred. Rewriting all of that for 3.9 would still fail:
-  biopython requires >=3.10.
-- **`compat` is what guards the floor, not `lint`.** flake8 parses with whatever interpreter runs it, so lint
-  at 3.12 cannot see a 3.12-only construct. `compileall` at 3.10 is what catches syntax; the import step is
-  what catches the annotation and `importlib.resources` failures that compileall cannot. That step walks with
-  `pkgutil.walk_packages` and a prefix, not `iter_modules`: `iter_modules` stops at the top level, so once
-  `downloads` became a subpackage it would import that package's `__init__` and silently skip the three
-  modules under it. It asserts a module count for the same reason.
-- **3.10 is the only version pip resolves to pandas 2.x** — 3.11 and up get pandas 3.x. That is why the e2e
-  matrix covers 3.10 and 3.14 rather than the middle. Both produce identical comparison row counts across
-  every non-`huge` case.
-- The bundled Foldseek DB is resolved through `files("pocketmapper")`, not through the data directory, for
-  the reason given at that call site in `foldseek`.
+- **Floor is 3.10**: `match` statements, PEP 604 dataclass annotations (no `from __future__ import
+  annotations`), and biopython itself.
+- **`compat` guards the floor, not `lint`** (flake8 parses with its own interpreter). `compileall` at 3.10
+  catches syntax; the import step catches annotation/`importlib.resources` failures. It uses
+  `pkgutil.walk_packages` with a prefix (`iter_modules` skips subpackage modules) and asserts a module count.
+- **Only 3.10 resolves pandas 2.x**; 3.11+ get 3.x. Hence e2e runs 3.10 and 3.14. Both give identical
+  row counts on every non-`huge` case.
 
 ## Repo layout
 
-Each module's own docstring states its remit. Not stated anywhere in the code:
-
-- There are no unit tests. `tests/e2e/` is the whole suite; the `pocketmapper-e2e` skill covers running it.
-- **`fixtures/invalid_residues.txt`'s second line is deliberately wrong.** `4Q5J:A:9999` names a
-  residue chain A does not have, and `test_invalid_1` expects the run to succeed anyway on the first
-  line -- so "correcting" the 9999 silently removes the only case covering the skip.
-- **`fixtures/forced_pisa_mixed.txt`'s second line is deliberately wrong too.** `4Q5J:A` names no partner
-  chain, so it is the entry `--query_pocket_method pisa` must reject; the other two lines are what
-  `test_invalid_8` asserts still produce rows. Give the middle line a partner and the case stops proving
-  that a forced method skips entries rather than aborting the run.
-- **`fixtures/job_file.json` must never set a path.** The job file beats the runner's appended
-  `--results_dir`, so a `results_dir` there would send `pocket_comparison.tsv` out of `$case_out` and
-  fail the case. Its `align_count: 3` against `test_settings_2`'s `--align_count 5` is what shows the
-  priority, but only in `job_settings.json`, which the runner does not read — check it by hand.
-- **`test_settings_5` and `test_settings_6` share `fixtures/job_file_qt.json`.** One supplies query and
-  target from the file alone; the other repeats them positionally and must be rejected.
-- **What `test_settings_1` cannot catch.** The runner only ever asserts on `$case_out/pocket_comparison.tsv`,
-  so a path option that argparse accepts and something downstream silently drops still passes. The case
-  catches a rejected or crashing flag and nothing subtler; the five-way agreement check under "Settings" is
-  what covers the rest, by hand.
-- `build/` and `dist/` are stale artifacts of an older version. Both are gitignored and untracked, so a
-  fresh clone and CI never see them — but setuptools reuses `build/lib/` in place rather than clearing it,
-  so on a machine that has one, `pip install .` silently ships whatever dead modules it still holds
-  (`align.py`, `local_aligner.py`, `pisa.py`) on top of the current sources. `pisa.py` still carries the
-  3.12-only f-string that `downloads/pisa_downloader.py` no longer does, so an import-everything check
-  passes in CI and fails locally. A stale copy now also holds `structure_fetcher.py` and
-  `pisa_downloader.py` at their old top-level paths, which shadow the `downloads` package versions and
-  hide a missed import update. Delete `build/` before building or testing a wheel; never edit
-  `build/lib/pocketmapper/`.
-- **Structure parsing is gemmi throughout** (`.cif.gz` on disk). Biopython is used only for pairwise
-  alignment (`sequence_aligner.py`) and SVD superposition (`pocket_comparison.py`).
-- **The two cached-output classes no longer have the same shape.** `StructurePreprocessor` still has
-  the required `set_output_directory()` -> `update_cache()` -> `preprocess_records()` order that nothing
-  enforces, and caches on bare filenames; its class and `update_cache` docstrings say so.
-  `StructureDownloader` has none of that — every record carries its own `struct_path`, so it tests that
-  exact path and takes no output directory at all. Both still write through a `.part` file, but
-  `StructureDownloader` gets that from `downloads.lib_download` while `StructurePreprocessor` keeps its
-  own, since it writes a file it computed rather than one it fetched.
-- **Nothing creates a structure's parent directory.** `StructureDownloader` dropped the `makedirs` that
-  `set_output_directory` used to do, and `write_through_part` does not add one, so a missing directory
-  is a non-transient failure that surfaces as `structure_not_found` rather than an error. On the
-  pipeline path `configure_workflow` has already created `pdb_dir` and `alphafold_dir`; a library caller
-  driving the component directly has to create them.
+- No unit tests; `tests/e2e/` is the whole suite (`pocketmapper-e2e` skill).
+- **Deliberately wrong fixture lines — don't fix them:** `invalid_residues.txt` line 2 (`4Q5J:A:9999`,
+  `test_invalid_1`); `forced_pisa_mixed.txt` line 2 (`4Q5J:A`, no partner; `test_invalid_8`).
+- **`fixtures/job_file.json` must never set a path** (it would beat the runner's `--results_dir`). Its
+  `align_count: 3` vs `test_settings_2`'s `5` shows priority only in `job_settings.json` — check by hand.
+- `test_settings_5`/`_6` share `job_file_qt.json`: file-only query/target vs repeated positionally (rejected).
+- `test_settings_1` only catches rejected/crashing flags; the runner asserts only on
+  `pocket_comparison.tsv`, so silently dropped path options need the five-way check.
+- **Delete `build/` before building or testing a wheel.** Stale, gitignored, but setuptools reuses
+  `build/lib/`, so `pip install .` ships dead modules (`align.py`, `local_aligner.py`, a 3.12-only
+  `pisa.py`, top-level `structure_fetcher.py`/`pisa_downloader.py` shadowing `downloads/`). Never edit it.
+- Structure parsing is gemmi; biopython only for pairwise alignment and SVD superposition.
+- `StructurePreprocessor` requires `set_output_directory()` → `update_cache()` → `preprocess_records()`
+  (unenforced) and writes its own `.part`; `StructureDownloader` uses each record's `struct_path` and
+  `lib_download`'s `.part`.
+- **Nothing creates a structure's parent directory**; a missing one surfaces as `structure_not_found`.
+  `configure_workflow` makes `pdb_dir`/`alphafold_dir`; library callers must.
 
 ## As a library
 
-The CLI is confined to `cli.py`, so nothing else here needs a terminal. Two levels of
-entry: `PocketMapper().search(...)` does the same work as the CLI, or drive a component directly —
-`qt_processor`, `downloads.structure_downloader`, `structure_preprocessor`, `downloads.pisa_downloader`,
-`pockets.pocket_fetcher` (or a single method's builder), `sequence_aligner`, `structure_aligner`,
-`foldseek` are each separately usable.
+`PocketMapper().search(...)` or any component directly (`qt_processor`, `downloads.*`,
+`structure_preprocessor`, `pockets.pocket_fetcher` or one builder, `sequence_aligner`, `structure_aligner`,
+`foldseek`). No component takes a `Settings`; `pocketmapper.py` unpacks it per call site.
 
-- **Step 8 is the one step that can be deferred.** `search(align_count=0)` writes everything but the
-  aligned structures, and `StructureAligner.align_structs` then produces them from the run's own outputs
-  — `pm.query_df` / `pm.target_df` as records, plus the two result paths off `pm.settings`. Verified: the
-  PDBs come out byte-identical to those of a normal run, on both the structure and the Foldseek-DB path.
-  It works because records point at `pdb_dir` and `alphafold_dir`, which `delete_tmp` never touches, and
-  it is why `align_structs` takes `query_ids`, `target_ids` and `overwrite` — a deferred caller superposes a few
-  queries at a time rather than all of them.
-- **A component reaching into a `Settings` can't be used without building one, and hides which fields it
-  depends on** — so no component takes one. The `Settings` is unpacked at each call site in
-  `pocketmapper.py` into the values that component needs.
-- **`pocketmapper/__init__.py` only exports `PocketMapper` and `__version__`.** The console script
-  loads `cli` from `pocketmapper.cli` directly, so the package does not re-export it. Submodules are
-  reachable as `pocketmapper.lib` etc. only as a side effect of its importing
-  `pocketmapper.pocketmapper` — for anything else, always use explicit
-  `from pocketmapper.<module> import <name>`.
-- **`search(job_file=...)` needs no query or target** when the file sets them, and rejects either
-  one given both ways, as the CLI does.
-- **`search()` has side effects**: for the length of the call it sets the `pocketmapper` logger's level
-  and attaches the `info.log` handler (see "Logging and errors"; the root logger is never touched), and
-  `delete_tmp` `shutil.rmtree`s `temp_dir` at the end unless `delete_tmp=0`, which keeps it. `configure_workflow` also empties `temp_dir` on the way in. Both
-  rmtrees are guarded rather than unconditional: `temp_dir` is settable, so `lib.is_within` skips (with
-  a warning) a path that does not resolve under `cache_dir` or `results_dir`. The guard bounds the
-  damage from a mistyped path; it is not a reason to point the setting at a directory you care about.
-- Results come back through files — `search()` returns only the resolved `Settings` as a dict, so
-  read `pocket_comparison.tsv` / `alignment.tsv` from the paths it names.
+- **Step 8 can be deferred**: `search(align_count=0)`, then `StructureAligner.align_structs` with
+  `pm.query_df`/`pm.target_df` records and the result paths from `pm.settings`. Verified byte-identical
+  PDBs on both structure and FSDB paths (records point at `pdb_dir`/`alphafold_dir`, which `delete_tmp`
+  never touches). `query_ids`/`target_ids`/`overwrite` exist for batching this.
+- `__init__` exports only `PocketMapper` and `__version__`; always import submodules explicitly.
+- `search(job_file=...)` needs no query/target if the file sets them; both ways is rejected.
+- **`search()` side effects**: logger level + `info.log` handler for the call; empties `temp_dir` on
+  entry and `rmtree`s it at the end unless `delete_tmp=0`. Both guarded by `lib.is_within` (under
+  `cache_dir` or `results_dir`) — a safety net, not a licence.
+- Returns only resolved `Settings` as a dict; results are in `pocket_comparison.tsv` / `alignment.tsv`.
