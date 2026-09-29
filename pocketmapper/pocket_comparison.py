@@ -570,6 +570,8 @@ def compare_pockets(
 
     for values in tqdm(alignment_df.itertuples(index=False, name=None)):
         aln = AlignmentRow(*values)
+        # Foldseek lowercases residues it masked for seeding (CA B-factor below --mask-bfactor-threshold)
+        aln = aln._replace(qaln=aln.qaln.upper(), taln=aln.taln.upper(), qseq=aln.qseq.upper(), tseq=aln.tseq.upper())
         try:
             pockets_1 = resolve_pockets(aln.query, pocket_dict, preproc_to_ids)
             if not pockets_1:

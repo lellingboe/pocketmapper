@@ -255,6 +255,12 @@ its code site; what follows is the map of where, plus the checks that live nowhe
   gemmi's `find_tabulated_residue(...).one_letter_code` looks like the obvious source and is wrong here:
   on gemmi 0.7.5 it disagrees on 14 of those names (`SEC` gives `U`, not `C`; `BAL`, `KYN`, `HZP` and
   others give `X`), so local-aligner sequences would stop matching Foldseek's.
+- **Foldseek's letters are compared case-insensitively.** `createdb` lowercases every residue whose CA
+  B-factor is below `--mask-bfactor-threshold` (default 0), which some old entries hit wholesale — 4ER4,
+  2ER6 and 2ER9 have near-zero B-factors, up to a tenth of them negative. Compared as written, each masked
+  residue was a false `unknown_ids.json` entry, pulled `seq_identity` toward `MIN_SEQ_IDENTITY`, and
+  lowered `overlap_identity` against any unmasked partner. `compare_pockets` uppercases the four
+  sequence columns of each row; `alignment.tsv` keeps Foldseek's casing.
 - **Every chain walk reads `first_conformer()`** — `parse_pocket_from_struct`, `vdw_pockets` and
   `SequenceAligner` all do. A microheterogeneous position (4Z0Y:A 252 holds both `HS8` and `HIS`) is two
   gemmi residues with one seqid; Foldseek reads it as one, so a walk counting both shifts every later
