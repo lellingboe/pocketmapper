@@ -1,8 +1,9 @@
 """
 Dispatch of records to their pocket method's builder.
 
-`POCKET_BUILDERS` is the whole table of pocket methods. Every builder takes `(records, pocket_dir)`
-and returns pocket_id -> Pocket, so the fetcher needs to know nothing about any one method.
+`POCKET_BUILDERS` is the whole table of pocket methods. Every builder takes `(records, pocket_dir)`,
+plus any keyword options its caller passes for that method, and returns pocket_id -> Pocket, so the
+fetcher needs to know nothing about any one method.
 """
 
 import json
@@ -49,7 +50,7 @@ class PocketFetcher:
     Builds the pockets a set of records names, dispatching each record to its pocket method's builder.
     """
 
-    def fetch_pockets(self, records, pocket_dir):
+    def fetch_pockets(self, records, pocket_dir, builder_options=None):
         """
         Build a Pocket for each record, by the builder of its `pocket_method`.
 
@@ -62,6 +63,8 @@ class PocketFetcher:
                 `struct_path`, `chain_info` and `residue_info`. Query and target records may be mixed.
                 Used as given: filter out any whose structure is unavailable before calling.
             pocket_dir (str): Pocket cache directory.
+            builder_options (dict, optional): pocket_method -> keyword arguments for that method's
+                builder, e.g. `{"pisa": {"pisa_source": "api"}}`. Defaults to None, which passes none.
 
         Returns:
             dict: pocket_id -> Pocket. A record whose pocket cannot be built is left out, or for the
@@ -69,6 +72,7 @@ class PocketFetcher:
         """
         log_extra = {"stage": "Getting Pockets"}
         logger.info("Starting pocket retrieval...", extra=log_extra)
+        builder_options = builder_options or {}
 
         pockets = {}
         for pocket_method, (label, dedup_keys, builder) in POCKET_BUILDERS.items():
@@ -91,7 +95,7 @@ class PocketFetcher:
                 continue
             logger.info(f"{len(method_records)} {label} pockets to retrieve", extra=method_log_extra)
 
-            method_pockets = builder(method_records, pocket_dir)
+            method_pockets = builder(method_records, pocket_dir, **builder_options.get(pocket_method, {}))
             dump_pockets(method_pockets, os.path.join(pocket_dir, f"{pocket_method}_pockets.json"))
             logger.debug(f"Extracted {label} pockets: {method_pockets}", extra=log_extra)
             pockets |= method_pockets

@@ -6,6 +6,7 @@ the pipeline expects. This is the `pisa` pocket method, available for PDB entrie
 AlphaFold models and local files have no PISA data.
 
 `pisa_pockets` is the method's builder: download, parse, then add coordinates from the structure.
+`download_pisa_interfaces` owns the cache layout under `pocket_dir/pisa/`.
 """
 
 import json
@@ -14,6 +15,7 @@ import os
 
 from tqdm import tqdm
 
+from pocketmapper.constants import DEFAULT_PISA_SOURCE
 from pocketmapper.downloads.pisa_downloader import PisaDownloader
 from pocketmapper.lib import one_letter_code
 from pocketmapper.lib import split_chain_info
@@ -160,17 +162,45 @@ class PisaParser:
         return pockets
 
 
-def pisa_pockets(records, pocket_dir):
+def download_pisa_interfaces(pdb_list, pocket_dir, pisa_source):
+    """
+    Populate the PISA interface cache under `pocket_dir/pisa/` for a list of PDB entries.
+
+    When any entry fails, `pisa/errors.json` is overwritten with the failures.
+
+    Args:
+        pdb_list (list): PDB codes, in any case.
+        pocket_dir (str): Pocket cache directory.
+        pisa_source (str): Where assembly interfaces are fetched from: "ftp" or "api".
+
+    Returns:
+        str: The directory of per-entry interface files, for `PisaParser`.
+    """
+    pisa_dir = os.path.join(pocket_dir, "pisa")
+    interface_dir = os.path.join(pisa_dir, "interface_pairs")
+    PisaDownloader(source=pisa_source).download_missing_interfaces(
+        pdb_list=pdb_list,
+        summary_dir=os.path.join(pisa_dir, "summaries"),
+        asm_dir=os.path.join(pisa_dir, "assemblies"),
+        interface_dir=interface_dir,
+        error_path=os.path.join(pisa_dir, "errors.json"),
+    )
+    return interface_dir
+
+
+def pisa_pockets(records, pocket_dir, pisa_source=DEFAULT_PISA_SOURCE):
     """
     Build a Pocket per record from the PDBe PISA interface it names, with coordinates from its structure.
 
-    Downloads any PISA files not already cached under `pocket_dir/pisa/`, one paced request at a
-    time, so an uncached list can take a long time. When any entry fails, `pisa/errors.json` is
-    overwritten with the failures.
+    Downloads any PISA files not already cached under `pocket_dir/pisa/`. With the "api" source that
+    is one paced request per assembly, so an uncached list can take a long time. When any entry
+    fails, `pisa/errors.json` is overwritten with the failures.
 
     Args:
         records (list): QTRecord dicts with `pocket_method == "pisa"`.
         pocket_dir (str): Pocket cache directory.
+        pisa_source (str): Where assembly interfaces are fetched from: "ftp" or "api".
+            Defaults to DEFAULT_PISA_SOURCE.
 
     Returns:
         dict: pocket_id -> Pocket. A record whose interface cannot be resolved is skipped with a
@@ -180,15 +210,7 @@ def pisa_pockets(records, pocket_dir):
 
     pdb_list = list(dict.fromkeys(record["struct_info"] for record in records))
     logger.debug(f"PDBs for which to retrieve PISA pockets: {pdb_list}", extra=log_extra)
-    pisa_dir = os.path.join(pocket_dir, "pisa")
-    interface_dir = os.path.join(pisa_dir, "interface_pairs")
-    PisaDownloader().download_missing_interfaces(
-        pdb_list=pdb_list,
-        summary_dir=os.path.join(pisa_dir, "summaries"),
-        asm_dir=os.path.join(pisa_dir, "assemblies"),
-        interface_dir=interface_dir,
-        error_path=os.path.join(pisa_dir, "errors.json"),
-    )
+    interface_dir = download_pisa_interfaces(pdb_list, pocket_dir, pisa_source)
 
     pockets = PisaParser().get_pockets_from_records(records=records, in_dir=interface_dir)
     logger.debug(f"PISA pockets before coordinates: {pockets}", extra=log_extra)

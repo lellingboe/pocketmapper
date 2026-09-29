@@ -41,13 +41,14 @@ from pocketmapper.constants import DEFAULT_ALIGN_STRUCT_METHOD
 from pocketmapper.constants import DEFAULT_ALIGNER
 from pocketmapper.constants import DEFAULT_CACHE_DIR
 from pocketmapper.constants import DEFAULT_DELETE_TMP
+from pocketmapper.constants import DEFAULT_PISA_SOURCE
 from pocketmapper.constants import DEFAULT_POCKET_METHOD
 from pocketmapper.constants import DEFAULT_VERBOSITY
 from pocketmapper.constants import DELETE_TMP_VALUES
 from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT
 from pocketmapper.constants import FOLDSEEK_INSTALL_HINT
 from pocketmapper.constants import PACKAGE_LOGGER
-from pocketmapper.downloads.pisa_downloader import PisaDownloader
+from pocketmapper.constants import PISA_SOURCES
 from pocketmapper.downloads.structure_downloader import StructureDownloader
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import bundled_foldseek_dbs
@@ -59,6 +60,7 @@ from pocketmapper.lib import jsonify_dict
 from pocketmapper.lib import parse_foldseek_pdb_entry_name
 from pocketmapper.pocket_comparison import compare_pockets
 from pocketmapper.pockets.pisa import PisaParser
+from pocketmapper.pockets.pisa import download_pisa_interfaces
 from pocketmapper.pockets.pocket_fetcher import PocketFetcher
 from pocketmapper.qt_processor import QTProcessor
 from pocketmapper.sequence_aligner import SequenceAligner
@@ -95,6 +97,8 @@ class Settings:
     threads: int
     # 1 deletes temp_dir at the end of the run; 0 keeps it for inspection.
     delete_tmp: int
+    # "ftp" or "api": where PISA assembly interfaces are fetched from.
+    pisa_source: str
     pdb_dir: str
     alphafold_dir: str
     pocket_dir: str
@@ -211,6 +215,7 @@ class PocketMapper:
         query_pocket_method=DEFAULT_POCKET_METHOD,
         target_pocket_method=DEFAULT_POCKET_METHOD,
         delete_tmp=DEFAULT_DELETE_TMP,
+        pisa_source=DEFAULT_PISA_SOURCE,
         pdb_dir=None,
         alphafold_dir=None,
         pocket_dir=None,
@@ -256,6 +261,9 @@ class PocketMapper:
             target_pocket_method (str, optional): As `query_pocket_method`, for the target side.
             delete_tmp (int, optional): 1 deletes temp_dir at the end of the run; 0 keeps it for
                 inspection. Defaults to DEFAULT_DELETE_TMP.
+            pisa_source (str, optional): Where PISA interfaces are fetched from -- 'ftp' for the EBI
+                FTP server or 'api' for the paced PDBe API. Both serve the same data into the same
+                cache. Defaults to DEFAULT_PISA_SOURCE.
             pdb_dir (str, optional): Cache of fetched PDB structures.
                 Defaults to <cache_dir>/pdb_structures.
             alphafold_dir (str, optional): Cache of fetched AlphaFold structures.
@@ -301,6 +309,7 @@ class PocketMapper:
             "query_pocket_method": query_pocket_method,
             "target_pocket_method": target_pocket_method,
             "delete_tmp": delete_tmp,
+            "pisa_source": pisa_source,
             "pdb_dir": pdb_dir,
             "alphafold_dir": alphafold_dir,
             "pocket_dir": pocket_dir,
@@ -441,6 +450,9 @@ class PocketMapper:
 
         # 4e. Before the settings are dumped, so job_settings.json records a checked value.
         values["delete_tmp"] = self.resolve_delete_tmp(values["delete_tmp"])
+
+        # 4f. Before the settings are dumped, so job_settings.json records the normalised value.
+        values["pisa_source"] = self.resolve_pisa_source(values["pisa_source"])
 
         settings = Settings(**values)
         logger.info(f"Settings: {json.dumps(asdict(settings), indent=4)}", extra=log_extra)
@@ -631,6 +643,30 @@ class PocketMapper:
             raise PocketMapperError(msg)
 
         return delete_tmp
+
+    def resolve_pisa_source(self, pisa_source):
+        """
+        Validate the `pisa_source` setting.
+
+        Args:
+            pisa_source (str): "ftp" or "api", in any case.
+
+        Returns:
+            str: The source, lowercased.
+
+        Raises:
+            PocketMapperError: If the value is not one of PISA_SOURCES.
+        """
+        log_extra = {"stage": "Configuring Settings"}
+
+        # A job file can hold any JSON value, not only a str
+        normalised = pisa_source.lower() if isinstance(pisa_source, str) else pisa_source
+        if normalised not in PISA_SOURCES:
+            msg = f"Unknown pisa_source {pisa_source!r}. Choose one of: {', '.join(PISA_SOURCES)}."
+            logger.critical(msg, extra=log_extra)
+            raise PocketMapperError(msg)
+
+        return normalised
 
     def configure_query_target(self):
         """
@@ -953,15 +989,7 @@ class PocketMapper:
             extra=log_extra,
         )
 
-        pisa_dir = os.path.join(self.settings.pocket_dir, "pisa")
-        interface_dir = os.path.join(pisa_dir, "interface_pairs")
-        PisaDownloader().download_missing_interfaces(
-            pdb_list=pdb_list,
-            summary_dir=os.path.join(pisa_dir, "summaries"),
-            asm_dir=os.path.join(pisa_dir, "assemblies"),
-            interface_dir=interface_dir,
-            error_path=os.path.join(pisa_dir, "errors.json"),
-        )
+        interface_dir = download_pisa_interfaces(pdb_list, self.settings.pocket_dir, self.settings.pisa_source)
 
         # Building one record per interface the hit chain takes part in
         parser = PisaParser()
@@ -1023,7 +1051,9 @@ class PocketMapper:
         records = (
             pd.concat([self.query_df, self.target_df], ignore_index=True).query("success").to_dict(orient="records")
         )
-        return PocketFetcher().fetch_pockets(records, self.settings.pocket_dir)
+        return PocketFetcher().fetch_pockets(
+            records, self.settings.pocket_dir, builder_options={"pisa": {"pisa_source": self.settings.pisa_source}}
+        )
 
     def compare_pockets_based_on_alignment(self, pockets):
         """

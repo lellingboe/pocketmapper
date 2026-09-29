@@ -74,18 +74,20 @@ The DB is otherwise at its floor: `_ca` is 70 of 98 MB, 11.2M residues at 6.33 B
 (`--coord-store-mode 2`, smallest mode). zstd -19 saves only 16% and foldseek cannot read a compressed DB.
 
 **No cap on enriched hits**, by choice. `4Q5J:B_F` vs bundled `pdb`: ~4,970 hits / ~3,620 entries, hours
-on first run (per-assembly PISA behind a sleep); reruns hit the cache. Add a cap here if needed.
+on first run with `pisa_source` `api` (per-assembly PISA behind a sleep); `ftp` is concurrent but untimed
+at this scale; reruns hit the cache. Add a cap here if needed.
 
 ## Pockets
 
 `PocketFetcher.fetch_pockets` is the entry point; `PocketMapper.get_pockets` filters to `success` rows.
 
 - **`POCKET_BUILDERS` in `pocket_fetcher` is the whole method table.** Builders live beside their
-  primitive and all take `(records, pocket_dir)`. A new method = one row + one builder.
+  primitive and all take `(records, pocket_dir)`, plus keyword options the caller passes per method
+  through `fetch_pockets(builder_options=...)` (only `pisa_source` today). A new method = one row + one builder.
 - Records are dicts, not DataFrames. The fetcher ignores `success`; filtering is the caller's job.
 - **`expand_fsdb_pdb_targets` lives on `PocketMapper`, not in `pockets/`** (it builds records and
-  downloads). It shares `pocket_dir/pisa/` with `pisa_pockets`; both spell out the four `PisaDownloader`
-  paths, so **a cache-layout change must be made at both sites.**
+  downloads). It shares `pocket_dir/pisa/` with `pisa_pockets`; both go through
+  `pockets.pisa.download_pisa_interfaces`, the one place the cache layout is spelled out.
 
 ## Downloads
 

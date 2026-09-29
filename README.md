@@ -79,6 +79,7 @@ left off the command line.
 | `--query_pocket_method` | str | `auto` | Query pocket method: `auto` infers it from each entry; `pisa`, `passthrough`, `vdw`, `whole_chain` force it. Each entry is still checked against the method — see [Input format](#input-format). |
 | `--target_pocket_method` | str | `auto` | As `--query_pocket_method`, for targets; also accepts `foldseek_db`. |
 | `--threads` | int | one per core | Cap on the cores Foldseek uses. |
+| `--pisa_source` | str | `ftp` | Where PISA interfaces are fetched from: `ftp` (EBI FTP server, concurrent) or `api` (PDBe API, one paced request per assembly). Both fill the same cache. |
 | `--help` | flag | — | Show the help message and exit. |
 
 #### Aligned structure options
@@ -210,9 +211,10 @@ positions within the domain. The query side (`query_overlap_ids`) is always auth
 **`pdb`** is downloaded on first use (`foldseek databases PDB`) into `<cache_dir>/fsdb/pdb`. Hits are
 real PDB chains, so PocketMapper fetches PISA data for each one and compares against a real interface
 pocket; hits with no usable PISA data are dropped rather than compared against a stand-in. **This is
-slow the first time**: `4Q5J:B_F` returns roughly 4,970 hits across 3,620 entries, and PISA is fetched
-per entry behind a rate-limiting sleep, so the first run takes hours. Both counts are logged before the
-fetching starts, and reruns are fast from the interface cache.
+slow the first time**: `4Q5J:B_F` returns roughly 4,970 hits across 3,620 entries. The default
+`--pisa_source ftp` downloads their PISA files concurrently; with `--pisa_source api` each assembly is a
+separate rate-limited request, so the first run takes hours. Both counts are logged before the fetching
+starts, and reruns are fast from the interface cache.
 
 A Foldseek database you build yourself also works as a target (pass its path, with
 `--target_pocket_method foldseek_db`), but without an offset table beside it the target residue ids are
@@ -233,7 +235,7 @@ Everything is written under `--results_dir`:
 | `incorrect_mapping.json` | Pockets dropped because their own sequence disagreed with the aligner's for that chain — typically assembly vs asymmetric unit numbering. Only written if any were dropped. |
 
 Under `--cache_dir` and surviving between runs: the downloaded mmCIF files (`pdb_structures/` and
-`alphafold_structures/`), the raw PISA API responses (`pockets/pisa/`), and the derived
+`alphafold_structures/`), the raw PISA responses (`pockets/pisa/`), and the derived
 pockets themselves (`pockets/pisa_pockets.json`, `passthrough_pockets.json`, `vdw_pockets.json`,
 `whole_chain_pockets.json`). The pocket files are written for inspection only and never read back;
 each pocket is an object of metadata fields plus a `residues` map keyed by author residue number.

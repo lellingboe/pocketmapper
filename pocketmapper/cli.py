@@ -29,6 +29,7 @@ from pocketmapper.constants import DEFAULT_ALIGN_STRUCT_METHOD
 from pocketmapper.constants import DEFAULT_ALIGNER
 from pocketmapper.constants import DEFAULT_CACHE_DIR
 from pocketmapper.constants import DEFAULT_DELETE_TMP
+from pocketmapper.constants import DEFAULT_PISA_SOURCE
 from pocketmapper.constants import DEFAULT_POCKET_METHOD
 from pocketmapper.constants import DEFAULT_VERBOSITY
 from pocketmapper.constants import PACKAGE_LOGGER
@@ -241,6 +242,17 @@ def build_parser():
         help=f"1 deletes --temp_dir at the end of the run; 0 keeps it. (default: {DEFAULT_DELETE_TMP})",
     )
 
+    advanced_options = search.add_argument_group(
+        "advanced options",
+    )
+    advanced_options.add_argument(
+        "--pisa_source",
+        default=DEFAULT_PISA_SOURCE,
+        metavar="STR",
+        help="Where PISA interfaces are fetched from: ftp (EBI FTP server) or api (paced PDBe API). "
+        f"(default: {DEFAULT_PISA_SOURCE})",
+    )
+
     return parser
 
 
@@ -283,6 +295,7 @@ def cli(argv=None):
             query_pocket_method=args.query_pocket_method,
             target_pocket_method=args.target_pocket_method,
             delete_tmp=args.delete_tmp,
+            pisa_source=args.pisa_source,
             pdb_dir=args.pdb_dir,
             alphafold_dir=args.alphafold_dir,
             pocket_dir=args.pocket_dir,

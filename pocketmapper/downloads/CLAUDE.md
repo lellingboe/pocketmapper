@@ -39,9 +39,19 @@ which cannot match `x.json.part`, the other PISA stages check an exact path, and
 `StructureDownloader` tests for an exact `.cif.gz` destination. The same holds for a leftover
 `summaries/_batch.json`, since no PDB code starts with `_`.
 
+**PISA assembly interfaces have two sources, one cache.** `source="ftp"` (the default) fetches
+`ftp.ebi.ac.uk/.../pdb-assemblies-analysis/split/<code[1:3]>/<code>_assembly<asm>_interfaces.json`
+through `download_file` in a `DOWNLOAD_WORKERS` pool, since those are static files; `source="api"` keeps
+the paced `download_api` loop. Summaries, which give the assembly ids, come from the API
+either way. Both write `assemblies/<code>_<asm>.json`, because the two serve the same JSON (checked on
+2026-09-29: 6rkw assembly 1 byte-for-byte, 4q5j and 12 4dx9 assemblies equal as parsed JSON). So a
+cached file is source-agnostic, and with a warm cache the toggle fetches nothing. **If the formats ever
+diverge, the caches must split.** An assembly the FTP lacks is a 404, not retried, and is reported
+under `assembly_downloading` like an API failure; there is no fallback to the API.
+
 **Entry summaries are the one batched request.** `download_missing_summaries` POSTs
 `summary_batch_size` ids at a time to `/pdb/entry/summary/` and splits the response into the same
-per-entry files a single GET would give, so ~3,620 requests become ~73. The PISA interface endpoint
+per-entry files a single GET would give, so ~3,620 requests become ~73. The PISA API interface endpoint
 takes one assembly per call and has no batched form. Three behaviours of the API, measured on
 2026-09-28, shape the code:
 
@@ -55,8 +65,8 @@ takes one assembly per call and has no batched form. Three behaviours of the API
 
 **The PISA failure report is the caller's file, not the downloader's.** `download_missing_interfaces`
 returns what each stage could not handle and writes `error_path` only when there is something to write;
-`pisa_pockets` and `expand_fsdb_pdb_targets` both hand it the same
-`pocket_dir/pisa/errors.json`. So a second call with failures replaces the first call's
+`pisa_pockets` and `expand_fsdb_pdb_targets` both reach it through `download_pisa_interfaces`, so
+both use the same `pocket_dir/pisa/errors.json`. A second call with failures replaces the first call's
 report, and a clean second call leaves the first's file in place. Date it by its mtime, not by its
 existence.
 

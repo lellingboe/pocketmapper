@@ -2,12 +2,15 @@
 Download and flatten PDBe PISA interface data into a per-entry cache.
 
 Three stages, each cached on disk so a rerun costs nothing: entry summaries, fetched in batches,
-give the assembly ids, one request per assembly gives its interfaces, and those are flattened into a single
+give the assembly ids, one file per assembly gives its interfaces, and those are flattened into a single
 `<pdb_code>.json` per entry keyed by sorted chain pair -- the shape `PisaParser` reads.
 
-Every request is spaced to stay within the PDBe API's tolerance, which is what makes the first run
-over a large hit list slow. The spacing grows if the API starts refusing requests and is not lowered
-again, so a rate-limited run slows down and stays slow rather than re-provoking the API.
+The per-assembly files come from one of two sources serving identical JSON, so both share one cache:
+the EBI FTP server, fetched concurrently, or the PDBe API, one request per assembly.
+
+Every API request is spaced to stay within the PDBe API's tolerance, which is what makes the first
+API run over a large hit list slow. The spacing grows if the API starts refusing requests and is not
+lowered again, so a rate-limited run slows down and stays slow rather than re-provoking the API.
 
 No stage raises on a bad entry. Each returns the ids it could not handle and the entry point
 collects them into one JSON report, so the entries PISA lacks cost a line in that file rather than
@@ -18,11 +21,17 @@ import json
 import logging
 import os
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed
 from glob import glob
 
 from tqdm import tqdm
 
+from pocketmapper.constants import DEFAULT_PISA_SOURCE
+from pocketmapper.constants import PISA_SOURCES
 from pocketmapper.downloads.lib_download import download_api
+from pocketmapper.downloads.lib_download import download_file
+from pocketmapper.downloads.structure_downloader import DOWNLOAD_WORKERS
 from pocketmapper.exceptions import PocketMapperError
 
 logger = logging.getLogger(__name__)
@@ -30,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 class PisaDownloader:
     """
-    Fetches PISA interfaces from the PDBe API into a local cache.
+    Fetches PISA interfaces from the EBI FTP server or the PDBe API into a local cache.
 
     `download_missing_interfaces` is the entry point; the remaining methods are its stages and are
     separately usable, though each expects its directory to exist already. Every stage returns what
@@ -39,22 +48,43 @@ class PisaDownloader:
     response for a later run to trust.
     """
 
-    def __init__(self, max_retries=5, base_delay=0.25, max_delay=30.0, summary_batch_size=50):
+    def __init__(
+        self,
+        source=DEFAULT_PISA_SOURCE,
+        max_retries=5,
+        base_delay=0.25,
+        max_delay=30.0,
+        summary_batch_size=50,
+        max_workers=DOWNLOAD_WORKERS,
+    ):
         """
-        Configure the retry and rate-limiting behaviour shared by every request.
+        Configure where assembly interfaces come from and the retry behaviour shared by every request.
 
         Args:
+            source (str): Where assembly interfaces are fetched from: "ftp" or "api". Summaries always
+                come from the API. Defaults to DEFAULT_PISA_SOURCE.
             max_retries (int): Attempts per URL before giving up. Defaults to 5.
-            base_delay (float): Seconds between requests, before any backoff. Defaults to 0.25.
+            base_delay (float): Seconds between API requests, before any backoff; for FTP downloads,
+                the wait after the first failed attempt. Defaults to 0.25.
             max_delay (float): Ceiling on the doubling backoff delay. Defaults to 30.0.
             summary_batch_size (int): Entries per summary request. The API fails with a 500 somewhere
                 above 800, so keep it well below that. Defaults to 50.
+            max_workers (int): Concurrent FTP downloads. Defaults to DOWNLOAD_WORKERS.
+
+        Raises:
+            PocketMapperError: If `source` is not one of PISA_SOURCES.
         """
         self.log_extra = {"stage": "Downloading PISA Interfaces"}
+        if source not in PISA_SOURCES:
+            msg = f"Unknown PISA source {source!r}. Choose one of: {', '.join(PISA_SOURCES)}."
+            logger.critical(msg, extra=self.log_extra)
+            raise PocketMapperError(msg)
+        self.source = source
         self.max_retries = max_retries
         self.base_delay = base_delay
         self.max_delay = max_delay
         self.summary_batch_size = summary_batch_size
+        self.max_workers = max_workers
 
     def fetch_with_backoff(self, url, out_fname, data=None):
         """
@@ -223,10 +253,10 @@ class PisaDownloader:
 
     def download_missing_assemblies(self, asm_dict, asm_dir):
         """
-        Download the PISA interfaces for every assembly of every entry.
+        Download the PISA interfaces for every assembly of every entry, from this instance's source.
 
-        Writes one response per assembly into `asm_dir`. An assembly already there counts as a success
-        without costing a request.
+        Writes one file per assembly into `asm_dir`. An assembly already there counts as a success
+        without costing a request, whichever source wrote it.
 
         Args:
             asm_dict (dict): pdb_code -> list of assembly ids, as returned by `parse_summaries`.
@@ -236,7 +266,29 @@ class PisaDownloader:
             tuple: (defaultdict of pdb_code -> list of the assembly ids now on disk, list of
                 `<pdb_code>_<assembly_id>` that could not be fetched).
         """
-        logger.info(f"Downloading {sum(len(v) for v in asm_dict.values())} PISA assemblies", extra=self.log_extra)
+        logger.info(
+            f"Downloading {sum(len(v) for v in asm_dict.values())} PISA assemblies from {self.source}",
+            extra=self.log_extra,
+        )
+        if self.source == "ftp":
+            success, failure = self.download_missing_ftp_assemblies(asm_dict, asm_dir)
+        else:
+            success, failure = self.download_missing_api_assemblies(asm_dict, asm_dir)
+        if len(failure) > 0:
+            logger.warning(f"Failed to download {len(failure)} assemblies", extra=self.log_extra)
+        return success, failure
+
+    def download_missing_api_assemblies(self, asm_dict, asm_dir):
+        """
+        Download each assembly's interfaces from the PDBe API, one paced request at a time.
+
+        Args:
+            asm_dict (dict): pdb_code -> list of assembly ids.
+            asm_dir (str): Directory to cache the responses in.
+
+        Returns:
+            tuple: As `download_missing_assemblies`.
+        """
         failure = []
         success = defaultdict(list)
         for pdb_code, assemblies in tqdm(asm_dict.items()):
@@ -247,9 +299,65 @@ class PisaDownloader:
                     success[pdb_code].append(asm)
                 else:
                     failure.append(f"{pdb_code}_{asm}")
-        if len(failure) > 0:
-            logger.warning(f"Failed to download {len(failure)} assemblies", extra=self.log_extra)
         return success, failure
+
+    def download_missing_ftp_assemblies(self, asm_dict, asm_dir):
+        """
+        Download each assembly's interfaces from the EBI FTP server, `max_workers` at a time.
+
+        A file the server does not have (404) is not retried.
+
+        Args:
+            asm_dict (dict): pdb_code -> list of assembly ids.
+            asm_dir (str): Directory to cache the files in.
+
+        Returns:
+            tuple: As `download_missing_assemblies`.
+        """
+        jobs = [(pdb_code, asm) for pdb_code, assemblies in asm_dict.items() for asm in assemblies]
+        with ThreadPoolExecutor(max_workers=self.max_workers) as e:
+            futures = {
+                e.submit(self.download_ftp_assembly, pdb_code, asm, asm_dir): (pdb_code, asm) for pdb_code, asm in jobs
+            }
+            fetched = {futures[f]: f.result() for f in tqdm(as_completed(futures), total=len(futures))}
+
+        # Collected in input order, so the result does not depend on completion order
+        failure = []
+        success = defaultdict(list)
+        for pdb_code, asm in jobs:
+            if fetched[(pdb_code, asm)]:
+                success[pdb_code].append(asm)
+            else:
+                failure.append(f"{pdb_code}_{asm}")
+        return success, failure
+
+    def download_ftp_assembly(self, pdb_code, asm, asm_dir):
+        """
+        Download one assembly's interfaces from the EBI FTP server, unless already cached.
+
+        Args:
+            pdb_code (str): Lower-cased PDB code.
+            asm (str): Assembly id.
+            asm_dir (str): Directory to cache the file in.
+
+        Returns:
+            bool: True if the file is now on disk.
+        """
+        out_fname = os.path.join(asm_dir, f"{pdb_code}_{asm}.json")
+        if os.path.exists(out_fname):
+            return True
+        url = (
+            "https://ftp.ebi.ac.uk/pub/databases/msd/pdb-assemblies-analysis/split/"
+            f"{pdb_code[1:3]}/{pdb_code}_assembly{asm}_interfaces.json"
+        )
+        return download_file(
+            url,
+            out_fname,
+            max_retries=self.max_retries,
+            base_delay=self.base_delay,
+            max_delay=self.max_delay,
+            log_extra=self.log_extra,
+        )
 
     def parse_assemblies(self, asm_dict, asm_dir, interface_dir):
         """
