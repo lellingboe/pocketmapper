@@ -67,11 +67,11 @@ the step-8 selection via `createsubdb` + `convert2pdb`.
   column). **Refresh the table whenever `BUNDLED_HUMAN_DOMAINS_DB` moves.**
 
 **Bundled DB ships without `.source`**; strip it from any refresh. It duplicates `.lookup` and nothing
-reads it (verified: `easy-search`, `createsubdb`, `convert2pdb` all work without it); saves 1.7 MB.
+reads it (verified: `easy-search`, `createsubdb`, `convert2pdb` all work without it); saves 1.4 MB.
 `.lookup` must stay (`extract_fsdb_structures` reads it).
 
-The DB is otherwise at its floor: `_ca` is 70 of 98 MB, 11.2M residues at 6.33 B each
-(`--coord-store-mode 2`, smallest mode). zstd -19 saves only 16% and foldseek cannot read a compressed DB.
+The DB is otherwise at its floor: `_ca` is 53 of 77 MB, 8.4M residues at 6.33 B each
+(`--coord-store-mode 2`, smallest mode). zstd -19 saves only 30% and foldseek cannot read a compressed DB.
 
 **No cap on enriched hits**, by choice. `4Q5J:B_F` vs bundled `pdb`: ~4,970 hits / ~3,620 entries, hours
 on first run with `pisa_source` `api` (per-assembly PISA behind a sleep); `ftp` is concurrent but untimed

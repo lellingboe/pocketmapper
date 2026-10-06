@@ -146,7 +146,7 @@ def bundled_human_domains_path(filename):
 
 
 # The bundled human-domains Foldseek DB. Versioned here and nowhere else -- bump it on a DB refresh.
-BUNDLED_HUMAN_DOMAINS_DB = bundled_human_domains_path("human_v3_20260901")
+BUNDLED_HUMAN_DOMAINS_DB = bundled_human_domains_path("human_domains_260906")
 
 # The UniProt coordinates of every entry in the DB above, shipped beside it and keyed by the same
 # entry names. Refresh the two together: an entry the table has lost aborts the run.
