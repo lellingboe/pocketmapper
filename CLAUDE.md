@@ -7,4 +7,4 @@ Guidance for Claude Code (claude.ai/code) in this repo. The detail lives in `con
 - @context/ai-interaction.md
 - @context/project-overview.md
 - @context/coding-standards.md
-- @context/current-feature.md
+- context/current-feature.md (load if asked to plan current feature)
