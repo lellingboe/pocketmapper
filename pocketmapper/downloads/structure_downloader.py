@@ -26,8 +26,7 @@ class StructureDownloader:
     Downloads PDB and AlphaFold structures to the paths their records name.
 
     Each record carries its own destination, so there is no shared output directory and no call
-    order to observe. A destination whose parent directory does not exist is reported as a failed
-    download rather than created; the caller owns the directory.
+    order to observe. A destination's parent directory is created when a download needs it.
 
     How many downloads run at once is fixed at construction, in `max_workers`.
     """
@@ -100,6 +99,27 @@ class StructureDownloader:
                 )
                 return (record["struct_info"], False)
 
+    def make_parent_dir(self, out_fpath):
+        """
+        Create the directory a download will be written into, if it is missing.
+
+        Args:
+            out_fpath (str): Destination path of the download.
+
+        Returns:
+            bool: Whether the directory exists now. A bare filename's directory is the working
+                directory and always does.
+        """
+        out_dir = os.path.dirname(out_fpath)
+        if not out_dir:
+            return True
+        try:
+            os.makedirs(out_dir, exist_ok=True)
+        except OSError as e:
+            logger.warning(f"Could not create directory {out_dir}: {e}", extra=self.log_extra)
+            return False
+        return True
+
     def download_alphafold(self, uniprot_acc, out_fpath, version="v6"):
         """
         Download an AlphaFold model in mmCIF format and compress it to gzip.
@@ -115,6 +135,8 @@ class StructureDownloader:
                    indicating success (True) or failure (False).
         """
         if not os.path.exists(out_fpath):
+            if not self.make_parent_dir(out_fpath):
+                return (uniprot_acc, False)
             url = f"https://alphafold.ebi.ac.uk/files/AF-{uniprot_acc}-F1-model_{version}.cif"
             # AlphaFold serves plain mmCIF; the cache holds it gzipped, so it is compressed on the
             # way in rather than stored twice.
@@ -145,6 +167,8 @@ class StructureDownloader:
         """
         pdb_code_lowered = pdb_code.lower()
         if not os.path.exists(out_fpath):
+            if not self.make_parent_dir(out_fpath):
+                return (pdb_code, False)
             url = f"https://files.wwpdb.org/pub/pdb/data/structures/divided/mmCIF/{pdb_code_lowered[1:3]}/{pdb_code_lowered}.cif.gz"
             if not download_file(
                 url,

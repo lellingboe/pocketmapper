@@ -175,14 +175,17 @@ and resolved in `configure_workflow`. Miss one → option silently ignored. Chec
 Options are grouped by lifetime in `build_parser` and README alike: `aligned structure`, `cache`,
 `out`, `temp`. A new path setting picks a group in both.
 
-**`temp_dir` is one option, three dirs** (`query_structures/`, `target_structures/`, `foldseek_tmp/`),
-computed in `configure_temp_dir` and held on `PocketMapper`, not `Settings`. Only the first two are
-created (Foldseek makes its own). `temp_dir` is emptied on entry so reruns can't feed `createdb` stale
-structures; emptying is `lib.is_within`-guarded, creation is not. It runs after `configure_logging` so the
-skip warning reaches `info.log`.
+**Every directory is made by its first writer**; there is no bulk creation step. Only the log's
+directory is made in `configure_workflow` (the file handler opens at once). Pipeline-side writers use
+`PocketMapper.make_dir` (critical + `PocketMapperError`); components use bare `os.makedirs`. A new
+writer into a configurable path must make its directory, or a path option pointed elsewhere fails.
 
-`results_dir` must stay in `dirs_to_create` in its own right, or `--aligned_structure_dir` elsewhere
-leaves `info.log` with no directory.
+**`temp_dir` is one option, three dirs** (`query_structures/`, `target_structures/`, `foldseek_tmp/`),
+named in `configure_temp_dir` and held on `PocketMapper`, not `Settings`. The two structure dirs are
+made in `foldseek_preprocessing`, `foldseek_tmp/` before each Foldseek call that uses it (MMseqs2 makes
+only one level of tmp dir), so a `seq` run makes none. `temp_dir` is emptied on entry so reruns can't
+feed `createdb` stale structures; emptying is `lib.is_within`-guarded, creation is not. It runs after
+`configure_logging` so the skip warning reaches `info.log`. `delete_tmp` does nothing if it was never made.
 
 `search --help` is generated from `help=` strings; `CLI_SEARCH_EPILOG` holds only examples. Resolution
 order, the `aligner` check and tri-state `align_struct_method`: `Settings` docstring and `# 4b.`/`# 4c.` in
@@ -218,8 +221,8 @@ classifiers, `[tool.black] target-version`, README Installation; CI `compat` mat
 - `StructurePreprocessor` requires `set_output_directory()` → `update_cache()` → `preprocess_records()`
   (unenforced) and writes its own `.part`; `StructureDownloader` uses each record's `struct_path` and
   `lib_download`'s `.part`.
-- **Nothing creates a structure's parent directory**; a missing one surfaces as `structure_not_found`.
-  `configure_workflow` makes `pdb_dir`/`alphafold_dir`; library callers must.
+- **`StructureDownloader` makes a destination's parent directory** just before downloading into it;
+  one it cannot make surfaces as `structure_not_found`.
 
 ## As a library
 

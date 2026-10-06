@@ -233,7 +233,8 @@ class PocketMapper:
 
         For the length of the call, sets the `pocketmapper` logger's level and adds a handler writing
         to `log_path`; both are restored on return. Empties `temp_dir` on the way in and, unless
-        `delete_tmp` is 0, deletes it on the way out.
+        `delete_tmp` is 0, deletes it on the way out. Each directory is created only when something
+        is first written into it.
 
         Args:
             query (str, optional): Query identifier, string or path to a list. Required here or in
@@ -351,7 +352,7 @@ class PocketMapper:
         """
         Build the fully resolved `Settings` for this run.
 
-        Creates the run's directories, runs `configure_logging` and `configure_temp_dir`, and writes
+        Creates the log file's directory, runs `configure_logging` and `configure_temp_dir`, and writes
         job_settings.json. Probes the foldseek binary when that aligner is selected.
 
         Args:
@@ -364,8 +365,8 @@ class PocketMapper:
 
         Raises:
             PocketMapperError: If the job file is missing, unreadable or names an unknown setting, if
-                query or target is given both ways or neither way, if a directory cannot be made, or
-                if `delete_tmp` is not 1 or 0.
+                query or target is given both ways or neither way, if the log file's directory cannot
+                be made, or if `delete_tmp` is not 1 or 0.
         """
         log_extra = {"stage": "Configuring Settings"}
 
@@ -409,24 +410,9 @@ class PocketMapper:
         # 3. Paths left unset by both
         values = resolve_paths(values)
 
-        # results_dir is listed in its own right: configure_logging opens a file handler under it
-        # immediately below, and every other path here is settable away from it.
-        dirs_to_create = [
-            "results_dir",
-            "pdb_dir",
-            "alphafold_dir",
-            "pocket_dir",
-            "foldseek_preprocessed_structure_dir",
-            "aligned_structure_dir",
-        ]
-        for dir_key in dirs_to_create:
-            path = values[dir_key]
-            try:
-                os.makedirs(path, exist_ok=True)
-            except OSError as e:
-                logger.critical(f"Error creating directory {path}", extra=log_extra)
-                raise PocketMapperError(f"Error creating directory {path}") from e
-
+        # The only directory made up front: configure_logging opens its file handler immediately.
+        # Every other directory is made by whatever first writes into it.
+        self.make_dir(os.path.dirname(values["log_path"]), log_extra)
         self.configure_logging(values["verbosity"], values["log_path"])
 
         # 4a. Lay out this run's scratch space. After configure_logging, so the warning for a temp_dir
@@ -469,12 +455,11 @@ class PocketMapper:
 
     def configure_temp_dir(self, temp_dir, cache_dir, results_dir):
         """
-        Empty this run's scratch directory and lay out the subdirectories under it.
+        Empty this run's scratch directory and name the subdirectories under it.
 
-        Deletes everything under `temp_dir`, unless it resolves outside both `cache_dir` and
-        `results_dir`, in which case it is reused as it is and a warning is logged. Sets
-        `query_tmp_dir`, `target_tmp_dir` and `foldseek_tmp_dir` on the instance; the last is not
-        created, since Foldseek creates it itself.
+        Deletes `temp_dir`, unless it resolves outside both `cache_dir` and `results_dir`, in which
+        case an existing one is reused as it is and a warning is logged. Sets `query_tmp_dir`,
+        `target_tmp_dir` and `foldseek_tmp_dir` on the instance; none is created here.
 
         Args:
             temp_dir (str): This run's scratch directory.
@@ -483,9 +468,6 @@ class PocketMapper:
 
         Returns:
             None
-
-        Raises:
-            PocketMapperError: If a scratch directory cannot be created.
         """
         log_extra = {"stage": "Configuring Workflow"}
 
@@ -497,19 +479,35 @@ class PocketMapper:
         # Only under a known root, so a mistyped temp_dir costs a stray directory, not its contents.
         if is_within(temp_dir, [cache_dir, results_dir]):
             shutil.rmtree(temp_dir, ignore_errors=True)
-        else:
+        elif os.path.exists(temp_dir):
             logger.warning(
                 f"Reusing temp_dir {temp_dir} without emptying it: it is outside cache_dir "
                 "and results_dir. Empty it yourself if a previous run left anything there.",
                 extra=log_extra,
             )
 
-        for path in (temp_dir, self.query_tmp_dir, self.target_tmp_dir):
-            try:
-                os.makedirs(path, exist_ok=True)
-            except OSError as e:
-                logger.critical(f"Error creating directory {path}", extra=log_extra)
-                raise PocketMapperError(f"Error creating directory {path}") from e
+    def make_dir(self, path, log_extra):
+        """
+        Create a directory and any missing parents, if it does not already exist.
+
+        Args:
+            path (str): The directory. An empty string, the directory of a bare filename, is the
+                working directory and is left alone.
+            log_extra (dict): Logging `extra` for the failure message.
+
+        Returns:
+            None
+
+        Raises:
+            PocketMapperError: If the directory cannot be created.
+        """
+        if not path:
+            return
+        try:
+            os.makedirs(path, exist_ok=True)
+        except OSError as e:
+            logger.critical(f"Error creating directory {path}", extra=log_extra)
+            raise PocketMapperError(f"Error creating directory {path}") from e
 
     def resolve_aligner(self, aligner):
         """
@@ -788,8 +786,8 @@ class PocketMapper:
             None: The database is written to the record's `struct_path`.
 
         Raises:
-            PocketMapperError: If the destination cannot be created, or -- from `run_foldseek` --
-                if the download fails.
+            PocketMapperError: If the destination or `tmp_dir` cannot be created, or -- from
+                `run_foldseek` -- if the download fails.
         """
         log_extra = {"stage": "Fetching Missing Foldseek Database"}
         fsdb_name = qt_df.loc[0, "struct_info"].upper()
@@ -802,6 +800,7 @@ class PocketMapper:
                 msg = f"Failed to create the directory for Foldseek database '{fsdb_name}' at {fsdb_path}: {e}"
                 logger.critical(msg, extra=log_extra)
                 raise PocketMapperError(msg) from e
+            self.make_dir(tmp_dir, log_extra)
             run_foldseek(
                 ["databases", fsdb_name, fsdb_path, tmp_dir, "--threads", str(self.settings.threads)],
                 log_extra,
@@ -833,11 +832,14 @@ class PocketMapper:
         Write each record's alignment chain as a single-chain structure for Foldseek to index.
 
         Caches each copy under `foldseek_preprocessed_structure_dir` and copies it into the side's
-        scratch directory. Records whose preprocessing fails get `success=False` and a `failure_reason`
+        scratch directory, creating it. Records whose preprocessing fails get `success=False` and a `failure_reason`
         in `query_df` / `target_df`, in place. A Foldseek-database target is skipped.
 
         Returns:
             None
+
+        Raises:
+            PocketMapperError: If a scratch directory cannot be created.
         """
         log_extra = {"stage": "Preprocessing Structures"}
 
@@ -849,6 +851,7 @@ class PocketMapper:
         for df, search_dir in qtdf_dir_iter:
             records = df.drop_duplicates(subset=["preprocess_name", "chain_info"]).to_dict(orient="records")
             logger.debug(f"Records to preprocess: {json.dumps(records, indent=4)}", extra=log_extra)
+            self.make_dir(search_dir, log_extra)
 
             structure_preprocessor.set_output_directory(self.settings.foldseek_preprocessed_structure_dir)
             structure_preprocessor.update_cache()
@@ -878,7 +881,7 @@ class PocketMapper:
             None: The matches are written to `alignment_path`.
 
         Raises:
-            PocketMapperError: If a Foldseek invocation fails.
+            PocketMapperError: If a directory cannot be created or a Foldseek invocation fails.
         """
         log_extra = {"stage": "Foldseek Alignment"}
         logger.info("Running Foldseek alignment...", extra=log_extra)
@@ -900,6 +903,8 @@ class PocketMapper:
                 log_extra,
             )
 
+        self.make_dir(os.path.dirname(self.settings.alignment_path), log_extra)
+        self.make_dir(self.foldseek_tmp_dir, log_extra)
         query_target_align_cmd = [
             "easy-search",
             self.query_db_path,
@@ -930,6 +935,9 @@ class PocketMapper:
 
         Returns:
             None: The table is written to `alignment_path`.
+
+        Raises:
+            PocketMapperError: If the directory of `alignment_path` cannot be created.
         """
         log_extra = {"stage": "Local Alignment"}
         logger.info("Running local sequence alignments...", extra=log_extra)
@@ -945,6 +953,7 @@ class PocketMapper:
             query_records,
             target_records,
         )
+        self.make_dir(os.path.dirname(self.settings.alignment_path), log_extra)
         alignment.to_csv(self.settings.alignment_path, index=False, sep="\t")
 
     def expand_fsdb_pdb_targets(self):
@@ -1069,7 +1078,8 @@ class PocketMapper:
             None
 
         Raises:
-            PocketMapperError: If the bundled database's offset table is missing from the installation.
+            PocketMapperError: If the bundled database's offset table is missing from the installation,
+                or an output directory cannot be created.
         """
         log_extra = {"stage": "Comparing Pockets Based on Alignment"}
 
@@ -1132,6 +1142,7 @@ class PocketMapper:
 
         # Logging cases where a residue was given a single char name unfamiliar to pocketmapper
         if len(unknown_alias) > 0:
+            self.make_dir(self.settings.results_dir, log_extra)
             unknown_alias_path = os.path.join(self.settings.results_dir, "unknown_ids.json")
             logger.warning("Unknown Foldseek Alias, see unknown_ids.json in results directory", extra=log_extra)
             with open(unknown_alias_path, "w") as f:
@@ -1139,6 +1150,7 @@ class PocketMapper:
 
         # logging cases where foldseek mapping had low sequence identity to the parsed structure
         if len(incorrect_mapping) > 0:
+            self.make_dir(self.settings.results_dir, log_extra)
             incorrect_mapping_path = os.path.join(self.settings.results_dir, "incorrect_mapping.json")
             logger.warning("Foldseek mapping with low sequence identity to parsed structure", extra=log_extra)
             with open(incorrect_mapping_path, "w") as f:
@@ -1146,6 +1158,7 @@ class PocketMapper:
 
         # Writing pocket comparison results to output file
         output_path = self.settings.pocket_comparison_path
+        self.make_dir(os.path.dirname(output_path), log_extra)
         pockets_df.to_csv(output_path, index=False, sep="\t")
         logger.info(f"Pocket comparison results saved to {output_path}", extra=log_extra)
 
@@ -1179,7 +1192,7 @@ class PocketMapper:
 
     def delete_tmp(self):
         """
-        Delete this run's scratch directory, unless `delete_tmp` is 0.
+        Delete this run's scratch directory, unless `delete_tmp` is 0 or the run never created it.
 
         A `temp_dir` resolving outside both `cache_dir` and `results_dir` is kept and warned about.
 
@@ -1189,6 +1202,11 @@ class PocketMapper:
         log_extra = {"stage": "Cleaning Up"}
 
         path = self.settings.temp_dir
+
+        # Only a step that used scratch space created it
+        if not os.path.isdir(path):
+            logger.debug(f"No temp_dir was created at {path}; nothing to delete", extra=log_extra)
+            return
 
         if self.settings.delete_tmp == 0:
             logger.info(f"delete_tmp is 0; keeping {path}", extra=log_extra)

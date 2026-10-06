@@ -195,7 +195,7 @@ class StructureAligner:
         Args:
             kept_records (list): Records present in `aligned_struct`, in model order.
             aligned_struct (gemmi.Structure): The merged structure to write.
-            out_path (str): Destination path for the PDB file.
+            out_path (str): Destination path for the PDB file. Its directory is created if missing.
 
         Returns:
             None: Writes the PDB to `out_path`.
@@ -216,6 +216,9 @@ COMPND {next(line_nums).zfill(3)} MOLECULE: {model_name[:70]};
 COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
 """
 
+        out_dir = os.path.dirname(out_path)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
         with open(out_path, "w") as f:
             f.write(header)
             f.write(pdb_str)
@@ -445,7 +448,8 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
                 `fsdb_path`, where it means the target ids are database entry names.
             pocket_comparison (pandas.DataFrame or str): The pocket comparison table, or the path of
                 the TSV holding it.
-            out_dir (str): Directory to write the aligned PDBs into. Created if missing.
+            out_dir (str): Directory to write the aligned PDBs into. Created only once something is
+                written into it.
             method (str): Which transform to superpose with -- "pocket", read from the comparison
                 table, or "foldseek", read from `alignment`.
             align_count (int, optional): Most targets to superpose onto each query. Defaults to 10;
@@ -481,7 +485,6 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
             return {}
 
         logger.info(f"Performing structural alignment of target structures on the {method}...", extra=self.log_extra)
-        os.makedirs(out_dir, exist_ok=True)
 
         # Pre-loading
         pocket_comparison_df = as_dataframe(pocket_comparison)

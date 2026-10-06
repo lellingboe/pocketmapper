@@ -120,7 +120,7 @@ split a run's outputs across directories.
 
 Scratch space for a single run: emptied before the run uses it and deleted when it ends — set
 `--delete_tmp 0` to keep it for inspection. The per-run query and target structures and Foldseek's
-own scratch all live inside it.
+own scratch all live inside it, so it is only created with `--aligner foldseek`.
 
 | Option | Default | Summary |
 | --- | --- | --- |
@@ -337,10 +337,10 @@ command-line option can change it. Edit it instead: it names the previous `resul
 path under it).
 
 **`--temp_dir` is emptied on the way in and deleted on the way out.** It holds `query_structures/`,
-`target_structures/` and `foldseek_tmp/`, so a rerun into the same `--results_dir` never hands Foldseek
-what the previous run left behind. Both the emptying and the deletion are skipped with a warning when
-`temp_dir` does not resolve to somewhere under `--cache_dir` or `--results_dir` — a mistyped
-`--temp_dir` costs you a stray directory, not its contents. `--delete_tmp 0` keeps it: it holds the
+`target_structures/` and `foldseek_tmp/`, each created only when used, so a rerun into the same
+`--results_dir` never hands Foldseek what the previous run left behind. Both the emptying and the
+deletion are skipped with a warning when `temp_dir` does not resolve to somewhere under `--cache_dir`
+or `--results_dir` — a mistyped `--temp_dir` costs you a stray directory, not its contents. `--delete_tmp 0` keeps it: it holds the
 per-run inputs the aligner was actually given, which is what you want when a run returns nothing and
 you need to see why.
 

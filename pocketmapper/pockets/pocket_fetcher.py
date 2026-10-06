@@ -55,7 +55,7 @@ class PocketFetcher:
         Build a Pocket for each record, by the builder of its `pocket_method`.
 
         Downloads any PISA data not already cached under `pocket_dir`, and overwrites
-        `pocket_dir/<method>_pockets.json` for every method present. PISA records sharing a structure
+        `pocket_dir/<method>_pockets.json` for every method present, creating `pocket_dir` if needed. PISA records sharing a structure
         and chain are built once, under the first one's pocket_id.
 
         Args:
@@ -96,6 +96,7 @@ class PocketFetcher:
             logger.info(f"{len(method_records)} {label} pockets to retrieve", extra=method_log_extra)
 
             method_pockets = builder(method_records, pocket_dir, **builder_options.get(pocket_method, {}))
+            os.makedirs(pocket_dir, exist_ok=True)
             dump_pockets(method_pockets, os.path.join(pocket_dir, f"{pocket_method}_pockets.json"))
             logger.debug(f"Extracted {label} pockets: {method_pockets}", extra=log_extra)
             pockets |= method_pockets
