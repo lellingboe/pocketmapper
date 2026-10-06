@@ -9,6 +9,7 @@ It is intended for comparative analysis of binding pockets between query and tar
 ## Installation
 
 ### Dependencies
+
 PocketMapper supports **Python 3.10 to 3.14** and is published on
 [PyPI](https://pypi.org/project/pocketmapper/). Its Python dependencies (biopython, numpy, pandas, tqdm,
 gemmi) are installed by pip.
@@ -23,7 +24,8 @@ but it is the default aligner:
   aligner superposes on the pocket instead (see [Advanced options](#advanced-options)).
 
 ### Install with pip
-```
+
+```bash
 # Pip installation of PocketMapper
 pip install pocketmapper
 
@@ -35,11 +37,12 @@ brew tap brewsci/bio
 brew trust brewsci/bio
 brew install foldseek
 ```
-Foldseek also has precompiled binaries available at https://dev.mmseqs.com/foldseek/
+
+Foldseek also has precompiled binaries available at <https://dev.mmseqs.com/foldseek/>.
 
 ## Usage
 
-```
+```bash
 pocketmapper search 4Q5J:B_F 4Q5J:A_E --results_dir ./out
 ```
 
@@ -128,13 +131,20 @@ own scratch all live inside it, so it is only created with `--aligner foldseek`.
 | `--delete_tmp` | `1` | `1` deletes `--temp_dir` at the end of the run; `0` keeps it. |
 
 ### Input format
+
 Query and target entries are colon-separated:
-```
+
+```text
 STRUCTURE[:CHAIN[:RESIDUES]]
 ```
-- **STRUCTURE** — a 4-character PDB ID (`4Q5J`), a UniProt accession (`P04637`, fetched from AlphaFold), or a path to a local structure file.
-- **CHAIN** — the chain the pocket belongs to. For the interface-based methods this is two chains joined by an underscore (`B_F`), where the first is the chain carrying the pocket and the second is its binding partner. Optional; omitted, it defaults to chain `A`.
-- **RESIDUES** — optional comma-separated author residue numbers (`10,11,12`). Omitting the whole pocket part makes the entry an open search — see below.
+
+- **STRUCTURE** — a 4-character PDB ID (`4Q5J`), a UniProt accession (`P04637`, fetched from
+  AlphaFold), or a path to a local structure file.
+- **CHAIN** — the chain the pocket belongs to. For the interface-based methods this is two chains joined
+  by an underscore (`B_F`), where the first is the chain carrying the pocket and the second is its
+  binding partner. Optional; omitted, it defaults to chain `A`.
+- **RESIDUES** — optional comma-separated author residue numbers (`10,11,12`). Omitting the whole pocket
+  part makes the entry an open search — see below.
 
 How the pocket residues are derived is inferred from the shape of the entry:
 
@@ -161,12 +171,12 @@ PISA is only available for PDB entries, so a local file with an interface-style 
 methods that need a binding partner are not offered for one at all. A passthrough entry needs an
 explicit residue list — without one the entry is an open search instead.
 
-The inferred method (`auto`, the default) can be overridden with `--query_pocket_method` / `--target_pocket_method`, which
-does not relax any of the above: the entry must still spell what the method reads, and the method
-must be available for that structure type. An entry that cannot satisfy both is skipped with a
-warning naming what was missing, before anything is downloaded, and the run fails only if it leaves a
-side with no usable entries — so one bad line in a batch file does not stop the rest. An unrecognised
-method name is rejected outright.
+The inferred method (`auto`, the default) can be overridden with `--query_pocket_method` /
+`--target_pocket_method`, which does not relax any of the above: the entry must still spell what the
+method reads, and the method must be available for that structure type. An entry that cannot satisfy
+both is skipped with a warning naming what was missing, before anything is downloaded, and the run
+fails only if it leaves a side with no usable entries — so one bad line in a batch file does not stop
+the rest. An unrecognised method name is rejected outright.
 
 A passthrough entry's residue ids are checked against the structure: an entry naming a residue the chain
 does not have, or has without a CA atom, is skipped with a warning rather than compared, and the rest of
@@ -176,6 +186,7 @@ For batch runs, pass a path to a file containing one such entry per line instead
 Query and target files are read independently, and every query is compared against every target.
 
 ### Closed vs Open Search
+
 The two shapes of entry ask different questions.
 
 A **closed search** names a pocket on both sides (`4Q5J:B_F` against `4Q5J:A_E`) and asks *how do these two
@@ -198,6 +209,7 @@ transforms) are populated too, which a Foldseek-database row cannot offer.
 Open and closed targets can be mixed freely in one batch file.
 
 ### Databases
+
 A target can name a Foldseek database instead of a structure, which searches the query pocket against
 every entry in it. Both bundled databases require the foldseek binary, and
 `--align_struct_method pocket` is rejected against either (there is no second pocket to fit to).
@@ -222,6 +234,7 @@ A Foldseek database you build yourself also works as a target (pass its path, wi
 different things on different runs.
 
 ### Outputs
+
 Everything is written under `--results_dir`:
 
 | File | Contents |
@@ -241,11 +254,13 @@ pockets themselves (`pockets/pisa_pockets.json`, `passthrough_pockets.json`, `vd
 each pocket is an object of metadata fields plus a `residues` map keyed by author residue number.
 
 #### `pocket_comparison.tsv` columns
-The `query_*` columns describe the query pocket, the `target_*` columns the target. The table always has all of these columns: a
-comparison that stops early — no overlapping residues, no coordinates, fewer than three residues to
-superpose, or an open target — leaves the remaining fields **empty** rather than dropping them.
 
-*Identity*
+The `query_*` columns describe the query pocket, the `target_*` columns the target. The table always
+has all of these columns: a comparison that stops early — no overlapping residues, no coordinates,
+fewer than three residues to superpose, or an open target — leaves the remaining fields **empty**
+rather than dropping them.
+
+##### Identity
 
 | Column | Meaning |
 | --- | --- |
@@ -253,7 +268,7 @@ superpose, or an open target — leaves the remaining fields **empty** rather th
 | `evalue` | Alignment E-value for the underlying chain pair. `-` with the local aligner. |
 | `lddt` | Alignment lDDT reported by Foldseek. `-` with the local aligner. |
 
-*Pocket description*
+##### Pocket description
 
 | Column | Meaning |
 | --- | --- |
@@ -262,7 +277,7 @@ superpose, or an open target — leaves the remaining fields **empty** rather th
 | `query_seq`, `target_seq` | The pocket's residues as single-letter codes, in `res_ids` order. |
 | `query_pct_aln`, `target_pct_aln` | Fraction of the pocket's residues that fall inside the aligned region at all. A low value means the pocket sits largely outside the alignment. |
 
-*Overlap*
+##### Overlap
 
 | Column | Meaning |
 | --- | --- |
@@ -271,7 +286,7 @@ superpose, or an open target — leaves the remaining fields **empty** rather th
 | `target_overlap_ids` | The target residues they map onto, in the same order. UniProt numbers for a `human_domains` target; see [Databases](#databases). |
 | `jaccard_index` | `overlap_count` divided by the union of the two pockets. Empty for an open or database target. |
 
-*Overlap scoring (BLOSUM62)*
+##### Overlap scoring (BLOSUM62)
 
 | Column | Meaning |
 | --- | --- |
@@ -282,7 +297,9 @@ superpose, or an open target — leaves the remaining fields **empty** rather th
 | `overlap_similarity_2_1` | The same, normalised against the target residue instead. The two differ because self-scores differ between residues. |
 | `min_overlap_similarity`, `max_overlap_similarity` | The smaller and larger of the two directional scores. |
 
-*Superposition* — populated only when both pockets have coordinates and at least three residues overlap.
+##### Superposition
+
+Populated only when both pockets have coordinates and at least three residues overlap.
 
 | Column | Meaning |
 | --- | --- |
@@ -296,24 +313,34 @@ The rotation matrices are stored in Biopython's right-multiplying convention
 `pocketmapper.pocket_comparison.parse_pocket_transform`, which does the conversion for you.
 
 ### Examples
+
 A single pair, aligned with Foldseek:
-```
+
+```bash
 pocketmapper search 4Q5J:B_F 4Q5J:A_E --results_dir ./out_fs
 ```
+
 The same pair with the local BLOSUM62 aligner, which needs no Foldseek binary:
-```
+
+```bash
 pocketmapper search 4Q5J:B_F 4Q5J:A_E --aligner seq --results_dir ./out_local
 ```
+
 An open search — is this pocket anywhere on chain A of 4Q5J at all?
-```
+
+```bash
 pocketmapper search 4Q5J:B_F 4Q5J:A --results_dir ./out_open
 ```
+
 Searching a chain against the bundled Foldseek DB of human domains (requires the foldseek binary):
-```
+
+```bash
 pocketmapper search 4Q5J:B_F human_domains --results_dir ./out_hd
 ```
+
 Batch mode using files with one entry per line:
-```
+
+```bash
 pocketmapper search queries.txt targets.txt --job_file job.json
 ```
 
@@ -340,9 +367,9 @@ path under it).
 `target_structures/` and `foldseek_tmp/`, each created only when used, so a rerun into the same
 `--results_dir` never hands Foldseek what the previous run left behind. Both the emptying and the
 deletion are skipped with a warning when `temp_dir` does not resolve to somewhere under `--cache_dir`
-or `--results_dir` — a mistyped `--temp_dir` costs you a stray directory, not its contents. `--delete_tmp 0` keeps it: it holds the
-per-run inputs the aligner was actually given, which is what you want when a run returns nothing and
-you need to see why.
+or `--results_dir` — a mistyped `--temp_dir` costs you a stray directory, not its contents.
+`--delete_tmp 0` keeps it: it holds the per-run inputs the aligner was actually given, which is what
+you want when a run returns nothing and you need to see why.
 
 **`--aligner` picks how chains are aligned.** `foldseek`, the default, needs the Foldseek binary on
 `PATH` and runnable (checked by running `foldseek -h`); if it is not, the run stops before anything is
@@ -396,5 +423,7 @@ StructureAligner().align_structs(
 ```
 
 ## Contact / Authors
-PocketMapper is developed by Lachlan Ellingboe (Lachlan.Ellingboe@icr.ac.uk).
-Source, issues and feature requests: https://github.com/lellingboe/pocketmapper
+
+PocketMapper is developed by Lachlan Ellingboe (<Lachlan.Ellingboe@icr.ac.uk>).
+
+Source, issues and feature requests: <https://github.com/lellingboe/pocketmapper>
