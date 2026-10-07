@@ -200,6 +200,10 @@ ALIGNERS = ("foldseek", "seq")
 # The values the `delete_tmp` setting accepts: 1 deletes temp_dir at the end of the run, 0 keeps it.
 DELETE_TMP_VALUES = (0, 1)
 
+# The values the `fetch_missing` setting accepts: 1 downloads an entry structure missing from the
+# cache, 0 skips the entry.
+FETCH_MISSING_VALUES = (0, 1)
+
 # Where PISA interfaces come from: static files on the EBI FTP server, or one paced PDBe API call per
 # assembly. Both serve identical JSON.
 PISA_SOURCES = ("ftp", "api")
@@ -219,6 +223,7 @@ DEFAULT_POCKET_METHOD = "auto"
 DEFAULT_ALIGNER = "foldseek"
 DEFAULT_DELETE_TMP = 1
 DEFAULT_PISA_SOURCE = "ftp"
+DEFAULT_FETCH_MISSING = 0
 
 # The chain used when an entry names a structure but no chain at all ("4Q5J"). AlphaFold models are
 # always a single chain A, and it is the first chain of most PDB entries.

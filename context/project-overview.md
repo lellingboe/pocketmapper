@@ -30,7 +30,9 @@ dump) as `--job_file`; nothing in `results_dir` supplies entries or cache dirs.
   `unknown_ids.json`/`incorrect_mapping.json` go beside it).
 - **Each step skips what it cannot use and logs it** into `failed_entries.json` (reasons in the
   `entries.failed_entry` callers). Only fetch_structures downloads entry structures; align, pockets
-  and superpose skip a missing one as `structure_not_found` (`entries.split_missing_structures`).
+  and superpose skip a missing one as `structure_not_found` (`entries.split_missing_structures`)
+  unless `fetch_missing` is 1 (`steps.fetch_structures.fetch_missing_entries`; align also a bundled
+  DB). search never sets it: `fetch_missing` is a step-only job key.
   pockets lists such an entry `null`. No step rewrites its inputs, so every step is idempotent on
   rerun. `QTRecord` has no `success` flag.
 - **Each failure warns once per run.** Every step re-parses, so the same rejection or missing

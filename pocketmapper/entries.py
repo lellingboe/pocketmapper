@@ -204,7 +204,7 @@ def split_missing_structures(records, step, source, failed_entries_path, log_ext
     Set aside the records whose structure, or Foldseek database, is not on disk.
 
     Reports them through `report_failures` as `structure_not_found`, with a hint to run
-    fetch_structures unless running inside search, which already has.
+    fetch_structures (or pass --fetch_missing 1) unless running inside search, which already has.
 
     Args:
         records (list): One side's QTRecord dicts.
@@ -223,7 +223,7 @@ def split_missing_structures(records, step, source, failed_entries_path, log_ext
             kept.append(record)
         else:
             failures.append(failed_entry(record["pocket_id"], step, "structure_not_found", source, record))
-    hint = "" if outer_command() == "search" else "; run fetch_structures first"
+    hint = "" if outer_command() == "search" else "; run fetch_structures first, or pass --fetch_missing 1"
     report_failures(failed_entries_path, failures, log_extra, f"No structure on disk, skipping{hint}")
     return kept
 

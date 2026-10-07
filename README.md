@@ -175,8 +175,9 @@ pocketmapper superpose --job_file ./out/parse_settings.json
   shares a cache by taking them from the same job file. Entries, entries files and relative paths
   resolve against `--work_dir`, which the settings record absolute, so the commands after `parse`
   can run from any working directory.
-- **Only `fetch_structures` downloads the entries' structures.** `align`, `pockets` and `superpose`
-  skip an entry whose structure is not in the cache, listing it as `structure_not_found`. `pockets`
+- **Only `fetch_structures` downloads the entries' structures**, unless asked. `align`, `pockets` and
+  `superpose` skip an entry whose structure is not in the cache, listing it as `structure_not_found`;
+  with `--fetch_missing 1` they download it instead (and `align` a missing bundled database). `pockets`
   downloads PISA interfaces and, against the `pdb` database, its hits' structures, which only it needs.
 - **`compare` stops if `alignment.tsv` names a chain `pockets.json` does not list**, rather than
   silently returning no rows for it — say an entry's local file changed between `align` and
@@ -201,10 +202,10 @@ they mean what they do for `search`.
 | --- | --- |
 | `parse` | `QUERY`, `TARGET` (or from the job file), `--query_pocket_method`, `--target_pocket_method`, the [cache options](#cache-options) |
 | `fetch_structures` | `--threads`, the [temp options](#temp-options) |
-| `align` | As `fetch_structures`, plus `--aligner` and `--alignment_path` |
-| `pockets` | `--alignment`, `--pockets_path`, `--pisa_source` |
+| `align` | As `fetch_structures`, plus `--aligner`, `--alignment_path` and `--fetch_missing` |
+| `pockets` | `--alignment`, `--pockets_path`, `--pisa_source`, `--fetch_missing` |
 | `compare` | `--alignment`, `--pockets`, `--pocket_comparison_path` |
-| `superpose` | `--pocket_comparison`, `--alignment`, `--pockets`, the [aligned structure options](#aligned-structure-options), `--aligned_structure_dir`, `--threads` |
+| `superpose` | `--pocket_comparison`, `--alignment`, `--pockets`, the [aligned structure options](#aligned-structure-options), `--aligned_structure_dir`, `--threads`, `--fetch_missing` |
 
 Each step writes the settings it ran with to `<results_dir>/<command>_settings.json` (move it with
 `--job_settings_path`), a job file any later step takes; `search` writes only `job_settings.json`. See

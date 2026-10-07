@@ -20,8 +20,10 @@ from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_foldseek
 from pocketmapper.settings import require_setting
 from pocketmapper.settings import resolve_align_struct_method
+from pocketmapper.settings import resolve_fetch_missing
 from pocketmapper.settings import resolve_paths
 from pocketmapper.settings import resolve_threads
+from pocketmapper.steps.fetch_structures import fetch_missing_entries
 from pocketmapper.steps.parse import parse_job_entries
 from pocketmapper.structure_aligner import StructureAligner
 
@@ -49,6 +51,7 @@ def superpose(
     align_struct_method=None,
     align_count=None,
     threads=None,
+    fetch_missing=None,
 ):
     """
     Superpose the top targets of each query onto it, one PDB per query.
@@ -89,6 +92,8 @@ def superpose(
         align_count (int, optional): Most targets to superpose onto each query; 0 disables.
             Defaults to DEFAULT_ALIGN_COUNT.
         threads (int, optional): Defaults to one per available core.
+        fetch_missing (int, optional): 1 downloads an entry structure missing from the cache, 0 skips
+            the entry as `structure_not_found`. Defaults to DEFAULT_FETCH_MISSING.
 
     Returns:
         None
@@ -119,6 +124,7 @@ def superpose(
             "align_struct_method": align_struct_method,
             "align_count": align_count,
             "threads": threads,
+            "fetch_missing": fetch_missing,
         },
     )
     for key in ("query", "target", "results_dir"):
@@ -138,7 +144,10 @@ def superpose(
             return
         aligner = "seq" if transforms.iloc[0] == "-" else "foldseek"
         align_struct_method = resolve_align_struct_method(values["align_struct_method"], aligner)
+        fetch_missing = resolve_fetch_missing(values["fetch_missing"])
         sides = parse_job_entries(values, "superpose")
+        if fetch_missing:
+            fetch_missing_entries(sides)
         if fsdb_record(sides["target"]) is not None:
             check_fsdb_align_struct_method(align_struct_method)
             require_foldseek("Rebuilding the target structures out of the Foldseek database needs foldseek")

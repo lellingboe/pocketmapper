@@ -27,10 +27,12 @@ from pocketmapper.constants import DEFAULT_ALIGN_STRUCT_METHOD
 from pocketmapper.constants import DEFAULT_ALIGNER
 from pocketmapper.constants import DEFAULT_CACHE_DIR
 from pocketmapper.constants import DEFAULT_DELETE_TMP
+from pocketmapper.constants import DEFAULT_FETCH_MISSING
 from pocketmapper.constants import DEFAULT_PISA_SOURCE
 from pocketmapper.constants import DEFAULT_POCKET_METHOD
 from pocketmapper.constants import DEFAULT_VERBOSITY
 from pocketmapper.constants import DELETE_TMP_VALUES
+from pocketmapper.constants import FETCH_MISSING_VALUES
 from pocketmapper.constants import FOLDSEEK_INSTALL_HINT
 from pocketmapper.constants import PISA_SOURCES
 from pocketmapper.exceptions import PocketMapperError
@@ -87,7 +89,7 @@ class Settings:
 
 # What a job file may hold, in Settings order: every Settings field, plus the options only some steps
 # take. `layer_settings` seeds every key.
-STEP_ONLY_KEYS = ()
+STEP_ONLY_KEYS = ("fetch_missing",)
 JOB_KEYS = tuple(field.name for field in fields(Settings)) + STEP_ONLY_KEYS
 
 # Job keys no longer accepted -> what replaced them, for the error a stale job file gets
@@ -107,6 +109,7 @@ SETTING_DEFAULTS = {
     "target_pocket_method": DEFAULT_POCKET_METHOD,
     "delete_tmp": DEFAULT_DELETE_TMP,
     "pisa_source": DEFAULT_PISA_SOURCE,
+    "fetch_missing": DEFAULT_FETCH_MISSING,
 }
 
 # Path setting -> its default, relative to cache_dir
@@ -522,6 +525,31 @@ def resolve_delete_tmp(delete_tmp):
         raise PocketMapperError(msg)
 
     return delete_tmp
+
+
+def resolve_fetch_missing(fetch_missing):
+    """
+    Validate the `fetch_missing` setting.
+
+    Args:
+        fetch_missing (int): 1 to download an entry structure missing from the cache, 0 to skip the
+            entry.
+
+    Returns:
+        int: The value, unchanged.
+
+    Raises:
+        PocketMapperError: If the value is not one of FETCH_MISSING_VALUES, including a bool.
+    """
+    log_extra = {"stage": "Configuring Settings"}
+
+    # A job file can hold any JSON value, and True == 1
+    if isinstance(fetch_missing, bool) or fetch_missing not in FETCH_MISSING_VALUES:
+        msg = f"fetch_missing must be 1 or 0, got {fetch_missing!r}."
+        logger.critical(msg, extra=log_extra)
+        raise PocketMapperError(msg)
+
+    return fetch_missing
 
 
 def resolve_pisa_source(pisa_source):

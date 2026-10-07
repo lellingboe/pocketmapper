@@ -34,8 +34,10 @@ from pocketmapper.settings import dump_settings
 from pocketmapper.settings import input_path
 from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_setting
+from pocketmapper.settings import resolve_fetch_missing
 from pocketmapper.settings import resolve_paths
 from pocketmapper.settings import resolve_pisa_source
+from pocketmapper.steps.fetch_structures import fetch_missing_entries
 from pocketmapper.steps.fetch_structures import fetch_missing_structures
 from pocketmapper.steps.parse import parse_job_entries
 
@@ -59,6 +61,7 @@ def pockets(
     alignment=None,
     pockets_path=None,
     pisa_source=None,
+    fetch_missing=None,
 ):
     """
     Build the pocket of every query and target entry into one pockets file.
@@ -90,6 +93,8 @@ def pockets(
             Defaults to the job file's alignment_path, else <results_dir>/alignment.tsv.
         pockets_path (str, optional): Defaults to <results_dir>/pockets.json.
         pisa_source (str, optional): "ftp" or "api". Defaults to DEFAULT_PISA_SOURCE.
+        fetch_missing (int, optional): 1 downloads an entry structure missing from the cache, 0 skips
+            the entry as `structure_not_found`. Defaults to DEFAULT_FETCH_MISSING.
 
     Returns:
         None
@@ -116,6 +121,7 @@ def pockets(
             "fsdb_dir": fsdb_dir,
             "pockets_path": pockets_path,
             "pisa_source": pisa_source,
+            "fetch_missing": fetch_missing,
         },
     )
     for key in ("query", "target", "results_dir"):
@@ -125,7 +131,10 @@ def pockets(
         if outermost:
             dump_settings(values)
         pisa_source = resolve_pisa_source(values["pisa_source"])
+        fetch_missing = resolve_fetch_missing(values["fetch_missing"])
         sides = parse_job_entries(values, "pockets")
+        if fetch_missing:
+            fetch_missing_entries(sides)
         build_pockets(
             sides,
             {"query": values["query"], "target": values["target"]},

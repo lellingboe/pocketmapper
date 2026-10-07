@@ -28,8 +28,11 @@ from pocketmapper.settings import require_foldseek
 from pocketmapper.settings import require_setting
 from pocketmapper.settings import resolve_aligner
 from pocketmapper.settings import resolve_delete_tmp
+from pocketmapper.settings import resolve_fetch_missing
 from pocketmapper.settings import resolve_paths
 from pocketmapper.settings import resolve_threads
+from pocketmapper.steps.fetch_structures import fetch_missing_entries
+from pocketmapper.steps.fetch_structures import fetch_missing_fsdb
 from pocketmapper.steps.parse import parse_job_entries
 from pocketmapper.structure_preprocessor import StructurePreprocessor
 
@@ -53,6 +56,7 @@ def align(
     alignment_path=None,
     aligner=None,
     threads=None,
+    fetch_missing=None,
     temp_dir=None,
     delete_tmp=None,
 ):
@@ -84,6 +88,9 @@ def align(
         alignment_path (str, optional): Defaults to <results_dir>/alignment.tsv.
         aligner (str, optional): "foldseek" or "seq". Defaults to DEFAULT_ALIGNER.
         threads (int, optional): Defaults to one per available core.
+        fetch_missing (int, optional): 1 downloads an entry structure or bundled Foldseek database
+            missing from the cache, 0 skips the entry as `structure_not_found`. Defaults to
+            DEFAULT_FETCH_MISSING.
         temp_dir (str, optional): Defaults to <results_dir>/tmp.
         delete_tmp (int, optional): 1 deletes `temp_dir` at the end; 0 keeps it. Defaults to
             DEFAULT_DELETE_TMP.
@@ -115,6 +122,7 @@ def align(
             "alignment_path": alignment_path,
             "aligner": aligner,
             "threads": threads,
+            "fetch_missing": fetch_missing,
             "temp_dir": temp_dir,
             "delete_tmp": delete_tmp,
         },
@@ -136,9 +144,15 @@ def align(
             )
         threads = resolve_threads(values["threads"])
         delete_tmp = resolve_delete_tmp(values["delete_tmp"])
+        fetch_missing = resolve_fetch_missing(values["fetch_missing"])
 
         roots = [values["cache_dir"], values["results_dir"]]
         with temp_dir_scope(values["temp_dir"], delete_tmp, roots):
+            database = fsdb_record(sides["target"])
+            if fetch_missing:
+                fetch_missing_entries(sides)
+                if database is not None:
+                    fetch_missing_fsdb(database, threads, os.path.join(values["temp_dir"], "foldseek_tmp"))
             align_chains(
                 sides,
                 {"query": values["query"], "target": values["target"]},

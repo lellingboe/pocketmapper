@@ -170,6 +170,25 @@ def fetch_inputs(sides, sources, failed_entries_path, threads, temp_dir):
             raise PocketMapperError(f"Insufficient {name} structures after fetching. No valid {name} entries remain.")
 
 
+def fetch_missing_entries(sides):
+    """
+    Download the structure of every record whose structure is not yet on disk.
+
+    Nothing is reported for a structure that cannot be fetched: the caller skips what is still
+    missing. Foldseek databases are left alone.
+
+    Args:
+        sides (dict): Side name, e.g. "query" -> that side's QTRecord dicts.
+
+    Returns:
+        None
+    """
+    for name, records in sides.items():
+        structure_records = [record for record in records if record["struct_type"] != "foldseek_db"]
+        if structure_records:
+            fetch_missing_structures(name, structure_records)
+
+
 def fetch_missing_structures(name, records):
     """
     Download the reference structures a list of records needs.

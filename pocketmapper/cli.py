@@ -32,6 +32,7 @@ from pocketmapper.constants import DEFAULT_ALIGN_STRUCT_METHOD
 from pocketmapper.constants import DEFAULT_ALIGNER
 from pocketmapper.constants import DEFAULT_CACHE_DIR
 from pocketmapper.constants import DEFAULT_DELETE_TMP
+from pocketmapper.constants import DEFAULT_FETCH_MISSING
 from pocketmapper.constants import DEFAULT_PISA_SOURCE
 from pocketmapper.constants import DEFAULT_POCKET_METHOD
 from pocketmapper.constants import DEFAULT_VERBOSITY
@@ -296,6 +297,16 @@ OPTIONS = {
             help=f"1 deletes --temp_dir at the end; 0 keeps it. (default: {DEFAULT_DELETE_TMP})",
         ),
     ),
+    "fetch_missing": (
+        ["--fetch_missing"],
+        dict(
+            type=int,
+            default=None,
+            metavar="INT",
+            help="1 downloads an entry structure missing from the cache; 0 skips the entry, as fetch_structures "
+            f"has not fetched it. (default: {DEFAULT_FETCH_MISSING})",
+        ),
+    ),
     "pisa_source": (
         ["--pisa_source"],
         dict(
@@ -366,7 +377,7 @@ COMMANDS = {
     "align": (
         "Align the query chains against the target chains.",
         [
-            (None, ["job_file", "verbosity", "aligner", "threads"]),
+            (None, ["job_file", "verbosity", "aligner", "threads", "fetch_missing"]),
             ("in options", ["work_dir"]),
             (
                 "cache options",
@@ -395,7 +406,7 @@ COMMANDS = {
     "pockets": (
         "Build the pocket of every query and target entry.",
         [
-            (None, ["job_file", "verbosity"]),
+            (None, ["job_file", "verbosity", "fetch_missing"]),
             ("in options", ["work_dir", "alignment"]),
             (
                 "cache options",
@@ -452,7 +463,7 @@ COMMANDS = {
     "superpose": (
         "Superpose the top targets of each query onto it.",
         [
-            (None, ["job_file", "verbosity", "threads"]),
+            (None, ["job_file", "verbosity", "threads", "fetch_missing"]),
             ("in options", ["work_dir", "pocket_comparison", "alignment", "pockets"]),
             ("aligned structure options", ["align_count", "align_struct_method"]),
             (
