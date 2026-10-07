@@ -155,23 +155,34 @@ BUNDLED_HUMAN_DOMAINS_OFFSET_TABLE = bundled_human_domains_path("offset_table.ts
 
 def bundled_foldseek_dbs(fsdb_dir):
     """
-    The Foldseek database names accepted in place of a structure, mapped to what is known about each.
+    The Foldseek database names accepted in place of a structure, mapped to where each lives.
 
     Args:
         fsdb_dir (str): Cache directory for downloaded Foldseek databases, where `pdb` is placed.
             `human_domains` ships inside the package.
 
     Returns:
-        dict: DB name -> {"db_path": path to the database, "offset_path": path to the UniProt offset
-            table shipped beside it, or None for a database that ships none}.
+        dict: DB name -> path to the database.
     """
     return {
-        "human_domains": {
-            "db_path": BUNDLED_HUMAN_DOMAINS_DB,
-            "offset_path": BUNDLED_HUMAN_DOMAINS_OFFSET_TABLE,
-        },
-        "pdb": {
-            "db_path": os.path.join(fsdb_dir, "pdb"),
-            "offset_path": None,  # PDB hits carry real author ids; nothing to renumber
-        },
+        "human_domains": BUNDLED_HUMAN_DOMAINS_DB,
+        "pdb": os.path.join(fsdb_dir, "pdb"),
     }
+
+
+def bundled_offset_table(db_path):
+    """
+    The UniProt offset table shipped beside a Foldseek database, if it ships one.
+
+    Only `human_domains` does; PDB hits carry real author ids, so there is nothing to renumber. Its
+    path does not depend on `fsdb_dir`, since it ships inside the package.
+
+    Args:
+        db_path (str): Path to the database. Matched once resolved, so a relative path, a symlink and
+            the bundled name's path give the same answer.
+
+    Returns:
+        str: Path to the offset table, or None for a database that ships none.
+    """
+    offset_tables = {os.path.realpath(BUNDLED_HUMAN_DOMAINS_DB): BUNDLED_HUMAN_DOMAINS_OFFSET_TABLE}
+    return offset_tables.get(os.path.realpath(db_path))

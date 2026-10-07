@@ -30,6 +30,26 @@ CACHE_MANIFEST_KEYS = (
 )
 
 
+def require_file(path, what):
+    """
+    Check that a file a step reads exists.
+
+    Args:
+        path (str): The file.
+        what (str): What the file holds, for the error message, e.g. "alignment".
+
+    Returns:
+        None
+
+    Raises:
+        PocketMapperError: If there is no file at `path`.
+    """
+    if not os.path.isfile(path):
+        msg = f"No {what} file at {path}"
+        logger.critical(msg)
+        raise PocketMapperError(msg)
+
+
 def read_json(path, what):
     """
     Read a JSON file a step needs as input.
@@ -44,10 +64,7 @@ def read_json(path, what):
     Raises:
         PocketMapperError: If the file is missing or is not JSON.
     """
-    if not os.path.isfile(path):
-        msg = f"No {what} file at {path}"
-        logger.critical(msg)
-        raise PocketMapperError(msg)
+    require_file(path, what)
     try:
         with open(path) as f:
             return json.load(f)
@@ -211,6 +228,23 @@ def append_failed_entries(path, entries):
     existing = read_json(path, "failed entries") if os.path.isfile(path) else []
     write_json(existing + list(entries), path)
     logger.info(f"{len(entries)} entries dropped; see {path}")
+
+
+def unique_by(records, *fields):
+    """
+    Keep the first record for each distinct combination of some fields.
+
+    Args:
+        records (list): QTRecord dicts.
+        *fields (str): The fields to tell records apart by.
+
+    Returns:
+        list: The first record carrying each combination, in record order.
+    """
+    unique = {}
+    for record in records:
+        unique.setdefault(tuple(record[field] for field in fields), record)
+    return list(unique.values())
 
 
 def fsdb_record(target_records):

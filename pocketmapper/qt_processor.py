@@ -206,12 +206,11 @@ class QTProcessor:
         """
         # Foldseek databases have a special format and are treated differently
         if qt in self.bundled_foldseek_dbs or pocket_method == "foldseek_db":
-            db = self.bundled_foldseek_dbs.get(qt)
             record = QTRecord(
                 pocket_id=qt,
                 struct_info=qt,
                 struct_type="foldseek_db",
-                struct_path=db["db_path"] if db else os.path.abspath(qt),  # Bundled path if available
+                struct_path=self.bundled_foldseek_dbs.get(qt) or os.path.abspath(qt),  # Bundled path if available
             )
             return record, None
 
