@@ -165,12 +165,13 @@ pocketmapper superpose --job_file ./out/parse_settings.json
 | `superpose` | Superposes the top targets onto each query. | the entries, the cache, `pocket_comparison.tsv`, `alignment.tsv`, `pockets.json` (`pdb` database target only) | `aligned_structures/` |
 
 - **Every step parses the entries again**, from the `query`, `target` and pocket methods in its job
-  file, and rejects what `parse` rejects. `fetch_structures` resolves only each entry's structure,
-  ignoring its chain and residue parts. `fetch_structures` and `pockets` also take entries of their
-  own, positionally; their settings dump records them, so `pockets --job_file
-  <results_dir>/fetch_structures_settings.json` builds the pockets of what was fetched. No step reads another's records. So every step after
-  `parse` needs a job file naming the entries: `parse` writes one, `parse_settings.json`, and so does
-  every step run on its own (`<command>_settings.json`), each a valid job file for any later step.
+  file, and rejects what `parse` rejects; `fetch_structures` resolves only each entry's structure,
+  ignoring its chain and residue parts. No step reads another's records, so every step after `parse`
+  needs a job file naming the entries: `parse` writes one, `parse_settings.json`, and so does every
+  step run on its own (`<command>_settings.json`), each a valid job file for any later step.
+- **`fetch_structures` and `pockets` also take entries of their own**, positionally. Their settings
+  record them, so `pockets --job_file <results_dir>/fetch_structures_settings.json` builds the
+  pockets of what was fetched.
 - **Every step but `parse` and `fetch_structures` requires `--results_dir`**, here or in a job file,
   since its inputs default to files in it. Without one, `parse` and `fetch_structures` write no log,
   settings or `failed_entries.json`, only a file whose own path is given (and `fetch_structures` its

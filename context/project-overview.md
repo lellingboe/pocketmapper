@@ -6,14 +6,16 @@ Project implementation specifics. Cross-module and derived facts only. Anything 
 `cli.py` is **the only module that knows about argv or exit codes**. Subcommands: `search` plus one per
 step (`parse`, `fetch_structures`, `align`, `pockets`, `compare`, `superpose`). The steps of `search()` are in the
 `pocketmapper.py` module docstring. Parser details (`OPTIONS` table, per-command `COMMANDS` layout,
-optional query/target positionals for `search` and `parse`, every default None) are documented in
+optional query/target positionals for `search` and `parse`, optional `ENTRY...` for `fetch_structures`
+and `pockets`, every default None) are documented in
 `cli.py`. Every command takes a job file; parsed arguments are layered over it, so an unset option must
 parse to None or it would hide the job file's value.
 
 ### Steps and hand-off files
 
 **No records are handed on.** Every step re-derives its records from the entries in its settings
-(`steps.parse.parse_job_entries` → `parse_entries`), in memory; what steps hand each other is the
+(`steps.parse.parse_job_entries` → `parse_entries`; fetch_structures structure-only, see Input
+grammar), in memory; what steps hand each other is the
 cache and the files below. A chain passes settings explicitly: `parse_settings.json` (or any step's
 dump) as `--job_file`; nothing in `results_dir` supplies entries or cache dirs.
 
@@ -32,9 +34,8 @@ dump) as `--job_file`; nothing in `results_dir` supplies entries or cache dirs.
   `entries.failed_entry` callers). Only fetch_structures downloads entry structures; align, pockets
   and superpose skip a missing one as `structure_not_found` (`entries.split_missing_structures`)
   unless `fetch_missing` is 1 (`steps.fetch_structures.fetch_missing_entries`; align also a bundled
-  DB). search never sets it: `fetch_missing` is a step-only job key.
-  pockets lists such an entry `null`. No step rewrites its inputs, so every step is idempotent on
-  rerun. `QTRecord` has no `success` flag.
+  DB; search never sets this step-only job key). pockets lists a skipped entry `null`. No step
+  rewrites its inputs, so every step is idempotent on rerun. `QTRecord` has no `success` flag.
 - **Each failure warns once per run.** Every step re-parses, so the same rejection or missing
   structure recurs per step. `entries.append_failed_entries` skips a `(pocket_id, reason)` already in
   the file and `entries.report_failures` logs new ones at WARNING, repeats at DEBUG. So
@@ -149,8 +150,9 @@ at this scale; reruns hit the cache. Add a cap here if needed.
 ## Pockets
 
 `PocketFetcher.fetch_pockets` is the entry point; `steps.pockets.build_pockets` calls it on every
-non-`foldseek_db` record and drops, as `pocket_not_built`, any record whose `pocket_id` is missing or
-None in the merged dict (checked after the merge: a later method can overwrite an earlier one with None).
+non-`foldseek_db` record whose structure is on disk, lists every record given in `pockets.json`, and
+reports as `pocket_not_built` any whose `pocket_id` is missing or None in the merged dict, writing it
+`null` (checked after the merge: a later method can overwrite an earlier one with None).
 
 - **`POCKET_BUILDERS` in `pocket_fetcher` is the whole method table.** Builders live beside their
   primitive and all take `(records, pocket_dir)`, plus keyword options the caller passes per method

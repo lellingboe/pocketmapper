@@ -1,9 +1,10 @@
 # Stateless steps
 
 Design draft. Goal: steps stop handing each other record JSONs, and `fetch_structures` and `pockets`
-become useful on their own, outside a stage-by-stage pipeline run. Nothing here is implemented.
+become useful on their own, outside a stage-by-stage pipeline run. Implemented on
+`feat/stateless-steps`; "As built" at the end lists where the code departs from this draft.
 
-## Today
+## Before this change
 
 `parse` turns the query and target inputs into `query_records.json` / `target_records.json` (lists of
 `QTRecord` dicts) and writes `cache_dirs.json`. Every later step reads the records files, and
@@ -331,3 +332,28 @@ Each phase leaves the e2e suite green.
 | Forced struct type | `--struct_type ... foldseek_db` | Same spelling as the record value and pocket method |
 | Structures TSV | `--structures_tsv_path` | Parallels `--pockets_tsv_path`; "manifest" retires with `cache_dirs.json` |
 | `pockets.json` format | `"version": 2`, checked by `load_pockets` | An old file gets a clear error |
+
+## As built
+
+Where the implementation departs from the draft above:
+
+- **`parse_entries`** also takes `step` (named in failure entries) and `failed_entries_path`, and
+  reports its failures itself, before the side checks can raise, so a failed parse still lists them.
+  Its failures come back keyed by side, like the records, which parse's table needs.
+- **`fetch_structures` in job-file mode** also rejects a Foldseek-database query entry, as parse
+  does, so a dump from a failed parse cannot download a database as a query.
+- **`--fetch_missing`**: align fetches missing structures and a missing bundled database; pockets and
+  superpose fetch structures only. Neither needs the database: pockets reads the hits from the
+  alignment, and superpose runs after align has used it.
+- **`pockets.json` v2** is read and written by `pocket_fetcher.read_pockets_file` /
+  `write_pockets_file`, which check the version; `load_pockets`/`dump_pockets` keep the plain mapping
+  of the per-method cache files.
+- **compare and superpose take `--failed_entries_path`**: they parse the entries too, and superpose
+  skips missing structures, so both report into it.
+- **Unknowns resolved**: `temp_dir` without `results_dir` is `<cache_dir>/tmp`; `--work_dir` is in
+  every command's "in options".
+- **Phasing**: steps 1-3 of the build order landed as one commit, since step 2 removed what compare
+  and superpose read until step 3. The phase 2 e2e changes landed with the step that needed them.
+- **e2e**: `test_steps_17` (a chain gives what search gives against a PDB Foldseek database)
+  replaces `test_steps_9`'s Foldseek-step coverage; `test_steps_18`-`_21` cover the standalone
+  commands. The runner passes `--cache_dir` to any command without a job file.
