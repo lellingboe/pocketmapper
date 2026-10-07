@@ -180,7 +180,7 @@ def failed_entry(pocket_id, step, reason, source, record=None, detail=None):
 
     Args:
         pocket_id (str): The entry as typed.
-        step (str): The step that dropped it, e.g. "fetch".
+        step (str): The step that dropped it, e.g. "fetch_structures".
         reason (str): Why, e.g. "structure_not_found".
         source (str): The records file the record came from, or the query/target input it was
             parsed from.

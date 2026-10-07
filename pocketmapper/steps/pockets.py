@@ -19,13 +19,14 @@ from pocketmapper.records import write_records
 logger = logging.getLogger(__name__)
 
 
-def build_pockets(records_paths, pockets_path, failed_entries_path, pocket_dir, pisa_source, download_pisa=True):
+def build_pockets(records_paths, pockets_path, failed_entries_path, pocket_dir, pisa_source):
     """
     Build a Pocket for every record across several records files, and write them to `pockets_path`.
 
     Rewrites each records file in place without the records whose pocket could not be built, and
     adds those to `failed_entries_path` as `pocket_not_built`. Foldseek-database records have no
-    pocket and are kept. Also overwrites the per-method pocket files under `pocket_dir`.
+    pocket and are kept. Downloads any PISA data not already cached under `pocket_dir/pisa/`, and
+    overwrites the per-method pocket files under `pocket_dir`.
 
     Args:
         records_paths (list): The records files, e.g. query then target. Records are built in this
@@ -34,7 +35,6 @@ def build_pockets(records_paths, pockets_path, failed_entries_path, pocket_dir, 
         failed_entries_path (str): The failed-entries file, appended to.
         pocket_dir (str): Pocket cache directory.
         pisa_source (str): Where PISA interfaces are fetched from: "ftp" or "api".
-        download_pisa (bool, optional): False reads only the PISA data already cached. Defaults to True.
 
     Returns:
         None
@@ -49,7 +49,7 @@ def build_pockets(records_paths, pockets_path, failed_entries_path, pocket_dir, 
     pockets = PocketFetcher().fetch_pockets(
         buildable,
         pocket_dir,
-        builder_options={"pisa": {"pisa_source": pisa_source, "download": download_pisa}},
+        builder_options={"pisa": {"pisa_source": pisa_source}},
     )
 
     # Checked on the merged pockets: a later method can overwrite an earlier one's pocket with None

@@ -338,8 +338,8 @@ COMMANDS = {
             ),
         ],
     ),
-    "fetch": (
-        "Download the structures, Foldseek database and PISA interfaces the records need.",
+    "fetch_structures": (
+        "Download the structures and Foldseek database the records need.",
         [
             (None, ["verbosity", "threads"]),
             ("in options", ["query_records", "target_records"]),
@@ -354,7 +354,6 @@ COMMANDS = {
                 ],
             ),
             ("temp options", ["temp_dir", "delete_tmp"]),
-            ("advanced options", ["pisa_source"]),
         ],
     ),
     "align": (
@@ -506,7 +505,7 @@ def cli(argv=None):
     # Command -> the function its options are the parameters of
     dispatch = {
         "parse": commands.parse,
-        "fetch": commands.fetch,
+        "fetch_structures": commands.fetch_structures,
         "align": commands.align,
         "pockets": commands.pockets,
         "compare": commands.compare,

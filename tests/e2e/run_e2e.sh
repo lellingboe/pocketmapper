@@ -45,11 +45,12 @@ FIXTURES_DIR="$SCRIPT_DIR/fixtures"
 #          `same=DIR` = pocket_comparison.tsv and alignment.tsv match, once
 #          sorted, those in the results dir's subdirectory DIR.
 # args     passed to `pocketmapper search` verbatim (word-split on spaces).
-#          Or, when the first word is a command (parse, fetch, align, pockets,
-#          compare, superpose, search), a chain of commands separated by ` ; `,
-#          run in order: every one before the last must succeed, and the last
-#          one's exit status is the run's. A `cd DIR` segment sets the working
-#          directory of the commands after it. Each command gets --verbosity
+#          Or, when the first word is a command (parse, fetch_structures,
+#          align, pockets, compare, superpose, search), a chain of commands
+#          separated by ` ; `, run in order: every one before the last must
+#          succeed, and the last one's exit status is the run's. A `cd DIR`
+#          segment sets the working directory of the commands after it. Each
+#          command gets --verbosity
 #          and, unless it sets them, --results_dir and (parse, search)
 #          --cache_dir.
 #          @PDB_FSDB@ expands to $POCKETMAPPER_PDB_FSDB, @CACHE@ to the shared
@@ -130,18 +131,18 @@ test_settings_7|core settings|rows|Explicit auto pocket method infers as the def
 test_settings_8|core settings|fail|delete_tmp other than 1 or 0 rejected|4Q5J:A_E 4Q5J:B_F --aligner seq --delete_tmp 2
 
 test_steps_1|core local|files=query_records.json,target_records.json,cache_dirs.json,failed_entries.json|parse writes the records files and the cache manifest|parse 4Q5J:A_E 4Q5J:B_F
-test_steps_2|core local|files=query_records.json,target_records.json|fetch after parse|parse 4Q5J:A_E 4Q5J:B_F ; fetch
-test_steps_3|core local|files=alignment.tsv|align after fetch|parse 4Q5J:A_E 4Q5J:B_F ; fetch ; align --aligner seq
-test_steps_4|core local|files=pockets.json|pockets after align|parse 4Q5J:A_E 4Q5J:B_F ; fetch ; align --aligner seq ; pockets @OUT@/query_records.json @OUT@/target_records.json
-test_steps_5|core local|rows|compare after pockets|parse 4Q5J:A_E 4Q5J:B_F ; fetch ; align --aligner seq ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare
-test_steps_6|core local|rows files=aligned_structures|superpose after align --aligner seq, the aligner not restated|parse 4Q5J:A_E 4Q5J:B_F ; fetch ; align --aligner seq ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare ; superpose
-test_steps_7|core|rows same=search|Chained commands give what search gives (PISA batch vs itself)|search pdb_pisa_in.txt pdb_pisa_in.txt --results_dir @OUT@/search ; parse pdb_pisa_in.txt pdb_pisa_in.txt ; fetch ; align ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare ; superpose
-test_steps_8|human_domains|rows same=search|Chained commands give what search gives (mixed batch vs human domains), run from the results dir after parse|search testfile.txt human_domains --results_dir @OUT@/search ; parse testfile.txt human_domains ; cd @OUT@ ; fetch ; align ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare ; superpose
-test_steps_9|needs-pdb-fsdb slow|rows same=rerun|align rerun on its own output against a PDB Foldseek database gives the same rows|parse 4Q5J:B_F @PDB_FSDB@ --target_pocket_method foldseek_db ; fetch ; align ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare ; align --query_records_path @OUT@/rerun/query_records.json --target_records_path @OUT@/rerun/target_records.json --alignment_path @OUT@/rerun/alignment.tsv ; pockets @OUT@/rerun/query_records.json @OUT@/rerun/target_records.json --pockets_path @OUT@/rerun/pockets.json ; compare --query_records @OUT@/rerun/query_records.json --target_records @OUT@/rerun/target_records.json --alignment @OUT@/rerun/alignment.tsv --pockets @OUT@/rerun/pockets.json --pocket_comparison_path @OUT@/rerun/pocket_comparison.tsv
-test_steps_10|core local|fail|compare rejects target records whose pockets were not built|parse 4Q5J:A_E 4Q5J:B_F ; fetch ; align --aligner seq ; pockets @OUT@/query_records.json ; compare
+test_steps_2|core local|files=query_records.json,target_records.json|fetch_structures after parse|parse 4Q5J:A_E 4Q5J:B_F ; fetch_structures
+test_steps_3|core local|files=alignment.tsv|align after fetch_structures|parse 4Q5J:A_E 4Q5J:B_F ; fetch_structures ; align --aligner seq
+test_steps_4|core local|files=pockets.json|pockets after align|parse 4Q5J:A_E 4Q5J:B_F ; fetch_structures ; align --aligner seq ; pockets @OUT@/query_records.json @OUT@/target_records.json
+test_steps_5|core local|rows|compare after pockets|parse 4Q5J:A_E 4Q5J:B_F ; fetch_structures ; align --aligner seq ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare
+test_steps_6|core local|rows files=aligned_structures|superpose after align --aligner seq, the aligner not restated|parse 4Q5J:A_E 4Q5J:B_F ; fetch_structures ; align --aligner seq ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare ; superpose
+test_steps_7|core|rows same=search|Chained commands give what search gives (PISA batch vs itself)|search pdb_pisa_in.txt pdb_pisa_in.txt --results_dir @OUT@/search ; parse pdb_pisa_in.txt pdb_pisa_in.txt ; fetch_structures ; align ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare ; superpose
+test_steps_8|human_domains|rows same=search|Chained commands give what search gives (mixed batch vs human domains), run from the results dir after parse|search testfile.txt human_domains --results_dir @OUT@/search ; parse testfile.txt human_domains ; cd @OUT@ ; fetch_structures ; align ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare ; superpose
+test_steps_9|needs-pdb-fsdb slow|rows same=rerun|align rerun on its own output against a PDB Foldseek database gives the same rows|parse 4Q5J:B_F @PDB_FSDB@ --target_pocket_method foldseek_db ; fetch_structures ; align ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare ; align --query_records_path @OUT@/rerun/query_records.json --target_records_path @OUT@/rerun/target_records.json --alignment_path @OUT@/rerun/alignment.tsv ; pockets @OUT@/rerun/query_records.json @OUT@/rerun/target_records.json --pockets_path @OUT@/rerun/pockets.json ; compare --query_records @OUT@/rerun/query_records.json --target_records @OUT@/rerun/target_records.json --alignment @OUT@/rerun/alignment.tsv --pockets @OUT@/rerun/pockets.json --pocket_comparison_path @OUT@/rerun/pocket_comparison.tsv
+test_steps_10|core local|fail|compare rejects target records whose pockets were not built|parse 4Q5J:A_E 4Q5J:B_F ; fetch_structures ; align --aligner seq ; pockets @OUT@/query_records.json ; compare
 test_steps_11|core local|fail|parse rejects a Foldseek database beside a structure target|parse 4Q5J:A_E fsdb_mixed_target.txt
 test_steps_12|core local|fail failed=invalid_entry@human_domains|parse rejects a Foldseek database query|parse human_domains 4Q5J:B_F
-test_steps_13|human_domains|fail|compare rejects a Foldseek database target file align never rewrote|parse 4Q5J:B_F human_domains ; fetch ; align --target_records_path @OUT@/aligned_targets.json ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare
+test_steps_13|human_domains|fail|compare rejects a Foldseek database target file align never rewrote|parse 4Q5J:B_F human_domains ; fetch_structures ; align --target_records_path @OUT@/aligned_targets.json ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare
 EOF
 
 # ---------------------------------------------------------------------------
@@ -269,7 +270,7 @@ has_tag() {
     return 1
 }
 
-COMMANDS="parse fetch align pockets compare superpose search"
+COMMANDS="parse fetch_structures align pockets compare superpose search"
 
 is_command() {
     for c in $COMMANDS; do [ "$c" = "$1" ] && return 0; done

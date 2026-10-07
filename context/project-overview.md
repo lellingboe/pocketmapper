@@ -4,7 +4,7 @@ Project implementation specifics. Cross-module and derived facts only. Anything 
 ## Pipeline
 
 `cli.py` is **the only module that knows about argv or exit codes**. Subcommands: `search` plus one per
-step (`parse`, `fetch`, `align`, `pockets`, `compare`, `superpose`). The steps of `search()` are in the
+step (`parse`, `fetch_structures`, `align`, `pockets`, `compare`, `superpose`). The steps of `search()` are in the
 `pocketmapper.py` module docstring. Parser details (`OPTIONS` table, per-command `COMMANDS` layout,
 optional query/target positionals for `search`, defaults from `constants`) are documented in `cli.py`.
 The job file (search only) is layered on top of parsed arguments, so nothing distinguishes a default
@@ -18,11 +18,12 @@ from a typed value.
   calls the same steps through the same files, so chained commands == `search` by construction.
 - **Hand-off files** (`records.py` reads/writes them): `query_records.json` / `target_records.json`
   (JSON list of `QTRecord` dicts, JSON to keep None/bools), `cache_dirs.json` (absolute cache dirs;
-  written by parse and search, read by fetch, align, pockets, which take no cache options),
-  `failed_entries.json` (truncated by parse/search, appended by fetch/align/pockets), `alignment.tsv`,
+  written by parse and search, read by fetch_structures, align, pockets, which take no cache options),
+  `failed_entries.json` (truncated by parse/search, appended by fetch_structures/align/pockets),
+  `alignment.tsv`,
   `pockets.json` (`dump_pockets`/`load_pockets`), `pocket_comparison.tsv` (compare's
   `unknown_ids.json`/`incorrect_mapping.json` go beside it).
-- **A records file holds only usable records.** fetch, align and pockets drop the records they fail
+- **A records file holds only usable records.** fetch_structures, align and pockets drop the records they fail
   into `failed_entries.json` (reasons in the `records.failed_entry` callers). No step filters on a
   `success` flag; `QTRecord` has none.
 - **The target side's shape replaces the old `self.` flags.** A `foldseek_db` record, always the only
@@ -33,8 +34,9 @@ from a typed value.
   entry, so it reruns on its own output.
 - **Record paths are absolute**: parse passes absolute cache dirs to `QTProcessor`, which also
   `abspath`s a local file and a user FSDB. `pocket_id`/`struct_info` stay as typed.
-- `--pisa_source` is not in the manifest; it is per command. Search's pockets step passes
-  `download=False` to `pisa_pockets`: fetch already tried every entry and PISA caches only successes.
+- `--pisa_source` is not in the manifest; it is per command (align, pockets). fetch_structures fetches
+  no PISA: the pockets step downloads it, so a pisa record whose PISA fails is aligned, then dropped
+  as `pocket_not_built`. align fetches PISA only for a PDB-named DB's hits.
 
 ### Input grammar
 
@@ -118,11 +120,11 @@ None in the merged dict (checked after the merge: a later method can overwrite a
 
 - **`POCKET_BUILDERS` in `pocket_fetcher` is the whole method table.** Builders live beside their
   primitive and all take `(records, pocket_dir)`, plus keyword options the caller passes per method
-  through `fetch_pockets(builder_options=...)` (pisa's `pisa_source` and `download` today). A new method =
+  through `fetch_pockets(builder_options=...)` (pisa's `pisa_source` today). A new method =
   one row + one builder.
 - Records are dicts, not DataFrames. The fetcher builds every record it is given.
 - **`expand_fsdb_pdb_targets` lives in `steps/align.py`, not in `pockets/`** (it builds records and
-  downloads). It shares `pocket_dir/pisa/` with fetch and `pisa_pockets`; all go through
+  downloads). It shares `pocket_dir/pisa/` with `pisa_pockets`; both go through
   `pockets.pisa.pisa_cache_layout`, the one place the cache layout is spelled out.
 
 ## Downloads
@@ -228,10 +230,10 @@ directory is made up front (the file handler opens at once). Pipeline-side write
 path must make its directory, or a path option pointed elsewhere fails.
 
 **`temp_dir` is one option, three dirs** (`query_structures/`, `target_structures/`, `foldseek_tmp/`),
-named in `steps/align.py` (all three) and `steps/fetch.py` (`foldseek_tmp/`, for a DB download). The two
+named in `steps/align.py` (all three) and `steps/fetch_structures.py` (`foldseek_tmp/`, for a DB download). The two
 structure dirs are made in `foldseek_preprocessing`, `foldseek_tmp/` before each Foldseek call that uses
 it (MMseqs2 makes only one level of tmp dir), so a `seq` run makes none. `temp_dir` is emptied on entry
-(`lib.empty_temp_dir`; search, fetch, align) so reruns can't feed `createdb` stale structures; emptying is
+(`lib.empty_temp_dir`; search, fetch_structures, align) so reruns can't feed `createdb` stale structures; emptying is
 `lib.is_within`-guarded against `cache_dir` and `results_dir`, creation is not. It runs after the log is
 open so the skip warning reaches `info.log`. `lib.delete_temp_dir` does nothing if it was never made.
 
@@ -273,7 +275,7 @@ classifiers, `[tool.black] target-version`, README Installation; CI `compat` mat
   `StructureDownloader` uses each record's `struct_path` and `lib_download`'s `.part`.
 - **`StructureDownloader` makes a destination's parent directory** just before downloading into it;
   one it cannot make surfaces as `structure_not_found`.
-- **e2e cases can chain commands** (`parse ... ; fetch ; cd DIR ; ...`) and assert `files=`, `failed=`,
+- **e2e cases can chain commands** (`parse ... ; fetch_structures ; cd DIR ; ...`) and assert `files=`, `failed=`,
   `same=`; format in the `run_e2e.sh` header. `test_steps_9` needs `POCKETMAPPER_PDB_FSDB`: any
   Foldseek DB of `<pdb>-assembly<N>.cif.gz` files (`createdb`) has PDB-style entry names, so a few
   cached mmCIFs make a small local one.
@@ -294,6 +296,6 @@ classifiers, `[tool.black] target-version`, README Installation; CI `compat` mat
 - `search(job_file=...)` needs no query/target if the file sets them; both ways is rejected.
 - **`search()` side effects**: logger level + `info.log` handler for the call; empties `temp_dir` on
   entry and `rmtree`s it at the end unless `delete_tmp=0`. Both guarded by `lib.is_within` (under
-  `cache_dir` or `results_dir`) — a safety net, not a licence. `fetch` and `align` do the same with
+  `cache_dir` or `results_dir`) — a safety net, not a licence. `fetch_structures` and `align` do the same with
   their own `temp_dir`.
 - Returns only resolved `Settings` as a dict; results are in `pocket_comparison.tsv` / `alignment.tsv`.

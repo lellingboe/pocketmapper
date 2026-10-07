@@ -1,15 +1,16 @@
 """
-One function per pipeline step, each runnable on its own: `parse`, `fetch`, `align`, `pockets`,
-`compare` and `superpose`. Run in that order in one `results_dir`, they do what
+One function per pipeline step, each runnable on its own: `parse`, `fetch_structures`, `align`,
+`pockets`, `compare` and `superpose`. Run in that order in one `results_dir`, they do what
 `PocketMapper.search` does.
 
 Each command resolves its path defaults under `results_dir`, logs to `log_path` for the length of
 the call, validates its settings, manages its scratch directory and calls its step in
-`pocketmapper.steps`. A command reads only files: the previous step's outputs and, for `fetch`,
-`align` and `pockets`, the cache manifest `parse` wrote, so a chain cannot split its cache.
+`pocketmapper.steps`. A command reads only files: the previous step's outputs and, for
+`fetch_structures`, `align` and `pockets`, the cache manifest `parse` wrote, so a chain cannot split
+its cache.
 
 Defaults: an input defaults to the standard file under `results_dir`, and an output that rewrites
-an input (`fetch` and `align` records) defaults to that input's path.
+an input (`fetch_structures` and `align` records) defaults to that input's path.
 """
 
 import logging
@@ -47,7 +48,7 @@ from pocketmapper.settings import resolve_threads
 from pocketmapper.settings import results_path
 from pocketmapper.steps.align import align_chains
 from pocketmapper.steps.compare import compare_aligned_pockets
-from pocketmapper.steps.fetch import fetch_inputs
+from pocketmapper.steps.fetch_structures import fetch_inputs
 from pocketmapper.steps.parse import parse_inputs
 from pocketmapper.steps.pockets import build_pockets
 from pocketmapper.steps.superpose import superpose_top_targets
@@ -154,7 +155,7 @@ def parse(
         )
 
 
-def fetch(
+def fetch_structures(
     results_dir,
     verbosity=DEFAULT_VERBOSITY,
     log_path=None,
@@ -163,13 +164,12 @@ def fetch(
     target_records=None,
     query_records_path=None,
     target_records_path=None,
-    pisa_source=DEFAULT_PISA_SOURCE,
     threads=None,
     temp_dir=None,
     delete_tmp=DEFAULT_DELETE_TMP,
 ):
     """
-    Download the structures, Foldseek database and PISA interfaces the records need.
+    Download the structures and Foldseek database the records need.
 
     Reads the cache directories from `results_dir`'s cache manifest. Drops the records whose
     structure cannot be fetched, adding them to `failed_entries_path`. Empties `temp_dir` on the way
@@ -185,7 +185,6 @@ def fetch(
         query_records_path (str, optional): Where the query records left are written. Defaults to
             `query_records`.
         target_records_path (str, optional): As `query_records_path`. Defaults to `target_records`.
-        pisa_source (str, optional): "ftp" or "api". Defaults to DEFAULT_PISA_SOURCE.
         threads (int, optional): Defaults to one per available core.
         temp_dir (str, optional): Defaults to <results_dir>/tmp.
         delete_tmp (int, optional): 1 deletes `temp_dir` at the end; 0 keeps it. Defaults to
@@ -205,7 +204,6 @@ def fetch(
         cache_dirs = read_cache_manifest(results_dir)
         threads = resolve_threads(threads)
         delete_tmp = resolve_delete_tmp(delete_tmp)
-        pisa_source = resolve_pisa_source(pisa_source)
 
         roots = [cache_dirs["cache_dir"], results_dir]
         empty_temp_dir(temp_dir, roots)
@@ -215,8 +213,6 @@ def fetch(
             query_records_path or query_records,
             target_records_path or target_records,
             results_path(results_dir, "failed_entries_path", failed_entries_path),
-            cache_dirs["pocket_dir"],
-            pisa_source,
             threads,
             temp_dir,
         )

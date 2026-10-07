@@ -201,11 +201,11 @@ def download_pisa_interfaces(pdb_list, pocket_dir, pisa_source):
     return layout["interface_dir"]
 
 
-def pisa_pockets(records, pocket_dir, pisa_source=DEFAULT_PISA_SOURCE, download=True):
+def pisa_pockets(records, pocket_dir, pisa_source=DEFAULT_PISA_SOURCE):
     """
     Build a Pocket per record from the PDBe PISA interface it names, with coordinates from its structure.
 
-    Unless `download` is False, downloads any PISA files not already cached under `pocket_dir/pisa/`.
+    Downloads any PISA files not already cached under `pocket_dir/pisa/`.
     With the "api" source that is one paced request per assembly, so an uncached list can take a long
     time. When any entry fails, `pisa/errors.json` is overwritten with the failures.
 
@@ -214,7 +214,6 @@ def pisa_pockets(records, pocket_dir, pisa_source=DEFAULT_PISA_SOURCE, download=
         pocket_dir (str): Pocket cache directory.
         pisa_source (str): Where assembly interfaces are fetched from: "ftp" or "api".
             Defaults to DEFAULT_PISA_SOURCE.
-        download (bool): False reads only what is already cached. Defaults to True.
 
     Returns:
         dict: pocket_id -> Pocket. A record whose interface cannot be resolved is skipped with a
@@ -224,10 +223,7 @@ def pisa_pockets(records, pocket_dir, pisa_source=DEFAULT_PISA_SOURCE, download=
 
     pdb_list = list(dict.fromkeys(record["struct_info"] for record in records))
     logger.debug(f"PDBs for which to retrieve PISA pockets: {pdb_list}", extra=log_extra)
-    if download:
-        interface_dir = download_pisa_interfaces(pdb_list, pocket_dir, pisa_source)
-    else:
-        interface_dir = pisa_cache_layout(pocket_dir)["interface_dir"]
+    interface_dir = download_pisa_interfaces(pdb_list, pocket_dir, pisa_source)
 
     pockets = PisaParser().get_pockets_from_records(records=records, in_dir=interface_dir)
     logger.debug(f"PISA pockets before coordinates: {pockets}", extra=log_extra)

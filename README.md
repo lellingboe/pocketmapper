@@ -144,7 +144,7 @@ after any step, look at or edit its output and carry on, or rerun one step with 
 
 ```bash
 pocketmapper parse 4Q5J:B_F 4Q5J:A_E --results_dir ./out
-pocketmapper fetch --results_dir ./out
+pocketmapper fetch_structures --results_dir ./out
 pocketmapper align --results_dir ./out
 pocketmapper pockets out/query_records.json out/target_records.json --results_dir ./out
 pocketmapper compare --results_dir ./out
@@ -154,24 +154,25 @@ pocketmapper superpose --results_dir ./out
 | Command | Does | Reads | Writes |
 | --- | --- | --- | --- |
 | `parse` | Parses the query and target into records, checking each entry against its pocket method. No network. | `QUERY`, `TARGET` | `query_records.json`, `target_records.json`, `cache_dirs.json`; starts `failed_entries.json` afresh |
-| `fetch` | Downloads the structures, a bundled Foldseek database and the PISA interfaces the records need. | records, `cache_dirs.json` | the cache; the records, without those whose structure could not be fetched |
+| `fetch_structures` | Downloads the structures and a bundled Foldseek database the records need. | records, `cache_dirs.json` | the cache; the records, without those whose structure could not be fetched |
 | `align` | Aligns the query chains against the target chains. Against the `pdb` database, adds a target record per PISA interface of each hit. | records, `cache_dirs.json` | `alignment.tsv`; the records |
-| `pockets` | Builds the pocket of every record in the records files it is given. | `RECORDS ...`, `cache_dirs.json` | `pockets.json`; each records file, without the records whose pocket could not be built |
+| `pockets` | Downloads the PISA interfaces the records need, then builds the pocket of every record in the records files it is given. | `RECORDS ...`, `cache_dirs.json` | `pockets.json`; each records file, without the records whose pocket could not be built |
 | `compare` | Compares the pockets of every aligned pair. | records, `alignment.tsv`, `pockets.json` | `pocket_comparison.tsv`, `unknown_ids.json`, `incorrect_mapping.json` |
 | `superpose` | Superposes the top targets onto each query. | records, `pocket_comparison.tsv`, `alignment.tsv` | `aligned_structures/` |
 
 - **Every step but `parse` requires `--results_dir`**, since its inputs default to files in it. An option
   without `_path` (`--alignment`, `--query_records`) names a file the step reads, one ending in `_path`
-  a file it writes; both default to the names above under `--results_dir`. `fetch` and `align` rewrite
-  the records files in place unless given `--query_records_path`/`--target_records_path`; `pockets`
-  always does, so copy a file first to keep it.
+  a file it writes; both default to the names above under `--results_dir`. `fetch_structures` and
+  `align` rewrite the records files in place unless given `--query_records_path`/`--target_records_path`;
+  `pockets` always does, so copy a file first to keep it.
 - **The cache is chosen once, by `parse`**, which records every cache directory in `cache_dirs.json`.
-  `fetch`, `align` and `pockets` read them from there and take no cache options, so a chain cannot split
-  its cache, and the commands after `parse` can run from any working directory.
+  `fetch_structures`, `align` and `pockets` read them from there and take no cache options, so a chain
+  cannot split its cache, and the commands after `parse` can run from any working directory.
 - **Give `pockets` both records files.** `pockets.json` holds the pockets of the files named, and
   `compare` stops if a record has no pocket rather than silently returning no rows for it.
-- **After `fetch`, nothing downloads** except `align` against the `pdb` database (its hits are only known
-  then) and `pockets` retrying PISA entries `fetch` could not get.
+- **After `fetch_structures`, only `align` and `pockets` download**: `align` the structures and PISA
+  interfaces of the `pdb` database's hits (only known then), `pockets` the PISA interfaces of the
+  records.
 - **`superpose` reads the aligner off `alignment.tsv`**, so `--align_struct_method auto` resolves as it
   would have in `search` without restating `--aligner`.
 - **Records files hold only usable records.** A step that drops one lists it in `failed_entries.json`
@@ -189,8 +190,8 @@ Every step takes `--verbosity`, `--log_path` (appended to, so a chain writes one
 | Command | Options |
 | --- | --- |
 | `parse` | `QUERY`, `TARGET`, `--query_pocket_method`, `--target_pocket_method`, the [cache options](#cache-options), `--query_records_path`, `--target_records_path`, `--failed_entries_path` |
-| `fetch` | `--query_records`, `--target_records`, `--query_records_path`, `--target_records_path`, `--failed_entries_path`, `--threads`, `--pisa_source`, the [temp options](#temp-options) |
-| `align` | As `fetch`, plus `--aligner` and `--alignment_path` |
+| `fetch_structures` | `--query_records`, `--target_records`, `--query_records_path`, `--target_records_path`, `--failed_entries_path`, `--threads`, the [temp options](#temp-options) |
+| `align` | As `fetch_structures`, plus `--aligner`, `--alignment_path` and `--pisa_source` |
 | `pockets` | `RECORDS ...` (one or more records files), `--pockets_path`, `--failed_entries_path`, `--pisa_source` |
 | `compare` | `--query_records`, `--target_records`, `--alignment`, `--pockets`, `--pocket_comparison_path` |
 | `superpose` | `--query_records`, `--target_records`, `--pocket_comparison`, `--alignment`, the [aligned structure options](#aligned-structure-options), `--aligned_structure_dir`, `--threads` |

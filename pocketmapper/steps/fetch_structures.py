@@ -1,8 +1,8 @@
 """
-Step 2: download everything the records need that is knowable before alignment.
+Step 2: download the structures and bundled Foldseek database the records need.
 
-That is each record's structure, a bundled Foldseek database, and the PISA interfaces of every pisa
-record. A Foldseek PDB database's hits are not known yet; the align step fetches theirs.
+A Foldseek PDB database's hits are not known yet; the align step fetches theirs. PISA interfaces are
+fetched by the pockets step.
 """
 
 import logging
@@ -12,7 +12,6 @@ from pocketmapper.downloads.structure_downloader import StructureDownloader
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import run_foldseek
 from pocketmapper.lib import make_dir
-from pocketmapper.pockets.pisa import download_pisa_interfaces
 from pocketmapper.records import append_failed_entries
 from pocketmapper.records import failed_entry
 from pocketmapper.records import read_records
@@ -29,17 +28,14 @@ def fetch_inputs(
     query_records_path,
     target_records_path,
     failed_entries_path,
-    pocket_dir,
-    pisa_source,
     threads,
     temp_dir,
 ):
     """
-    Download the structures, Foldseek database and PISA interfaces both sides' records need.
+    Download the structures and Foldseek database both sides' records need.
 
-    Writes each structure to its record's `struct_path` and PISA data under `pocket_dir/pisa/`.
-    Records whose structure cannot be fetched are dropped and added to `failed_entries_path` as
-    `structure_not_found`. A pisa record whose PISA data cannot be fetched is kept.
+    Writes each structure to its record's `struct_path`. Records whose structure cannot be fetched
+    are dropped and added to `failed_entries_path` as `structure_not_found`.
 
     Args:
         query_records (str): The query records file.
@@ -47,8 +43,6 @@ def fetch_inputs(
         query_records_path (str): Where the query records left are written. May be `query_records`.
         target_records_path (str): As `query_records_path`, for the target side.
         failed_entries_path (str): The failed-entries file, appended to.
-        pocket_dir (str): Pocket cache directory.
-        pisa_source (str): Where PISA interfaces are fetched from: "ftp" or "api".
         threads (int): Thread count for a Foldseek database download.
         temp_dir (str): Scratch directory; a Foldseek database download works under it.
 
@@ -71,7 +65,7 @@ def fetch_inputs(
         found = fetch_missing_structures(name, structure_records) if structure_records else {}
 
         failures = [
-            failed_entry(record["pocket_id"], "fetch", "structure_not_found", in_path, record)
+            failed_entry(record["pocket_id"], "fetch_structures", "structure_not_found", in_path, record)
             for record in structure_records
             if not found[record["struct_info"]]
         ]
@@ -82,19 +76,6 @@ def fetch_inputs(
         if not kept[name]:
             logger.critical(f"Insufficient {name} structures after fetching", extra=log_extra)
             raise PocketMapperError(f"Insufficient {name} structures after fetching. No valid {name} entries remain.")
-
-    # Only for the records whose structure arrived, since only they can become pockets
-    pdb_list = list(
-        dict.fromkeys(
-            record["struct_info"]
-            for records in kept.values()
-            for record in records
-            if record["pocket_method"] == "pisa"
-        )
-    )
-    if pdb_list:
-        logger.info(f"Retrieving PISA interfaces for {len(pdb_list)} PDB entries", extra={"stage": "Downloading PISA"})
-        download_pisa_interfaces(pdb_list, pocket_dir, pisa_source)
 
     write_records(kept["query"], query_records_path)
     write_records(kept["target"], target_records_path)

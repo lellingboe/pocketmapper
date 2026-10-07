@@ -62,7 +62,7 @@ at a prebuilt Foldseek PDB database; `needs-pdb-download` downloads the full PDB
 Case names run in groups: `test_core_*` structure-vs-structure pairs, `test_open_*` open
 whole-chain targets, `test_domains_*` `human_domains` DB targets, `test_fsdb_*` larger Foldseek
 DB targets, `test_local_*` the local aligner, `test_invalid_*` rejected or skipped input,
-`test_settings_*` run configuration, `test_steps_*` the step commands (`parse`, `fetch`, `align`,
+`test_settings_*` run configuration, `test_steps_*` the step commands (`parse`, `fetch_structures`, `align`,
 `pockets`, `compare`, `superpose`) run on their own and chained.
 
 `needs-pdb-fsdb` cases (`test_fsdb_1`, `test_steps_9`) do not need the 7 GB PDB database: any

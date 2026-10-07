@@ -7,10 +7,11 @@ PocketMapper: map and compare binding pockets across protein structures.
 1. `configure_workflow` -> job file over arguments; `resolve_settings` -> Settings, job_settings.json.
 2. `steps.parse` -> query_records.json, target_records.json, cache_dirs.json; failed_entries.json
    started afresh.
-3. `steps.fetch` -> structures, a bundled Foldseek database and PISA interfaces into the cache.
+3. `steps.fetch_structures` -> structures and a bundled Foldseek database into the cache.
 4. `steps.align` -> foldseek or the local sequence aligner, per `aligner` -> alignment.tsv. Against
    a PDB Foldseek database, its hits are appended to the target records as pisa records.
-5. `steps.pockets` -> pockets.json. The Pocket shape itself is declared in `pockets/pocket.py`.
+5. `steps.pockets` -> PISA interfaces into the cache, then pockets.json. The Pocket shape itself is
+   declared in `pockets/pocket.py`.
 6. `steps.compare` -> pocket_comparison.tsv.
 7. `steps.superpose` -> the top align_count targets per query, superposed into aligned_structures/.
 
@@ -58,7 +59,7 @@ from pocketmapper.settings import resolve_pisa_source
 from pocketmapper.settings import resolve_threads
 from pocketmapper.steps.align import align_chains
 from pocketmapper.steps.compare import compare_aligned_pockets
-from pocketmapper.steps.fetch import fetch_inputs
+from pocketmapper.steps.fetch_structures import fetch_inputs
 from pocketmapper.steps.parse import parse_inputs
 from pocketmapper.steps.pockets import build_pockets
 from pocketmapper.steps.superpose import superpose_top_targets
@@ -247,8 +248,6 @@ class PocketMapper:
                 settings.query_records_path,
                 settings.target_records_path,
                 settings.failed_entries_path,
-                cache_dirs["pocket_dir"],
-                settings.pisa_source,
                 settings.threads,
                 settings.temp_dir,
             )
@@ -266,14 +265,12 @@ class PocketMapper:
                 cache_dirs,
                 settings.pisa_source,
             )
-            # The fetch step already tried every PISA entry, and only successes are cached
             build_pockets(
                 [settings.query_records_path, settings.target_records_path],
                 settings.pockets_path,
                 settings.failed_entries_path,
                 cache_dirs["pocket_dir"],
                 settings.pisa_source,
-                download_pisa=False,
             )
             compare_aligned_pockets(
                 settings.query_records_path,

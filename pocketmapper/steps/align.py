@@ -28,7 +28,7 @@ from pocketmapper.records import read_records
 from pocketmapper.records import unique_by
 from pocketmapper.records import write_records
 from pocketmapper.sequence_aligner import SequenceAligner
-from pocketmapper.steps.fetch import fetch_missing_structures
+from pocketmapper.steps.fetch_structures import fetch_missing_structures
 from pocketmapper.structure_preprocessor import StructurePreprocessor
 
 logger = logging.getLogger(__name__)
