@@ -15,9 +15,9 @@ from pocketmapper.lib import log_to_file
 from pocketmapper.lib import make_dir
 from pocketmapper.lib import run_scope
 from pocketmapper.lib import temp_dir_scope
-from pocketmapper.records import append_failed_entries
 from pocketmapper.records import failed_entry
 from pocketmapper.records import fsdb_record
+from pocketmapper.records import report_failures
 from pocketmapper.records import split_missing_structures
 from pocketmapper.records import unique_by
 from pocketmapper.sequence_aligner import SequenceAligner
@@ -193,11 +193,10 @@ def align_chains(
     database = fsdb_record(sides["target"])
 
     # A structure fetch never produced, or one removed since
-    failures = []
-    usable = {}
-    for name, records in sides.items():
-        usable[name], missing = split_missing_structures(records, "align", sources[name], log_extra)
-        failures += missing
+    usable = {
+        name: split_missing_structures(records, "align", sources[name], failed_entries_path, log_extra)
+        for name, records in sides.items()
+    }
 
     tmp_dirs = {
         "query": os.path.join(temp_dir, "query_structures"),
@@ -206,12 +205,11 @@ def align_chains(
     if aligner == "foldseek":
         logger.info("Preprocessing structures for Foldseek...", extra=log_extra)
         for name in ("query",) if database is not None else ("query", "target"):
-            usable[name], preprocess_failures = foldseek_preprocessing(
+            usable[name], failures = foldseek_preprocessing(
                 usable[name], preprocessed_dir, tmp_dirs[name], sources[name]
             )
-            failures += preprocess_failures
+            report_failures(failed_entries_path, failures, log_extra, "Structure preprocessing failed, skipping")
         logger.info("Finished preprocessing structures", extra={"stage": "Preprocessing Structures"})
-    append_failed_entries(failed_entries_path, failures)
 
     errors = []
     for name, records in usable.items():

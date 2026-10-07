@@ -24,10 +24,10 @@ from pocketmapper.pockets.pisa import download_pisa_interfaces
 from pocketmapper.pockets.pocket_fetcher import PocketFetcher
 from pocketmapper.pockets.pocket_fetcher import write_pockets_file
 from pocketmapper.qt_processor import QTProcessor
-from pocketmapper.records import append_failed_entries
 from pocketmapper.records import failed_entry
 from pocketmapper.records import fsdb_record
 from pocketmapper.records import preproc_to_ids
+from pocketmapper.records import report_failures
 from pocketmapper.records import require_file
 from pocketmapper.records import split_missing_structures
 from pocketmapper.settings import dump_settings
@@ -180,21 +180,21 @@ def build_pockets(sides, sources, alignment, pockets_path, failed_entries_path, 
     chains = preproc_to_ids([record for record, _ in given])
     buildable = []
     for name, records in sides.items():
-        kept, missing = split_missing_structures(
+        kept = split_missing_structures(
             [record for record in records if record["struct_type"] != "foldseek_db"],
             "pockets",
             sources[name],
+            failed_entries_path,
             log_extra,
         )
         buildable += [(record, sources[name]) for record in kept]
-        append_failed_entries(failed_entries_path, missing)
 
     if fsdb_record(sides["target"]) is not None:
         require_file(alignment, "alignment")
         hit_names = pd.read_csv(alignment, sep="\t", usecols=["target"], dtype=str)["target"].unique().tolist()
         if fsdb_pocket_mode(hit_names) == "pisa":
             hits, hit_chains, failures = expand_fsdb_pdb_targets(hit_names, cache_dirs, pisa_source, alignment)
-            append_failed_entries(failed_entries_path, failures)
+            report_failures(failed_entries_path, failures, log_extra, "Missing structures for foldseek hit(s)")
             buildable += [(record, alignment) for record in hits]
             chains |= hit_chains
 
@@ -210,12 +210,7 @@ def build_pockets(sides, sources, alignment, pockets_path, failed_entries_path, 
         for record, source in buildable
         if built.get(record["pocket_id"]) is None
     ]
-    if failures:
-        logger.warning(
-            f"No pocket for {', '.join(dict.fromkeys(entry['pocket_id'] for entry in failures))}; skipping them",
-            extra=log_extra,
-        )
-    append_failed_entries(failed_entries_path, failures)
+    report_failures(failed_entries_path, failures, log_extra, "No pocket built, skipping")
 
     # Every pocket given or expanded is listed, None where it was not built
     pocket_ids = [record["pocket_id"] for record, _ in given] + [pid for ids in chains.values() for pid in ids]
@@ -280,9 +275,10 @@ def expand_fsdb_pdb_targets(hit_names, cache_dirs, pisa_source, source):
             if not re.match(pisa_pattern, f"{chain_id}_{partner}"):
                 unspellable += 1
                 continue
-            record, _ = qtprocessor.parse_individual_qt(f"{pdb_id}:{chain_id}_{partner}", pocket_method="pisa")
+            record, reason = qtprocessor.parse_individual_qt(f"{pdb_id}:{chain_id}_{partner}", pocket_method="pisa")
             if record is None:
-                continue  # the reason is logged
+                logger.warning(f"{reason}; skipping this interface", extra=log_extra)
+                continue
             # The alignment is keyed by the Foldseek entry name
             record.preprocess_name = hit_name
             records.append(asdict(record))

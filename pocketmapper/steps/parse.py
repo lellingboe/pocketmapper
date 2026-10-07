@@ -12,9 +12,9 @@ from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.lib import log_to_file
 from pocketmapper.lib import run_scope
 from pocketmapper.qt_processor import QTProcessor
-from pocketmapper.records import append_failed_entries
 from pocketmapper.records import failed_entry
 from pocketmapper.records import fsdb_record
+from pocketmapper.records import report_failures
 from pocketmapper.records import start_failed_entries
 from pocketmapper.settings import dump_settings
 from pocketmapper.settings import layer_settings
@@ -209,8 +209,9 @@ def parse_entries(
     Parse both sides' entries into records, and check that the two sides make a search.
 
     Every entry that could not be parsed, and every Foldseek-database query entry, is a failure,
-    `invalid_entry`. Failures are added to `failed_entries_path` before the sides are checked, so they
-    are listed even when the check fails.
+    `invalid_entry`, reported through `records.report_failures` (a warning, or DEBUG for one already
+    in `failed_entries_path`) before the sides are checked, so it is listed even when the check
+    fails.
 
     Args:
         query (str or list): Query entry, a file of one entry per line, or a list of either.
@@ -224,7 +225,7 @@ def parse_entries(
         step (str, optional): The step parsing them, named in the failure entries. Defaults to
             "parse".
         failed_entries_path (str, optional): The failed-entries file, appended to. Defaults to None,
-            which writes none.
+            which writes none and warns about every failure.
 
     Returns:
         tuple: (sides, failures). `sides` is "query" and "target" -> that side's QTRecord dicts, in
@@ -250,11 +251,9 @@ def parse_entries(
     # A database can only be searched, not searched with
     for record in [record for record in sides["query"] if record["struct_type"] == "foldseek_db"]:
         reason = f"A Foldseek database cannot be a query entry: {record['pocket_id']}"
-        logger.warning(f"{reason}; skipping this entry", extra=log_extra)
         failures.append(failed_entry(record["pocket_id"], step, "invalid_entry", query, record, reason))
         sides["query"].remove(record)
-    if failed_entries_path is not None:
-        append_failed_entries(failed_entries_path, failures)
+    report_failures(failed_entries_path, failures, log_extra)
 
     errors = []
     for name, records in sides.items():

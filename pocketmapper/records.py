@@ -123,37 +123,98 @@ def start_failed_entries(path):
 
 def append_failed_entries(path, entries):
     """
-    Add entries to `failed_entries.json`, creating it if missing.
+    Add entries to `failed_entries.json`, creating it if missing, skipping any already listed.
+
+    An entry is already listed when the file, or an earlier entry in `entries`, holds its
+    `(pocket_id, reason)`: a chain of steps that each re-parse the entries meets each failure once per
+    step.
 
     Args:
         path (str): The failed-entries file.
-        entries (list): Entries from `failed_entry`. Nothing is written when empty.
+        entries (list): Entries from `failed_entry`. Nothing is written when none is new.
 
     Returns:
-        None
+        list: The entries that were new, in order.
     """
-    if not entries:
-        return
     existing = read_json(path, "failed entries") if os.path.isfile(path) else []
-    write_json(existing + list(entries), path)
-    logger.info(f"{len(entries)} entries dropped; see {path}")
+    new = unlisted(entries, existing)
+    if new:
+        write_json(existing + new, path)
+        logger.info(f"{len(new)} entries skipped; see {path}")
+    return new
 
 
-def split_missing_structures(records, step, source, log_extra):
+def unlisted(entries, listed):
+    """
+    The failure entries not already listed.
+
+    Args:
+        entries (list): Entries from `failed_entry`.
+        listed (list): Entries already recorded.
+
+    Returns:
+        list: Each entry of `entries` whose `(pocket_id, reason)` is neither in `listed` nor on an
+            earlier entry of `entries`, in order.
+    """
+    seen = {(entry["pocket_id"], entry["reason"]) for entry in listed}
+    new = []
+    for entry in entries:
+        key = (entry["pocket_id"], entry["reason"])
+        if key not in seen:
+            seen.add(key)
+            new.append(entry)
+    return new
+
+
+def report_failures(path, entries, log_extra, message=None):
+    """
+    Add entries to the failed-entries file and log them: new ones as warnings, ones already listed at DEBUG.
+
+    Args:
+        path (str or None): The failed-entries file, or None to write none, every entry then being
+            new unless it repeats an earlier one.
+        entries (list): Entries from `failed_entry`.
+        log_extra (dict): Logging `extra` for the messages.
+        message (str, optional): What the entries have in common, logged once ahead of their
+            pocket_ids. Defaults to None, which logs each entry's own `detail`.
+
+    Returns:
+        list: The entries that were new, in order.
+    """
+    new = append_failed_entries(path, entries) if path is not None else unlisted(entries, [])
+    new_ids = {id(entry) for entry in new}
+    repeats = [entry for entry in entries if id(entry) not in new_ids]
+    for level, group, suffix in (
+        (logging.WARNING, new, ""),
+        (logging.DEBUG, repeats, " (already listed as failed)"),
+    ):
+        if not group:
+            continue
+        if message is None:
+            for entry in group:
+                logger.log(level, f"{entry['detail']}; skipping this entry{suffix}", extra=log_extra)
+        else:
+            pocket_ids = ", ".join(dict.fromkeys(entry["pocket_id"] for entry in group))
+            logger.log(level, f"{message}{suffix}: {pocket_ids}", extra=log_extra)
+    return new
+
+
+def split_missing_structures(records, step, source, failed_entries_path, log_extra):
     """
     Set aside the records whose structure, or Foldseek database, is not on disk.
 
-    Logs a warning naming them, with a hint to run fetch_structures unless running inside search,
-    which already has.
+    Reports them through `report_failures` as `structure_not_found`, with a hint to run
+    fetch_structures unless running inside search, which already has.
 
     Args:
         records (list): One side's QTRecord dicts.
         step (str): The step skipping them, for the failure entries.
         source (str): The input they were parsed from, for the failure entries.
-        log_extra (dict): Logging `extra` for the warning.
+        failed_entries_path (str): The failed-entries file, appended to.
+        log_extra (dict): Logging `extra` for the messages.
 
     Returns:
-        tuple: (records with their structure, `structure_not_found` failure entries for the rest).
+        list: The records whose structure is on disk.
     """
     kept = []
     failures = []
@@ -162,11 +223,9 @@ def split_missing_structures(records, step, source, log_extra):
             kept.append(record)
         else:
             failures.append(failed_entry(record["pocket_id"], step, "structure_not_found", source, record))
-    if failures:
-        missing = ", ".join(dict.fromkeys(entry["pocket_id"] for entry in failures))
-        hint = "" if outer_command() == "search" else "; run fetch_structures first"
-        logger.warning(f"No structure on disk for {missing}; skipping them{hint}", extra=log_extra)
-    return kept, failures
+    hint = "" if outer_command() == "search" else "; run fetch_structures first"
+    report_failures(failed_entries_path, failures, log_extra, f"No structure on disk, skipping{hint}")
+    return kept
 
 
 def unique_by(records, *fields):

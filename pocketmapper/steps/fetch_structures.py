@@ -15,8 +15,8 @@ from pocketmapper.lib import log_to_file
 from pocketmapper.lib import make_dir
 from pocketmapper.lib import run_scope
 from pocketmapper.lib import temp_dir_scope
-from pocketmapper.records import append_failed_entries
 from pocketmapper.records import failed_entry
+from pocketmapper.records import report_failures
 from pocketmapper.records import unique_by
 from pocketmapper.settings import dump_settings
 from pocketmapper.settings import layer_settings
@@ -164,7 +164,7 @@ def fetch_inputs(sides, sources, failed_entries_path, threads, temp_dir):
             for record in structure_records
             if not found[record["struct_info"]]
         ]
-        append_failed_entries(failed_entries_path, failures)
+        report_failures(failed_entries_path, failures, log_extra, f"Missing structures for {name}(s)")
         if len(failures) == len(records):
             logger.critical(f"Insufficient {name} structures after fetching", extra=log_extra)
             raise PocketMapperError(f"Insufficient {name} structures after fetching. No valid {name} entries remain.")
@@ -190,9 +190,6 @@ def fetch_missing_structures(name, records):
     logger.debug(f"Structure fetcher results: {found}", extra=log_extra)
 
     logger.info(f"{sum(found.values())}/{len(found)} {name} required structures available", extra=log_extra)
-    missing = list(dict.fromkeys(record["pocket_id"] for record in records if not found[record["struct_info"]]))
-    if missing:
-        logger.warning(f"Missing structures for {name}(s): {', '.join(missing)}", extra=log_extra)
     return found
 
 

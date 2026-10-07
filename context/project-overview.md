@@ -33,6 +33,11 @@ dump) as `--job_file`; nothing in `results_dir` supplies entries or cache dirs.
   and superpose skip a missing one as `structure_not_found` (`records.split_missing_structures`).
   pockets lists such an entry `null`. No step rewrites its inputs, so every step is idempotent on
   rerun. `QTRecord` has no `success` flag.
+- **Each failure warns once per run.** Every step re-parses, so the same rejection or missing
+  structure recurs per step. `records.append_failed_entries` skips a `(pocket_id, reason)` already in
+  the file and `records.report_failures` logs new ones at WARNING, repeats at DEBUG. So
+  `QTProcessor.parse_individual_qt` does not log its reason; its caller does. A component's own
+  warnings (e.g. `StructurePreprocessor`) are not deduplicated.
 - **`preprocess_name` is recomputed per step** (local files re-hashed each time), so consistency rests
   on the inputs not changing between steps; compare's coverage check (Invariants) catches a
   mismatch.

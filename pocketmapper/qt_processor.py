@@ -128,7 +128,8 @@ class QTProcessor:
         Parse one side of the comparison -- a query or a target -- into `QTRecord` dicts.
 
         Sets the instance's log stage to name this side, so later calls to any method log under it.
-        An entry that cannot be parsed is skipped with a warning and returned among the rejected.
+        An entry that cannot be parsed is skipped and returned among the rejected, unlogged: the
+        caller knows whether its failure is news.
 
         Args:
             qt_input (str): A query or target string ("struct_info:chain_info:residue_info"), or a
@@ -198,8 +199,7 @@ class QTProcessor:
         Returns:
             tuple: (record, reason). `record` is the parsed QTRecord, with `preprocess_name` set to
                 `<basename>_<chain>_<md5>`, where the md5 also covers a local file's contents, and
-                `reason` is None. If the entry is unusable, `record` is None and `reason` says why;
-                the reason is also logged as a warning.
+                `reason` is None. If the entry is unusable, `record` is None and `reason` says why.
         """
         # Foldseek databases have a special format and are treated differently
         if qt in self.bundled_foldseek_dbs or pocket_method == "foldseek_db":
@@ -211,10 +211,7 @@ class QTProcessor:
             )
             return record, None
 
-        record, reason = self.build_record(qt, pocket_method)
-        if record is None:
-            logger.warning(f"{reason}; skipping this entry", extra=self.log_extra)
-        return record, reason
+        return self.build_record(qt, pocket_method)
 
     def build_record(self, qt, pocket_method):
         """
@@ -225,7 +222,7 @@ class QTProcessor:
             pocket_method (str): Pocket method to force, or "auto" to infer it from the string.
 
         Returns:
-            tuple: (record, reason) as `parse_individual_qt` returns them, without logging the reason.
+            tuple: (record, reason) as `parse_individual_qt` returns them.
 
         Raises:
             PocketMapperError: If the entry names a directory, which is not supported.

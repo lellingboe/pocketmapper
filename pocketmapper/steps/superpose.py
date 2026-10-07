@@ -10,7 +10,6 @@ from pocketmapper.lib import fsdb_pocket_mode
 from pocketmapper.lib import log_to_file
 from pocketmapper.lib import run_scope
 from pocketmapper.pockets.pocket_fetcher import read_pockets_file
-from pocketmapper.records import append_failed_entries
 from pocketmapper.records import fsdb_record
 from pocketmapper.records import require_file
 from pocketmapper.records import split_missing_structures
@@ -202,7 +201,7 @@ def superpose_top_targets(
     log_extra = {"stage": "Structural Alignment"}
 
     # A structure fetch never produced, or one removed since
-    query, failures = split_missing_structures(sides["query"], "superpose", sources["query"], log_extra)
+    query = split_missing_structures(sides["query"], "superpose", sources["query"], failed_entries_path, log_extra)
     target = sides["target"]
 
     # With a Foldseek database, a hit's transform fits the database's own structure, so that is
@@ -211,8 +210,7 @@ def superpose_top_targets(
     database = fsdb_record(target)
     fsdb_path = database["struct_path"] if database is not None else None
     if database is None:
-        target, missing = split_missing_structures(target, "superpose", sources["target"], log_extra)
-        failures += missing
+        target = split_missing_structures(target, "superpose", sources["target"], failed_entries_path, log_extra)
     else:
         hit_names = pd.read_csv(alignment, sep="\t", usecols=["target"], dtype=str)["target"].unique()
         target = []
@@ -226,8 +224,6 @@ def superpose_top_targets(
                 if name in hit_names
                 for pocket_id in pocket_ids
             ]
-
-    append_failed_entries(failed_entries_path, failures)
 
     StructureAligner().align_structs(
         query_records=query,
