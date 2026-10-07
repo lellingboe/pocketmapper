@@ -51,8 +51,9 @@ FIXTURES_DIR="$SCRIPT_DIR/fixtures"
 #          succeed, and the last one's exit status is the run's. A `cd DIR`
 #          segment sets the working directory of the commands after it. Each
 #          command gets --verbosity
-#          and, unless it sets them, --results_dir and (parse, search)
-#          --cache_dir.
+#          and, unless it sets them, --results_dir and --cache_dir (the latter
+#          not to a step other than parse or search that has a --job_file,
+#          whose cache comes from there).
 #          @PDB_FSDB@ expands to $POCKETMAPPER_PDB_FSDB, @CACHE@ to the shared
 #          cache dir and @OUT@ to this case's own results dir -- the last two
 #          let a case aim a path option somewhere real without hardcoding a
@@ -145,6 +146,10 @@ test_steps_14|core local|rows|parse takes query and target from a job file; its 
 test_steps_15|core local|rows files=compare_settings.json|A step reads its inputs from another run's job_settings.json; an argument overrides it|search 4Q5J:A_E 4Q5J:B_F --aligner seq --align_count 0 --results_dir @OUT@/search ; compare --job_file @OUT@/search/job_settings.json --pocket_comparison_path @OUT@/pocket_comparison.tsv
 test_steps_16|core local|rows|A step's own settings feed the next (compare from pockets_settings.json)|parse 4Q5J:A_E 4Q5J:B_F ; fetch_structures --job_file @OUT@/parse_settings.json ; align --aligner seq --job_file @OUT@/parse_settings.json ; pockets --job_file @OUT@/parse_settings.json ; compare --job_file @OUT@/pockets_settings.json
 test_steps_17|needs-pdb-fsdb slow|rows same=search files=aligned_structures|Chained commands give what search gives against a PDB Foldseek database|search 4Q5J:B_F @PDB_FSDB@ --target_pocket_method foldseek_db --results_dir @OUT@/search ; parse 4Q5J:B_F @PDB_FSDB@ --target_pocket_method foldseek_db ; fetch_structures --job_file @OUT@/parse_settings.json ; align --job_file @OUT@/parse_settings.json ; pockets --job_file @OUT@/parse_settings.json ; compare --job_file @OUT@/parse_settings.json ; superpose --job_file @OUT@/parse_settings.json
+test_steps_18|core local|files=structures/4Q5J.cif.gz,structures/P24941.cif.gz,structures.tsv|fetch_structures on its own, into one directory|fetch_structures 4Q5J P24941 --out_dir @OUT@/structures --structures_tsv_path @OUT@/structures.tsv
+test_steps_19|core local|files=pockets.json,pockets.tsv,pockets_settings.json|pockets on its own, from entries given|pockets 4Q5J:B_F 4Q5J:A:1101,1104 --pockets_tsv_path @OUT@/pockets.tsv
+test_steps_20|core local|files=pdb/4Q5J.cif.gz,pockets.json|pockets --fetch_missing 1 downloads a structure missing from the cache|pockets 4Q5J:B_F --pdb_dir @OUT@/pdb --fetch_missing 1
+test_steps_21|core local|files=entries.tsv,parse_settings.json|parse writes its table with --entries_path|parse 4Q5J:A_E 4Q5J:B_F --entries_path @OUT@/entries.tsv
 EOF
 
 # ---------------------------------------------------------------------------
@@ -364,9 +369,12 @@ while IFS='|' read -r name tags expect desc args; do
         fi
         extra="--verbosity $VERBOSITY"
         case " $* " in *" --results_dir "*) ;; *) extra="$extra --results_dir $case_out" ;; esac
-        case "$1" in
-            search|parse)
-                case " $* " in *" --cache_dir "*) ;; *) extra="$extra --cache_dir $CACHE_DIR" ;; esac ;;
+        # A step chained off a job file takes its cache from there
+        case " $* " in
+            *" --cache_dir "*) ;;
+            *" --job_file "*)
+                case "$1" in search|parse) extra="$extra --cache_dir $CACHE_DIR" ;; esac ;;
+            *) extra="$extra --cache_dir $CACHE_DIR" ;;
         esac
         segments="$segments$cwd	$* $extra
 "

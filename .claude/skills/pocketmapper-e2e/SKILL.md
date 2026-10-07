@@ -123,9 +123,9 @@ name | tags | expect | description | args
 `args` is passed to `pocketmapper search` verbatim — unless its first word is a command, in which
 case it is a chain of commands separated by ` ; `, run in order. Every command before the last must
 succeed; the last one's exit status is the case's. A `cd DIR` segment sets the working directory of
-the commands after it. The runner appends `--verbosity` to every command, and `--results_dir`
-(and, for `parse`/`search`, `--cache_dir`) unless the command sets it — don't put them in a case
-otherwise. Every chained step after `parse` takes `--job_file @OUT@/parse_settings.json` (or another
+the commands after it. The runner appends `--verbosity` to every command, and `--results_dir` and
+`--cache_dir` unless the command sets it — except `--cache_dir` to a step other than `parse` or
+`search` that has a `--job_file`, whose cache comes from there. Don't put them in a case otherwise. Every chained step after `parse` takes `--job_file @OUT@/parse_settings.json` (or another
 step's `<command>_settings.json`): steps get their entries and cache only from a job file. Cases run with `tests/e2e/fixtures/` as their working directory,
 because `testfile.txt` refers to `4Q5J.cif.gz` by a relative path; keep that relative reference
 if you edit the fixtures.
