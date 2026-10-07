@@ -67,6 +67,10 @@ dump) as `--job_file`; nothing in `results_dir` supplies entries or cache dirs.
 - **vdw's partner chain is required.** When optional, a forced `vdw` on `4Q5J:A` reached gemmi as chain `None`.
   Tightening is inference-neutral (`whole_chain` claims bare chains first) — verified by replaying the old
   per-struct_type ladder against the loop over 400 generated entries.
+- **`fetch_structures` parses structure-only** (`resolve_job_structures` → `steps.parse.parse_structure_side`),
+  from positional `entries` or else the job's query and target; a side whose pocket method is
+  `foldseek_db` is forced to struct type `foldseek_db`, and an FSDB query entry is rejected as parse
+  rejects it. `--out_dir` is a `QTProcessor` with all three cache dirs set to it.
 - **Structure-only parse**: `QTProcessor.parse_structure` (and `process_structure_input` for a file)
   resolves struct type and path without `build_record`, so `P12345:A_B` (no method fits) still
   resolves. `struct_type` forces `pdb`/`alphafold` (checked against the id pattern) or `foldseek_db`
@@ -239,7 +243,8 @@ in `resolve_settings` (`resolve_*`). `Settings` has no defaults and is built onc
 file) keyed by job keys, never a `Settings`, and call the same `settings.resolve_*` validators.
 
 **Job keys are separate from `Settings`.** `settings.JOB_KEYS` = `fields(Settings)` + `STEP_ONLY_KEYS`
-(options only some steps take) is what a job file may hold and what `layer_settings` seeds. Unknown
+(options only some steps take; `STEP_ONLY_PATH_KEYS` among them resolve against `work_dir` in
+`resolve_paths`) is what a job file may hold and what `layer_settings` seeds. Unknown
 keys are rejected; one in `REMOVED_JOB_KEYS` gets its replacement named. Search drops keys `Settings`
 lacks before building one.
 

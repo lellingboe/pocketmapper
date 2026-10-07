@@ -35,6 +35,7 @@ from pocketmapper.constants import DEFAULT_DELETE_TMP
 from pocketmapper.constants import DEFAULT_FETCH_MISSING
 from pocketmapper.constants import DEFAULT_PISA_SOURCE
 from pocketmapper.constants import DEFAULT_POCKET_METHOD
+from pocketmapper.constants import DEFAULT_STRUCT_TYPE
 from pocketmapper.constants import DEFAULT_VERBOSITY
 from pocketmapper.constants import PACKAGE_LOGGER
 from pocketmapper.exceptions import PocketMapperError
@@ -99,6 +100,16 @@ OPTIONS = {
             metavar="TARGET",
             help="Target entry, a file with one entry per line, or a Foldseek DB name: human_domains, pdb. "
             "Required unless the job file sets target.",
+        ),
+    ),
+    "entries_fetch": (
+        ["entries"],
+        dict(
+            nargs="*",
+            default=None,
+            metavar="ENTRY",
+            help="Entries or bare structure ids to fetch (4Q5J, P12345, pdb), or files of them; chain and "
+            "residue parts are ignored. (default: the job file's entries, else its query and target)",
         ),
     ),
     "job_file": (
@@ -306,6 +317,27 @@ OPTIONS = {
             help=f"1 deletes --temp_dir at the end; 0 keeps it. (default: {DEFAULT_DELETE_TMP})",
         ),
     ),
+    "struct_type": (
+        ["--struct_type"],
+        dict(
+            default=None,
+            metavar="STR",
+            help="Structure type to force on every entry: auto (infer it from each entry), pdb, alphafold or "
+            f"foldseek_db. (default: {DEFAULT_STRUCT_TYPE})",
+        ),
+    ),
+    "out_dir": (
+        ["--out_dir"],
+        dict(
+            default=None,
+            metavar="DIR",
+            help="One directory to write every structure and database to, in place of the cache "
+            "directories. (default: the cache)",
+        ),
+    ),
+    "structures_tsv_path": output_file(
+        "--structures_tsv_path", "table of every structure: id, struct_type, path, ok", "none"
+    ),
     "fetch_missing": (
         ["--fetch_missing"],
         dict(
@@ -361,9 +393,9 @@ COMMANDS = {
         ],
     ),
     "fetch_structures": (
-        "Download the structures and Foldseek database the query and target entries need.",
+        "Download the structures and Foldseek databases some entries name, or the query and target need.",
         [
-            (None, ["job_file", "verbosity", "threads"]),
+            (None, ["entries_fetch", "job_file", "verbosity", "struct_type", "threads"]),
             ("in options", ["work_dir"]),
             (
                 "cache options",
@@ -378,7 +410,14 @@ COMMANDS = {
             ),
             (
                 "out options",
-                ["results_dir_optional", "failed_entries_path", "job_settings_path_step", "log_path"],
+                [
+                    "results_dir_optional",
+                    "out_dir",
+                    "structures_tsv_path",
+                    "failed_entries_path",
+                    "job_settings_path_step",
+                    "log_path",
+                ],
             ),
             ("temp options", ["temp_dir", "delete_tmp"]),
         ],

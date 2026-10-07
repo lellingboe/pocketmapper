@@ -224,6 +224,7 @@ DEFAULT_ALIGNER = "foldseek"
 DEFAULT_DELETE_TMP = 1
 DEFAULT_PISA_SOURCE = "ftp"
 DEFAULT_FETCH_MISSING = 0
+DEFAULT_STRUCT_TYPE = "auto"
 
 # The chain used when an entry names a structure but no chain at all ("4Q5J"). AlphaFold models are
 # always a single chain A, and it is the first chain of most PDB entries.

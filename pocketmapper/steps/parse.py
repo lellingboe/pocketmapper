@@ -276,6 +276,42 @@ def parse_entries(
     return sides, failures
 
 
+def parse_structure_side(entries, name, struct_type, cache_dirs, work_dir):
+    """
+    Resolve the structure of each of one side's entries, ignoring their chain and residue parts.
+
+    Args:
+        entries (str or list): An entry or bare structure id, a file of them, or a list of either.
+        name (str): Which side this is, e.g. "query", for the log and error messages.
+        struct_type (str): Structure type to force on every entry, or "auto".
+        cache_dirs (dict): Holds "pdb_dir", "alphafold_dir" and "fsdb_dir", which give the
+            structure paths.
+        work_dir (str): Directory that entries files, local structure files, a user Foldseek
+            database and relative cache directories resolve against.
+
+    Returns:
+        tuple: (structures, rejected). `structures` holds a dict per entry resolved, as
+            `QTProcessor.parse_structure` returns it, in input order; `rejected` an
+            (entry, reason, source) triple for each entry that could not be.
+
+    Raises:
+        PocketMapperError: If `struct_type` is unknown or an entries file cannot be read.
+    """
+    qtprocessor = QTProcessor(
+        pdb_dir=cache_dirs["pdb_dir"],
+        alphafold_dir=cache_dirs["alphafold_dir"],
+        fsdb_dir=cache_dirs["fsdb_dir"],
+        work_dir=work_dir,
+    )
+    structures = []
+    rejected = []
+    for source in [entries] if isinstance(entries, str) else entries:
+        resolved, failed = qtprocessor.process_structure_input(source, name, struct_type)
+        structures += resolved
+        rejected += [(entry, reason, source) for entry, reason in failed]
+    return structures, rejected
+
+
 def parse_side(entries, name, pocket_method, cache_dirs, work_dir):
     """
     Parse one side's entries into records.

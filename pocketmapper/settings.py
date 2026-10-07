@@ -30,6 +30,7 @@ from pocketmapper.constants import DEFAULT_DELETE_TMP
 from pocketmapper.constants import DEFAULT_FETCH_MISSING
 from pocketmapper.constants import DEFAULT_PISA_SOURCE
 from pocketmapper.constants import DEFAULT_POCKET_METHOD
+from pocketmapper.constants import DEFAULT_STRUCT_TYPE
 from pocketmapper.constants import DEFAULT_VERBOSITY
 from pocketmapper.constants import DELETE_TMP_VALUES
 from pocketmapper.constants import FETCH_MISSING_VALUES
@@ -89,7 +90,10 @@ class Settings:
 
 # What a job file may hold, in Settings order: every Settings field, plus the options only some steps
 # take. `layer_settings` seeds every key.
-STEP_ONLY_KEYS = ("fetch_missing",)
+STEP_ONLY_KEYS = ("entries", "struct_type", "out_dir", "structures_tsv_path", "fetch_missing")
+
+# Step-only paths, resolved against work_dir like every path setting
+STEP_ONLY_PATH_KEYS = ("out_dir", "structures_tsv_path")
 JOB_KEYS = tuple(field.name for field in fields(Settings)) + STEP_ONLY_KEYS
 
 # Job keys no longer accepted -> what replaced them, for the error a stale job file gets
@@ -110,6 +114,7 @@ SETTING_DEFAULTS = {
     "delete_tmp": DEFAULT_DELETE_TMP,
     "pisa_source": DEFAULT_PISA_SOURCE,
     "fetch_missing": DEFAULT_FETCH_MISSING,
+    "struct_type": DEFAULT_STRUCT_TYPE,
 }
 
 # Path setting -> its default, relative to cache_dir
@@ -288,6 +293,8 @@ def resolve_paths(values, command):
     values["job_settings_path"] = work_path(work_dir, values["job_settings_path"])
     if values["temp_dir"] is None:
         values["temp_dir"] = os.path.join(values["cache_dir"], "tmp")
+    for key in STEP_ONLY_PATH_KEYS:
+        values[key] = work_path(work_dir, values[key])
     return values
 
 
