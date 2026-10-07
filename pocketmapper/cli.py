@@ -317,6 +317,28 @@ OPTIONS = {
             help=f"1 deletes --temp_dir at the end; 0 keeps it. (default: {DEFAULT_DELETE_TMP})",
         ),
     ),
+    "entries_pockets": (
+        ["entries"],
+        dict(
+            nargs="*",
+            default=None,
+            metavar="ENTRY",
+            help="Entries to build the pockets of, or files of them, all with --pocket_method; no Foldseek "
+            "database hit is expanded. (default: the job file's entries, else its query and target)",
+        ),
+    ),
+    "pocket_method": (
+        ["--pocket_method"],
+        dict(
+            default=None,
+            metavar="STR",
+            help="Pocket method for every ENTRY: auto (infer it from each entry), pisa, passthrough, vdw or "
+            f"whole_chain. (default: {DEFAULT_POCKET_METHOD})",
+        ),
+    ),
+    "pockets_tsv_path": output_file(
+        "--pockets_tsv_path", "table of every pocket: pocket_id, chain, res_auth_ids, method", "none"
+    ),
     "struct_type": (
         ["--struct_type"],
         dict(
@@ -452,9 +474,9 @@ COMMANDS = {
         ],
     ),
     "pockets": (
-        "Build the pocket of every query and target entry.",
+        "Build the pocket of some entries, or of every query and target entry.",
         [
-            (None, ["job_file", "verbosity", "fetch_missing"]),
+            (None, ["entries_pockets", "job_file", "verbosity", "pocket_method", "fetch_missing"]),
             ("in options", ["work_dir", "alignment"]),
             (
                 "cache options",
@@ -472,6 +494,7 @@ COMMANDS = {
                 [
                     "results_dir_required",
                     "pockets_path",
+                    "pockets_tsv_path",
                     "failed_entries_path",
                     "job_settings_path_step",
                     "log_path",

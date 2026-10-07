@@ -90,10 +90,18 @@ class Settings:
 
 # What a job file may hold, in Settings order: every Settings field, plus the options only some steps
 # take. `layer_settings` seeds every key.
-STEP_ONLY_KEYS = ("entries", "struct_type", "out_dir", "structures_tsv_path", "fetch_missing")
+STEP_ONLY_KEYS = (
+    "entries",
+    "struct_type",
+    "out_dir",
+    "structures_tsv_path",
+    "pocket_method",
+    "pockets_tsv_path",
+    "fetch_missing",
+)
 
 # Step-only paths, resolved against work_dir like every path setting
-STEP_ONLY_PATH_KEYS = ("out_dir", "structures_tsv_path")
+STEP_ONLY_PATH_KEYS = ("out_dir", "structures_tsv_path", "pockets_tsv_path")
 JOB_KEYS = tuple(field.name for field in fields(Settings)) + STEP_ONLY_KEYS
 
 # Job keys no longer accepted -> what replaced them, for the error a stale job file gets
@@ -111,6 +119,7 @@ SETTING_DEFAULTS = {
     "align_struct_method": DEFAULT_ALIGN_STRUCT_METHOD,
     "query_pocket_method": DEFAULT_POCKET_METHOD,
     "target_pocket_method": DEFAULT_POCKET_METHOD,
+    "pocket_method": DEFAULT_POCKET_METHOD,
     "delete_tmp": DEFAULT_DELETE_TMP,
     "pisa_source": DEFAULT_PISA_SOURCE,
     "fetch_missing": DEFAULT_FETCH_MISSING,

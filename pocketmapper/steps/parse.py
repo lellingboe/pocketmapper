@@ -276,6 +276,37 @@ def parse_entries(
     return sides, failures
 
 
+def parse_listed_entries(entries, pocket_method, cache_dirs, work_dir, step, failed_entries_path):
+    """
+    Parse a list of entries as one side, reporting the entries rejected.
+
+    Args:
+        entries (list): Entries, or files of them.
+        pocket_method (str): Pocket method to force on every entry, or "auto".
+        cache_dirs (dict): Holds "pdb_dir", "alphafold_dir" and "fsdb_dir".
+        work_dir (str): Directory that entries files, local structure files, a user Foldseek
+            database and relative cache directories resolve against.
+        step (str): The step parsing them, named in the failure entries.
+        failed_entries_path (str or None): The failed-entries file, appended to, or None for none.
+
+    Returns:
+        list: The QTRecord dicts parsed, in input order.
+
+    Raises:
+        PocketMapperError: If `pocket_method` is unknown, an entries file cannot be read, or no entry
+            is valid.
+    """
+    log_extra = {"stage": "Determine Query/Target Types"}
+
+    records, rejected = parse_side(entries, "entries", pocket_method, cache_dirs, work_dir)
+    failures = [failed_entry(entry, step, "invalid_entry", source, detail=reason) for entry, reason, source in rejected]
+    report_failures(failed_entries_path, failures, log_extra)
+    if not records:
+        logger.critical("No valid entries after processing", extra=log_extra)
+        raise PocketMapperError("no valid entries")
+    return records
+
+
 def parse_structure_side(entries, name, struct_type, cache_dirs, work_dir):
     """
     Resolve the structure of each of one side's entries, ignoring their chain and residue parts.

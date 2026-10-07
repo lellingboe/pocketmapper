@@ -71,6 +71,9 @@ dump) as `--job_file`; nothing in `results_dir` supplies entries or cache dirs.
   from positional `entries` or else the job's query and target; a side whose pocket method is
   `foldseek_db` is forced to struct type `foldseek_db`, and an FSDB query entry is rejected as parse
   rejects it. `--out_dir` is a `QTProcessor` with all three cache dirs set to it.
+- **`pockets ENTRY...`** parses the entries as one side (`steps.parse.parse_listed_entries`) with
+  `pocket_method`, and passes `build_pockets` no alignment, so it expands no FSDB hit; an FSDB entry
+  is skipped. `entries` is shared with fetch_structures, so either's dump replays into the other.
 - **Structure-only parse**: `QTProcessor.parse_structure` (and `process_structure_input` for a file)
   resolves struct type and path without `build_record`, so `P12345:A_B` (no method fits) still
   resolves. `struct_type` forces `pdb`/`alphafold` (checked against the id pattern) or `foldseek_db`
