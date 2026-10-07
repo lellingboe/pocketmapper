@@ -60,7 +60,7 @@ def align(
     enclosing call holds it.
 
     Args:
-        job_file (str or dict, optional): JSON job file of Settings field name -> value, or the same
+        job_file (str or dict, optional): JSON job file of job key -> value, or the same
             already loaded. Any argument given overrides it.
         results_dir (str, optional): The results directory `parse` wrote to. Required here or in
             `job_file`.

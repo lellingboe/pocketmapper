@@ -30,6 +30,7 @@ import json
 import logging
 import os
 from dataclasses import asdict
+from dataclasses import fields
 
 from pocketmapper.lib import log_to_file
 from pocketmapper.lib import temp_dir_scope
@@ -110,8 +111,8 @@ class PocketMapper:
             query (str, optional): Query identifier, string or path to a list. Required here or in
                 `job_file`, not both.
             target (str, optional): Target structure identifier, string or path to a list. As `query`.
-            job_file (str or dict, optional): JSON job file of Settings field name -> value, or the
-                same already loaded. Any argument given overrides it.
+            job_file (str or dict, optional): JSON job file of job key -> value, or the same
+                already loaded. Any argument given overrides it; a key Settings lacks is ignored.
             cache_dir (str, optional): Directory to cache intermediate structures.
                 Defaults to DEFAULT_CACHE_DIR.
             results_dir (str, optional): Directory to output results to.
@@ -239,7 +240,7 @@ class PocketMapper:
             arguments (dict): Settings field name -> value from `search()`, None for unset.
 
         Returns:
-            dict: Settings field name -> value, every path set but nothing else checked.
+            dict: Job key -> value, every path set but nothing else checked.
 
         Raises:
             PocketMapperError: If the job file is missing, unreadable or names an unknown setting, or if
@@ -258,7 +259,8 @@ class PocketMapper:
         open.
 
         Args:
-            values (dict): Settings field name -> value, from `configure_workflow`.
+            values (dict): Job key -> value, from `configure_workflow`. Keys Settings lacks, which
+                only some steps take, are dropped.
 
         Returns:
             Settings: The resolved configuration. Also written to `job_settings_path`.
@@ -292,7 +294,7 @@ class PocketMapper:
         # 4f. Before the settings are dumped, so job_settings.json records the normalised value.
         values["pisa_source"] = resolve_pisa_source(values["pisa_source"])
 
-        settings = Settings(**values)
+        settings = Settings(**{field.name: values[field.name] for field in fields(Settings)})
         logger.info(f"Settings: {json.dumps(asdict(settings), indent=4)}", extra=log_extra)
 
         # 5. Output dump

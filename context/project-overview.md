@@ -217,7 +217,12 @@ the job file sets nothing the CLI can't. Layering is `settings.layer_settings` f
 (arguments not None over job file over `SETTING_DEFAULTS`, then `resolve_paths`); search's resolution is
 in `resolve_settings` (`resolve_*`). `Settings` has no defaults and is built once. Pocket methods keep
 `"auto"` (inferred per entry); `align_struct_method` is resolved per run. The steps take a job dict (or
-file) keyed by `Settings` fields, never a `Settings`, and call the same `settings.resolve_*` validators.
+file) keyed by job keys, never a `Settings`, and call the same `settings.resolve_*` validators.
+
+**Job keys are separate from `Settings`.** `settings.JOB_KEYS` = `fields(Settings)` + `STEP_ONLY_KEYS`
+(options only some steps take) is what a job file may hold and what `layer_settings` seeds. Unknown
+keys are rejected; one in `REMOVED_JOB_KEYS` gets its replacement named. Search drops keys `Settings`
+lacks before building one.
 
 **A reused `job_settings.json` names every path**, so an argument moves only the path it names.
 `results_dir` is not inert beside it all the same: it locates `cache_dirs.json` (fetch_structures, align,
@@ -226,7 +231,8 @@ pockets) and is a `temp_dir` emptying root. In fetch_structures and align, expli
 layered in, an explicit output would also become the input's default (breaks `test_steps_9`/`_13`).
 
 A new option goes in **four hand-maintained places per command**: the function signature and its
-`layer_settings` arguments dict (for search also `Settings`), `OPTIONS` plus the command's `COMMANDS` row
+`layer_settings` arguments dict (for search also `Settings`; for a step-only option
+`settings.STEP_ONLY_KEYS` instead), `OPTIONS` plus the command's `COMMANDS` row
 in `cli.py`, and README Options (for a step, its row in the step table). A fifth for an option with a
 static default: `settings.SETTING_DEFAULTS` (from `constants.DEFAULT_*`, which the help also quotes).
 Signature and parser defaults are all None. Path defaults are `settings.CACHE_PATH_DEFAULTS` /
@@ -234,7 +240,7 @@ Signature and parser defaults are all None. Path defaults are `settings.CACHE_PA
 dispatch table, so there is no kwarg block. Miss one → argparse fails or the option is silently
 ignored. Check, per command: `inspect.signature(steps.<x>.<x>)` == subparser `_actions` dests; for
 search also `dataclasses.fields(Settings)` == signature == `arguments` keys (modulo `job_file`);
-`SETTING_DEFAULTS` keys ⊆ `fields(Settings)`.
+`SETTING_DEFAULTS` keys ⊆ `JOB_KEYS`.
 
 Options are grouped by lifetime in `cli.COMMANDS` and README alike: `in`, `aligned structure`, `cache`,
 `out`, `temp`, `advanced`. A file a command reads has a bare name (`--alignment`); one it writes ends in

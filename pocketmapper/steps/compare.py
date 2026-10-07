@@ -46,7 +46,7 @@ def compare(
     anything to report, deleting any left there by an earlier run.
 
     Args:
-        job_file (str or dict, optional): JSON job file of Settings field name -> value, or the same
+        job_file (str or dict, optional): JSON job file of job key -> value, or the same
             already loaded. Any argument given overrides it.
         results_dir (str, optional): The results directory the inputs default to. Required here or
             in `job_file`.

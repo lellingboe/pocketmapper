@@ -3,7 +3,9 @@ Run configuration: the `Settings` record, the job file layered under the argumen
 validators that resolve each setting.
 
 Every command layers its settings the same way, in `layer_settings`: an argument given beats the
-job file, which beats `SETTING_DEFAULTS`; `resolve_paths` then fills in the paths still unset.
+job file, which beats `SETTING_DEFAULTS`; `resolve_paths` then fills in the paths still unset. A job
+file may hold any of `JOB_KEYS`: the `Settings` fields, which are search's, plus the options only
+some steps take.
 
 Every `resolve_*` takes the value as given -- from the command line, a job file or a library call, so
 any JSON value -- and returns it checked and normalised, or logs a critical and raises.
@@ -83,6 +85,14 @@ class Settings:
     fsdb_dir: str
 
 
+# What a job file may hold, in Settings order: every Settings field, plus the options only some steps
+# take. `layer_settings` seeds every key.
+STEP_ONLY_KEYS = ()
+JOB_KEYS = tuple(field.name for field in fields(Settings)) + STEP_ONLY_KEYS
+
+# Job keys no longer accepted -> what replaced them, for the error a stale job file gets
+REMOVED_JOB_KEYS = {}
+
 # Setting -> its static default. The others default to None: resolved at run time, or required.
 SETTING_DEFAULTS = {
     "cache_dir": DEFAULT_CACHE_DIR,
@@ -132,7 +142,7 @@ def default_results_dir():
 
 def read_job_file(job_file):
     """
-    Read a job file: Settings field name -> value.
+    Read a job file: job key -> value.
 
     Args:
         job_file (str, dict or None): Path to a JSON job file, the same already loaded, or None for none.
@@ -142,7 +152,7 @@ def read_job_file(job_file):
 
     Raises:
         PocketMapperError: If the file is missing, unreadable or not a JSON object, or the job names a
-            setting Settings does not have.
+            key not in JOB_KEYS.
     """
     log_extra = {"stage": "Configuring Settings"}
 
@@ -167,9 +177,12 @@ def read_job_file(job_file):
             raise PocketMapperError(msg)
         source = job_file
 
-    unknown = sorted(set(job) - {field.name for field in fields(Settings)})
+    unknown = [key for key in job if key not in JOB_KEYS]
     if unknown:
+        removed = [key for key in unknown if key in REMOVED_JOB_KEYS]
         msg = f"Unknown setting(s) in {source}: {', '.join(unknown)}"
+        if removed:
+            msg += ". No longer used: " + "; ".join(f"{key} ({REMOVED_JOB_KEYS[key]})" for key in removed)
         logger.critical(msg, extra=log_extra)
         raise PocketMapperError(msg)
     return job
@@ -181,12 +194,12 @@ def layer_settings(job_file, arguments):
 
     Args:
         job_file (str, dict or None): As `read_job_file`.
-        arguments (dict): Settings field name -> the value passed, None for unset. Holds only the
-            settings the caller takes as arguments.
+        arguments (dict): Job key -> the value passed, None for unset. Holds only the settings the
+            caller takes as arguments.
 
     Returns:
-        dict: Every Settings field -> its value: the argument if not None, else the job file's, else
-            its SETTING_DEFAULTS entry, else None. Nothing is checked or derived.
+        dict: Every job key -> its value: the argument if not None, else the job file's, else its
+            SETTING_DEFAULTS entry, else None. Nothing is checked or derived.
 
     Raises:
         PocketMapperError: If the job file cannot be read, or query or target is both an argument and
@@ -203,7 +216,7 @@ def layer_settings(job_file, arguments):
             logger.critical(msg, extra=log_extra)
             raise PocketMapperError(msg)
 
-    values = {field.name: None for field in fields(Settings)}
+    values = dict.fromkeys(JOB_KEYS)
     values.update(SETTING_DEFAULTS)
     values.update(job)
     values.update({key: value for key, value in arguments.items() if value is not None})
@@ -215,7 +228,7 @@ def require_setting(values, key):
     Check that a setting with no default was given.
 
     Args:
-        values (dict): Settings field name -> value, from `layer_settings`.
+        values (dict): Job key -> value, from `layer_settings`.
         key (str): The setting.
 
     Returns:
@@ -235,7 +248,7 @@ def resolve_paths(values):
     Fill in `results_dir` and any derived path left unset.
 
     Args:
-        values (dict): Settings field name -> value, with `cache_dir` set.
+        values (dict): Job key -> value, with `cache_dir` set.
 
     Returns:
         dict: A copy of `values` with every path set. Paths already set are kept; `results_dir`

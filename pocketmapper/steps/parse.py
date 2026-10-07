@@ -53,7 +53,7 @@ def parse(
         query (str, optional): Query entry, or a file of one entry per line. Required here or in
             `job_file`, not both.
         target (str, optional): Target entry, a file of them, or a Foldseek database. As `query`.
-        job_file (str or dict, optional): JSON job file of Settings field name -> value, or the same
+        job_file (str or dict, optional): JSON job file of job key -> value, or the same
             already loaded. Any argument given overrides it.
         results_dir (str, optional): Defaults to pocketmapper_results_<YYMMDD_HHMMSS>.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.

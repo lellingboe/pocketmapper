@@ -64,7 +64,7 @@ def pockets(
             files named. Defaults, when None or empty, to the query and target records files: the
             job file's query_records_path and target_records_path, else the standard files under
             <results_dir>.
-        job_file (str or dict, optional): JSON job file of Settings field name -> value, or the same
+        job_file (str or dict, optional): JSON job file of job key -> value, or the same
             already loaded. Any argument given overrides it.
         results_dir (str, optional): The results directory `parse` wrote to. Required here or in
             `job_file`.
