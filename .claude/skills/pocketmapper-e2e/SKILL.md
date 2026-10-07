@@ -7,8 +7,9 @@ description: Run PocketMapper's end-to-end test suite (tests/e2e/run_e2e.sh) aga
 
 `tests/e2e/run_e2e.sh` is the only test suite in this repo. Each of its cases shells out to
 the real `pocketmapper` CLI against live wwPDB, AlphaFold and PDBe PISA — no mocks, network
-required — and asserts exit status plus the presence (and, where hits are expected,
-non-emptiness) of `pocket_comparison.tsv`.
+required — and asserts exit status plus, per its `expect` field, the presence (and, where hits
+are expected, non-emptiness) of `pocket_comparison.tsv`, other output files, entries in
+`failed_entries.json`, or a match against another run's output.
 
 ## Always run against the warm cache
 
@@ -60,7 +61,14 @@ at a prebuilt Foldseek PDB database; `needs-pdb-download` downloads the full PDB
 
 Case names run in groups: `test_core_*` structure-vs-structure pairs, `test_open_*` open
 whole-chain targets, `test_domains_*` `human_domains` DB targets, `test_fsdb_*` larger Foldseek
-DB targets, `test_local_*` the local aligner.
+DB targets, `test_local_*` the local aligner, `test_invalid_*` rejected or skipped input,
+`test_settings_*` run configuration, `test_steps_*` the step commands (`parse`, `fetch`, `align`,
+`pockets`, `compare`, `superpose`) run on their own and chained.
+
+`needs-pdb-fsdb` cases (`test_fsdb_1`, `test_steps_9`) do not need the 7 GB PDB database: any
+Foldseek DB built with `foldseek createdb` from files named `<pdb>-assembly<N>.cif.gz` has
+PDB-style entry names. Copy a few mmCIFs from the warm cache's `pdb_structures/` under such names
+into a scratch directory, run `createdb` on it, and point `POCKETMAPPER_PDB_FSDB` at the result.
 
 ### What to run for a given change
 
@@ -72,8 +80,9 @@ touched:
 | Alignment, pockets, comparison, superposition | `-t core` |
 | Local BLOSUM62 aligner (`SequenceAligner`) | `-t local` |
 | A pocket method, or `pocket_comparison.py` | `-t core`, then `test_domains_1` |
-| The Foldseek-DB path | `test_fsdb_1` (needs `POCKETMAPPER_PDB_FSDB` set) |
+| The Foldseek-DB path | `test_fsdb_1 test_steps_9` (need `POCKETMAPPER_PDB_FSDB` set) |
 | `Settings`, CLI plumbing, job files, option validation | `test_local_5 test_local_6` and the `test_settings_*` cases |
+| `commands.py`, `steps/`, `records.py`, the hand-off files | the `test_steps_*` cases (`test_steps_8` is tagged `human_domains`) |
 | Anything you're unsure of | `-t core` first; it's the cheap signal |
 
 ## Reading the result
@@ -83,18 +92,25 @@ skipped: N` line, exiting 1 only if something failed. Per-case output lands in
 `<out-dir>/<name>/` with the full CLI log at `<out-dir>/<name>.log` — read the log, not just
 the summary, when a case fails.
 
-**A skip is not a pass.** Without the `foldseek` binary on PATH, 18 of the 38 cases skip and
-the run still exits 0. Report the skip count alongside the pass count, and say what was
+**A skip is not a pass.** Without the `foldseek` binary on PATH, every case that runs `search` or
+`align` without `--aligner seq` skips, and the run still exits 0. Report the skip count alongside the pass count, and say what was
 skipped and why. Foldseek is the CLI's default aligner; install it with
 `conda install -c conda-forge -c bioconda foldseek` if the user wants full coverage.
 
-The `expect` field in each case decides what is asserted:
+The `expect` field in each case is a space-separated list of tokens, all asserted. At most one of:
 
 - `rows` — must exit 0 **and** write at least one data row to `pocket_comparison.tsv`.
 - `ok` — must exit 0 and write the file; zero hits is a legitimate outcome for that pair.
-- `fail` — must exit non-zero (a rejected option combination). Nothing is asserted about output.
+- `fail` — must exit non-zero (a rejected input or option combination).
 - `queries=N` — must exit 0 **and** the `query` column must hold at least N distinct values. For
   a case where the failure is one query's rows going missing, which `rows` cannot see.
+
+With none of them the run must exit 0. Plus any of:
+
+- `files=A,B` — each path exists under the case's results dir.
+- `failed=REASON@POCKET_ID` — `failed_entries.json` lists that entry with that reason.
+- `same=DIR` — `pocket_comparison.tsv` and `alignment.tsv` match, sorted, those in the results
+  dir's subdirectory `DIR` (e.g. a `search` run with `--results_dir @OUT@/search`).
 
 ## Adding a case
 
@@ -104,10 +120,15 @@ Cases live in the `CASES` heredoc at the top of `run_e2e.sh`, five pipe-separate
 name | tags | expect | description | args
 ```
 
-`args` is passed to `pocketmapper search` verbatim. `--verbosity`, `--cache_dir` and
-`--results_dir` are appended by the runner — don't put them in a case. Cases run with
-`tests/e2e/fixtures/` as their working directory, because `testfile.txt` refers to
-`4Q5J.cif.gz` by a relative path; keep that relative reference if you edit the fixtures.
+`args` is passed to `pocketmapper search` verbatim — unless its first word is a command, in which
+case it is a chain of commands separated by ` ; `, run in order. Every command before the last must
+succeed; the last one's exit status is the case's. A `cd DIR` segment sets the working directory of
+the commands after it. The runner appends `--verbosity` to every command, and `--results_dir`
+(and, for `parse`/`search`, `--cache_dir`) unless the command sets it — don't put them in a case
+otherwise. `pockets` takes its records files positionally: `@OUT@/query_records.json
+@OUT@/target_records.json`. Cases run with `tests/e2e/fixtures/` as their working directory,
+because `testfile.txt` refers to `4Q5J.cif.gz` by a relative path; keep that relative reference
+if you edit the fixtures.
 
 Things that fail silently rather than loudly if you get them wrong:
 
@@ -116,12 +137,14 @@ Things that fail silently rather than loudly if you get them wrong:
 - **Blank lines separate groups and are skipped by the runner; a `#` line inside the heredoc
   is not** — it would be parsed as a case with a garbage name. Put annotations in the header
   comment above the heredoc, where the rest of this convention is already documented.
-- **Foldseek is assumed.** A case is skipped when the binary is missing unless its `args`
-  contain the literal string `--aligner seq` — that exact substring is what the gate
-  matches, checked before the catch-all. Tag such a case `local`. Keep at least one case on
+- **Foldseek is assumed for `search` and `align`.** A case running either is skipped when the
+  binary is missing unless its `args` contain the literal string `--aligner seq` — that exact
+  substring is what the gate matches. Tag such a case `local`, and also a chain that never
+  runs `search` or `align`. Keep at least one case on
   the local branch: when every case ran Foldseek, the suite couldn't see that branch, which is
   how it once shipped broken.
 - **`args` is word-split on spaces.** No quoted arguments, and no spaces inside a residue list.
+  A chain's separator is a lone `;` word, so keep the spaces around it.
 - **`@PDB_FSDB@` expands to `$POCKETMAPPER_PDB_FSDB`**; pair it with the `needs-pdb-fsdb` tag
   so the case skips cleanly when that isn't set.
 - **Choose `expect` honestly.** Use `rows` only when hits are genuinely guaranteed for that

@@ -31,21 +31,35 @@ FIXTURES_DIR="$SCRIPT_DIR/fixtures"
 #
 # tags     space-separated; used by --tag and to gate cases needing extra
 #          resources (see `needs-*` handling below).
-# expect   `rows` = run must succeed AND pocket_comparison.tsv must hold at
+# expect   space-separated tokens, all asserted. At most one of:
+#          `rows` = run must succeed AND pocket_comparison.tsv must hold at
 #          least one data row; `ok` = run must succeed and write the file, but
 #          zero hits is a legitimate outcome for that pair; `fail` = the run
-#          must exit non-zero (a rejected option combination), and nothing is
-#          asserted about its output; `queries=N` = run must succeed AND the
-#          `query` column of pocket_comparison.tsv must hold at least N distinct
-#          values, for a case where losing one query's rows is the failure.
+#          must exit non-zero (a rejected input or option combination);
+#          `queries=N` = run must succeed AND the `query` column of
+#          pocket_comparison.tsv must hold at least N distinct values, for a
+#          case where losing one query's rows is the failure. With none of
+#          them, the run must succeed. Plus any of: `files=A,B` = each path
+#          exists under the case's results dir; `failed=REASON@POCKET_ID` =
+#          failed_entries.json lists that entry with that reason;
+#          `same=DIR` = pocket_comparison.tsv and alignment.tsv match, once
+#          sorted, those in the results dir's subdirectory DIR.
 # args     passed to `pocketmapper search` verbatim (word-split on spaces).
+#          Or, when the first word is a command (parse, fetch, align, pockets,
+#          compare, superpose, search), a chain of commands separated by ` ; `,
+#          run in order: every one before the last must succeed, and the last
+#          one's exit status is the run's. A `cd DIR` segment sets the working
+#          directory of the commands after it. Each command gets --verbosity
+#          and, unless it sets them, --results_dir and (parse, search)
+#          --cache_dir.
 #          @PDB_FSDB@ expands to $POCKETMAPPER_PDB_FSDB, @CACHE@ to the shared
 #          cache dir and @OUT@ to this case's own results dir -- the last two
 #          let a case aim a path option somewhere real without hardcoding a
-#          machine-specific path. Foldseek is the CLI's default, so a case is
-#          assumed to need the binary and is skipped when it is missing; a
-#          case opts out with an explicit `--aligner seq`, which exercises
-#          the local BLOSUM62 aligner and still runs without the binary.
+#          machine-specific path. Foldseek is the CLI's default, so a case
+#          running search or align is assumed to need the binary and is
+#          skipped when it is missing; a case opts out with an explicit
+#          `--aligner seq`, which exercises the local BLOSUM62 aligner and
+#          still runs without the binary.
 #
 # Cases are grouped by what they exercise, and each group is named by its
 # prefix and numbered within itself: test_core_* structure-vs-structure pairs,
@@ -53,8 +67,9 @@ FIXTURES_DIR="$SCRIPT_DIR/fixtures"
 # targets, test_fsdb_* the larger Foldseek DB targets, test_local_* the local
 # aligner, test_invalid_* input that must be rejected or skipped rather than
 # compared, test_settings_* how a run is configured rather than what it
-# computes. The prefix tracks the group, not the tag column -- test_open_*,
-# test_invalid_*, the test_settings_* and most of the test_local_* cases are
+# computes, test_steps_* the step commands run on their own. The prefix tracks
+# the group, not the tag column -- test_open_*, test_invalid_*, the
+# test_settings_* and most of the test_local_* and test_steps_* cases are
 # tagged 'core' as well.
 #
 # Append to a group and nothing else moves; inserting mid-group still renumbers
@@ -95,14 +110,14 @@ test_local_5|core local|fail|align_struct_method foldseek rejected on the local 
 test_local_6|core local|fail|Unknown align_struct_method rejected|4Q5J:A_E 4Q5J:B_F --aligner seq --align_struct_method bogus
 test_local_7|core local|queries=2|Same-named local files on the local aligner|same_name.txt same_name.txt --aligner seq
 
-test_invalid_1|core|rows|Passthrough residue id absent from the chain is skipped|invalid_residues.txt 4Q5J:B_F --aligner seq
+test_invalid_1|core|rows failed=pocket_not_built@4Q5J:A:9999|Passthrough residue id absent from the chain is skipped|invalid_residues.txt 4Q5J:B_F --aligner seq
 test_invalid_2|core|rows|Duplicated passthrough residue ids collapsed|4Q5J:A:1101,1101,1104 4Q5J:B_F --aligner seq
 test_invalid_3|core|fail|Forced passthrough with no residue list rejected|4Q5J:A 4Q5J:B_F --aligner seq --query_pocket_method passthrough
 test_invalid_4|core|fail|Unknown forced pocket method rejected|4Q5J:A_E 4Q5J:B_F --aligner seq --query_pocket_method psia
 test_invalid_5|core|fail|Forced pisa with no partner chain rejected|4Q5J:A 4Q5J:B_F --aligner seq --query_pocket_method pisa
 test_invalid_6|core|fail|Forced pisa on an AlphaFold entry rejected|P24941:A_B 4Q5J:B_F --aligner seq --query_pocket_method pisa
 test_invalid_7|core|fail|Forced vdw with no partner chain rejected|4Q5J:A 4Q5J:B_F --aligner seq --query_pocket_method vdw
-test_invalid_8|core|rows|Forced method skips only the entries that cannot use it|forced_pisa_mixed.txt 4Q5J:B_F --aligner seq --query_pocket_method pisa
+test_invalid_8|core|rows failed=invalid_entry@4Q5J:A|Forced method skips only the entries that cannot use it|forced_pisa_mixed.txt 4Q5J:B_F --aligner seq --query_pocket_method pisa
 test_invalid_9|core|fail|Unknown aligner rejected|4Q5J:A_E 4Q5J:B_F --aligner bogus
 
 test_settings_1|core settings|rows|Path options set on the command line|4Q5J:A_E 4Q5J:B_F --aligner seq --pdb_dir @CACHE@/pdb_structures --alphafold_dir @CACHE@/alphafold_structures --pocket_dir @CACHE@/pockets --alignment_path @OUT@/custom_alignment.tsv --aligned_structure_dir @OUT@/custom_aligned --job_settings_path @OUT@/custom_settings.json --log_path @OUT@/custom.log --temp_dir @OUT@/custom_temp
@@ -113,6 +128,19 @@ test_settings_5|core settings|rows|Job file supplies query and target|--job_file
 test_settings_6|core settings|fail|Query given both positionally and in the job file|--job_file job_file_qt.json 4Q5J:A_E 4Q5J:B_F --aligner seq
 test_settings_7|core settings|rows|Explicit auto pocket method infers as the default does|4Q5J:A_E 4Q5J:B_F --aligner seq --query_pocket_method auto --target_pocket_method auto
 test_settings_8|core settings|fail|delete_tmp other than 1 or 0 rejected|4Q5J:A_E 4Q5J:B_F --aligner seq --delete_tmp 2
+
+test_steps_1|core local|files=query_records.json,target_records.json,cache_dirs.json,failed_entries.json|parse writes the records files and the cache manifest|parse 4Q5J:A_E 4Q5J:B_F
+test_steps_2|core local|files=query_records.json,target_records.json|fetch after parse|parse 4Q5J:A_E 4Q5J:B_F ; fetch
+test_steps_3|core local|files=alignment.tsv|align after fetch|parse 4Q5J:A_E 4Q5J:B_F ; fetch ; align --aligner seq
+test_steps_4|core local|files=pockets.json|pockets after align|parse 4Q5J:A_E 4Q5J:B_F ; fetch ; align --aligner seq ; pockets @OUT@/query_records.json @OUT@/target_records.json
+test_steps_5|core local|rows|compare after pockets|parse 4Q5J:A_E 4Q5J:B_F ; fetch ; align --aligner seq ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare
+test_steps_6|core local|rows files=aligned_structures|superpose after align --aligner seq, the aligner not restated|parse 4Q5J:A_E 4Q5J:B_F ; fetch ; align --aligner seq ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare ; superpose
+test_steps_7|core|rows same=search|Chained commands give what search gives (PISA batch vs itself)|search pdb_pisa_in.txt pdb_pisa_in.txt --results_dir @OUT@/search ; parse pdb_pisa_in.txt pdb_pisa_in.txt ; fetch ; align ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare ; superpose
+test_steps_8|human_domains|rows same=search|Chained commands give what search gives (mixed batch vs human domains), run from the results dir after parse|search testfile.txt human_domains --results_dir @OUT@/search ; parse testfile.txt human_domains ; cd @OUT@ ; fetch ; align ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare ; superpose
+test_steps_9|needs-pdb-fsdb slow|rows same=rerun|align rerun on its own output against a PDB Foldseek database gives the same rows|parse 4Q5J:B_F @PDB_FSDB@ --target_pocket_method foldseek_db ; fetch ; align ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare ; align --query_records_path @OUT@/rerun/query_records.json --target_records_path @OUT@/rerun/target_records.json --alignment_path @OUT@/rerun/alignment.tsv ; pockets @OUT@/rerun/query_records.json @OUT@/rerun/target_records.json --pockets_path @OUT@/rerun/pockets.json ; compare --query_records @OUT@/rerun/query_records.json --target_records @OUT@/rerun/target_records.json --alignment @OUT@/rerun/alignment.tsv --pockets @OUT@/rerun/pockets.json --pocket_comparison_path @OUT@/rerun/pocket_comparison.tsv
+test_steps_10|core local|fail|compare rejects target records whose pockets were not built|parse 4Q5J:A_E 4Q5J:B_F ; fetch ; align --aligner seq ; pockets @OUT@/query_records.json ; compare
+test_steps_11|core local|fail|parse rejects a Foldseek database beside a structure target|parse 4Q5J:A_E fsdb_mixed_target.txt
+test_steps_12|core local|fail failed=invalid_entry@human_domains|parse rejects a Foldseek database query|parse human_domains 4Q5J:B_F
 EOF
 
 # ---------------------------------------------------------------------------
@@ -240,6 +268,26 @@ has_tag() {
     return 1
 }
 
+COMMANDS="parse fetch align pockets compare superpose search"
+
+is_command() {
+    for c in $COMMANDS; do [ "$c" = "$1" ] && return 0; done
+    return 1
+}
+
+# The command each ';'-separated segment of a case's args runs; `search` for a
+# case that names none.
+segment_commands() {
+    local first=1 word
+    is_command "${1%% *}" || { echo search; return; }
+    # shellcheck disable=SC2086  # deliberate word-splitting of the args field
+    for word in $1; do
+        if [ "$word" = ";" ]; then first=1; continue; fi
+        [ "$first" -eq 1 ] && echo "$word"
+        first=0
+    done
+}
+
 while IFS='|' read -r name tags expect desc args; do
     [ -z "$name" ] && continue
 
@@ -253,10 +301,15 @@ while IFS='|' read -r name tags expect desc args; do
     fi
 
     # --- gating -----------------------------------------------------------
+    # Foldseek is needed by a search or align segment, unless the case uses the
+    # local aligner.
     skip_reason=""
+    uses_foldseek=0
+    for cmd in $(segment_commands "$args"); do
+        case "$cmd" in search|align) uses_foldseek=1 ;; esac
+    done
     case "$args" in
         *"--aligner seq"*) uses_foldseek=0 ;;
-        *)                 uses_foldseek=1 ;;
     esac
     if [ "$uses_foldseek" -eq 1 ] && [ "$HAVE_FOLDSEEK" -eq 0 ]; then
         skip_reason="foldseek not installed"
@@ -274,69 +327,156 @@ while IFS='|' read -r name tags expect desc args; do
         continue
     fi
 
-    # --- build the command ------------------------------------------------
+    # --- build the commands -----------------------------------------------
     case_out="$OUT_DIR/$name"
     resolved_args="${args//@PDB_FSDB@/$PDB_FSDB}"
     resolved_args="${resolved_args//@CACHE@/$CACHE_DIR}"
     resolved_args="${resolved_args//@OUT@/$case_out}"
+    # A case that names no command is one search
+    is_command "${args%% *}" || resolved_args="search $resolved_args"
 
-    if [ "$KEEP" -eq 0 ] && [ -d "$case_out" ]; then
+    if [ "$KEEP" -eq 0 ] && [ -d "$case_out" ] && [ "$DRY_RUN" -eq 0 ]; then
         # Scoped to this case's own directory; never touches OUT_DIR itself.
         rm -rf "$case_out"
     fi
 
+    # One line per segment: the working directory, a tab, then the command.
+    # `cd DIR` segments only move the working directory of those after them.
+    segments=""
+    cwd="$FIXTURES_DIR"
+    segment=""
     # shellcheck disable=SC2086  # deliberate word-splitting of the args field
-    set -- $resolved_args \
-        --verbosity "$VERBOSITY" \
-        --cache_dir "$CACHE_DIR" \
-        --results_dir "$case_out"
+    for word in $resolved_args ";"; do
+        if [ "$word" != ";" ]; then
+            segment="$segment $word"
+            continue
+        fi
+        set -- $segment
+        segment=""
+        [ $# -eq 0 ] && continue
+        if [ "$1" = "cd" ]; then
+            cwd="$2"
+            continue
+        fi
+        extra="--verbosity $VERBOSITY"
+        case " $* " in *" --results_dir "*) ;; *) extra="$extra --results_dir $case_out" ;; esac
+        case "$1" in
+            search|parse)
+                case " $* " in *" --cache_dir "*) ;; *) extra="$extra --cache_dir $CACHE_DIR" ;; esac ;;
+        esac
+        segments="$segments$cwd	$* $extra
+"
+    done
 
     if [ "$DRY_RUN" -eq 1 ]; then
-        printf 'DRY   %-16s (cd %s && %s search %s)\n' "$name" "$FIXTURES_DIR" "$POCKETMAPPER_BIN" "$*"
+        while IFS='	' read -r dir cmd; do
+            [ -z "$cmd" ] && continue
+            printf 'DRY   %-16s (cd %s && %s %s)\n' "$name" "$dir" "$POCKETMAPPER_BIN" "$cmd"
+        done <<< "$segments"
         continue
     fi
 
     printf 'RUN   %-16s %s\n' "$name" "$desc"
     log="$OUT_DIR/$name.log"
+    : > "$log"
     started=$(date +%s)
-    ( cd "$FIXTURES_DIR" && "$POCKETMAPPER_BIN" search "$@" ) > "$log" 2>&1
-    status=$?
+    # Every segment but the last must succeed; the last one's status is the case's.
+    status=0
+    early_failure=0
+    remaining=$(printf '%s' "$segments" | grep -c .)
+    while IFS='	' read -r dir cmd; do
+        [ -z "$cmd" ] && continue
+        remaining=$((remaining - 1))
+        echo "### (cd $dir && pocketmapper $cmd)" >> "$log"
+        # shellcheck disable=SC2086  # deliberate word-splitting of the command
+        ( mkdir -p "$dir" && cd "$dir" && "$POCKETMAPPER_BIN" $cmd ) >> "$log" 2>&1 < /dev/null
+        status=$?
+        if [ "$status" -ne 0 ]; then
+            [ "$remaining" -gt 0 ] && early_failure=1
+            break
+        fi
+    done <<< "$segments"
     elapsed=$(( $(date +%s) - started ))
 
     # --- assertions -------------------------------------------------------
     comparison="$case_out/pocket_comparison.tsv"
-    if [ "$expect" = "fail" ]; then
-        # A rejected option combination: the only assertion is that it was rejected.
-        if [ "$status" -eq 0 ]; then
-            printf '  FAIL  exit=0 after %ds (expected a rejection) -- see %s\n' "$elapsed" "$log"
-            FAIL=$((FAIL + 1)); FAILED_NAMES="$FAILED_NAMES $name"
-        else
-            printf '  PASS  rejected as expected in %ds\n' "$elapsed"
-            PASS=$((PASS + 1))
-        fi
+    problem=""
+    # The one token about pocket_comparison.tsv or the exit status, if any
+    outcome=""
+    for token in $expect; do
+        case "$token" in
+            rows|ok|fail|queries=*) outcome="$token" ;;
+        esac
+    done
+    if [ "$early_failure" -eq 1 ]; then
+        problem="a command before the last exited $status"
+    elif [ "$outcome" = "fail" ]; then
+        # A rejected input or option combination
+        [ "$status" -eq 0 ] && problem="exit=0 (expected a rejection)"
     elif [ "$status" -ne 0 ]; then
-        printf '  FAIL  exit=%d after %ds -- see %s\n' "$status" "$elapsed" "$log"
-        FAIL=$((FAIL + 1)); FAILED_NAMES="$FAILED_NAMES $name"
-    elif [ ! -f "$comparison" ]; then
-        printf '  FAIL  no pocket_comparison.tsv after %ds -- see %s\n' "$elapsed" "$log"
-        FAIL=$((FAIL + 1)); FAILED_NAMES="$FAILED_NAMES $name"
-    else
-        rows=$(( $(wc -l < "$comparison") - 1 ))
-        [ "$rows" -lt 0 ] && rows=0
-        # Distinct values of the column headed `query`
-        queries=$(awk -F'\t' 'NR == 1 { for (i = 1; i <= NF; i++) if ($i == "query") c = i; next }
-                               c { print $c }' "$comparison" | sort -u | wc -l | tr -d ' ')
-        if [ "$expect" = "rows" ] && [ "$rows" -lt 1 ]; then
-            printf '  FAIL  0 comparison rows after %ds (expected >=1) -- see %s\n' "$elapsed" "$log"
-            FAIL=$((FAIL + 1)); FAILED_NAMES="$FAILED_NAMES $name"
-        elif [ "${expect#queries=}" != "$expect" ] && [ "$queries" -lt "${expect#queries=}" ]; then
-            printf '  FAIL  %d distinct queries after %ds (expected >=%s) -- see %s\n' \
-                "$queries" "$elapsed" "${expect#queries=}" "$log"
-            FAIL=$((FAIL + 1)); FAILED_NAMES="$FAILED_NAMES $name"
+        problem="exit=$status"
+    fi
+    rows=-1
+    if [ -z "$problem" ] && [ -n "$outcome" ] && [ "$outcome" != "fail" ]; then
+        if [ ! -f "$comparison" ]; then
+            problem="no pocket_comparison.tsv"
         else
-            printf '  PASS  %d comparison rows in %ds\n' "$rows" "$elapsed"
-            PASS=$((PASS + 1))
+            rows=$(( $(wc -l < "$comparison") - 1 ))
+            [ "$rows" -lt 0 ] && rows=0
+            # Distinct values of the column headed `query`
+            queries=$(awk -F'\t' 'NR == 1 { for (i = 1; i <= NF; i++) if ($i == "query") c = i; next }
+                                   c { print $c }' "$comparison" | sort -u | wc -l | tr -d ' ')
+            if [ "$outcome" = "rows" ] && [ "$rows" -lt 1 ]; then
+                problem="0 comparison rows (expected >=1)"
+            elif [ "${outcome#queries=}" != "$outcome" ] && [ "$queries" -lt "${outcome#queries=}" ]; then
+                problem="$queries distinct queries (expected >=${outcome#queries=})"
+            fi
         fi
+    fi
+    if [ -z "$problem" ]; then
+        for token in $expect; do
+            case "$token" in
+                files=*)
+                    for f in $(echo "${token#files=}" | tr ',' ' '); do
+                        [ -e "$case_out/$f" ] || { problem="no $f"; break; }
+                    done ;;
+                failed=*)
+                    reason="${token#failed=}"; pocket_id="${reason#*@}"; reason="${reason%%@*}"
+                    python3 - "$case_out/failed_entries.json" "$reason" "$pocket_id" <<'PY' || problem="failed_entries.json has no $reason entry for $pocket_id"
+import json, sys
+path, reason, pocket_id = sys.argv[1:]
+entries = json.load(open(path))
+sys.exit(0 if any(e["reason"] == reason and e["pocket_id"] == pocket_id for e in entries) else 1)
+PY
+                    ;;
+                same=*)
+                    other="$case_out/${token#same=}"
+                    for f in pocket_comparison.tsv alignment.tsv; do
+                        if [ ! -f "$case_out/$f" ] || [ ! -f "$other/$f" ]; then
+                            problem="$f missing from $case_out or $other"; break
+                        fi
+                        # Row order is not stable between runs
+                        if ! cmp -s <(sort "$case_out/$f") <(sort "$other/$f"); then
+                            problem="$f differs from $other/$f"; break
+                        fi
+                    done ;;
+            esac
+            [ -n "$problem" ] && break
+        done
+    fi
+
+    if [ -n "$problem" ]; then
+        printf '  FAIL  %s after %ds -- see %s\n' "$problem" "$elapsed" "$log"
+        FAIL=$((FAIL + 1)); FAILED_NAMES="$FAILED_NAMES $name"
+    elif [ "$outcome" = "fail" ]; then
+        printf '  PASS  rejected as expected in %ds\n' "$elapsed"
+        PASS=$((PASS + 1))
+    elif [ "$rows" -ge 0 ]; then
+        printf '  PASS  %d comparison rows in %ds\n' "$rows" "$elapsed"
+        PASS=$((PASS + 1))
+    else
+        printf '  PASS  in %ds\n' "$elapsed"
+        PASS=$((PASS + 1))
     fi
 done <<< "$CASES"
 
