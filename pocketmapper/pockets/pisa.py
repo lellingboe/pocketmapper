@@ -6,7 +6,7 @@ the pipeline expects. This is the `pisa` pocket method, available for PDB entrie
 AlphaFold models and local files have no PISA data.
 
 `pisa_pockets` is the method's builder: download, parse, then add coordinates from the structure.
-`download_pisa_interfaces` owns the cache layout under `pocket_dir/pisa/`.
+`pisa_cache_layout` owns the cache layout under `pocket_dir/pisa/`.
 """
 
 import json
@@ -162,6 +162,26 @@ class PisaParser:
         return pockets
 
 
+def pisa_cache_layout(pocket_dir):
+    """
+    The PISA cache's locations under a pocket cache directory.
+
+    Args:
+        pocket_dir (str): Pocket cache directory.
+
+    Returns:
+        dict: "summary_dir", "asm_dir", "interface_dir" and "error_path", each under `pocket_dir/pisa/`.
+            `interface_dir` holds the per-entry interface files `PisaParser` reads.
+    """
+    pisa_dir = os.path.join(pocket_dir, "pisa")
+    return {
+        "summary_dir": os.path.join(pisa_dir, "summaries"),
+        "asm_dir": os.path.join(pisa_dir, "assemblies"),
+        "interface_dir": os.path.join(pisa_dir, "interface_pairs"),
+        "error_path": os.path.join(pisa_dir, "errors.json"),
+    }
+
+
 def download_pisa_interfaces(pdb_list, pocket_dir, pisa_source):
     """
     Populate the PISA interface cache under `pocket_dir/pisa/` for a list of PDB entries.
@@ -176,31 +196,25 @@ def download_pisa_interfaces(pdb_list, pocket_dir, pisa_source):
     Returns:
         str: The directory of per-entry interface files, for `PisaParser`.
     """
-    pisa_dir = os.path.join(pocket_dir, "pisa")
-    interface_dir = os.path.join(pisa_dir, "interface_pairs")
-    PisaDownloader(source=pisa_source).download_missing_interfaces(
-        pdb_list=pdb_list,
-        summary_dir=os.path.join(pisa_dir, "summaries"),
-        asm_dir=os.path.join(pisa_dir, "assemblies"),
-        interface_dir=interface_dir,
-        error_path=os.path.join(pisa_dir, "errors.json"),
-    )
-    return interface_dir
+    layout = pisa_cache_layout(pocket_dir)
+    PisaDownloader(source=pisa_source).download_missing_interfaces(pdb_list=pdb_list, **layout)
+    return layout["interface_dir"]
 
 
-def pisa_pockets(records, pocket_dir, pisa_source=DEFAULT_PISA_SOURCE):
+def pisa_pockets(records, pocket_dir, pisa_source=DEFAULT_PISA_SOURCE, download=True):
     """
     Build a Pocket per record from the PDBe PISA interface it names, with coordinates from its structure.
 
-    Downloads any PISA files not already cached under `pocket_dir/pisa/`. With the "api" source that
-    is one paced request per assembly, so an uncached list can take a long time. When any entry
-    fails, `pisa/errors.json` is overwritten with the failures.
+    Unless `download` is False, downloads any PISA files not already cached under `pocket_dir/pisa/`.
+    With the "api" source that is one paced request per assembly, so an uncached list can take a long
+    time. When any entry fails, `pisa/errors.json` is overwritten with the failures.
 
     Args:
         records (list): QTRecord dicts with `pocket_method == "pisa"`.
         pocket_dir (str): Pocket cache directory.
         pisa_source (str): Where assembly interfaces are fetched from: "ftp" or "api".
             Defaults to DEFAULT_PISA_SOURCE.
+        download (bool): False reads only what is already cached. Defaults to True.
 
     Returns:
         dict: pocket_id -> Pocket. A record whose interface cannot be resolved is skipped with a
@@ -210,7 +224,10 @@ def pisa_pockets(records, pocket_dir, pisa_source=DEFAULT_PISA_SOURCE):
 
     pdb_list = list(dict.fromkeys(record["struct_info"] for record in records))
     logger.debug(f"PDBs for which to retrieve PISA pockets: {pdb_list}", extra=log_extra)
-    interface_dir = download_pisa_interfaces(pdb_list, pocket_dir, pisa_source)
+    if download:
+        interface_dir = download_pisa_interfaces(pdb_list, pocket_dir, pisa_source)
+    else:
+        interface_dir = pisa_cache_layout(pocket_dir)["interface_dir"]
 
     pockets = PisaParser().get_pockets_from_records(records=records, in_dir=interface_dir)
     logger.debug(f"PISA pockets before coordinates: {pockets}", extra=log_extra)

@@ -55,6 +55,7 @@ from pocketmapper.pockets.pisa import PisaParser
 from pocketmapper.pockets.pisa import download_pisa_interfaces
 from pocketmapper.pockets.pocket_fetcher import PocketFetcher
 from pocketmapper.qt_processor import QTProcessor
+from pocketmapper.records import fsdb_record
 from pocketmapper.records import preproc_to_ids
 from pocketmapper.sequence_aligner import SequenceAligner
 from pocketmapper.settings import Settings
@@ -387,27 +388,34 @@ class PocketMapper:
             tuple: (query_df, target_df), one QTRecord row per valid entry.
 
         Raises:
-            PocketMapperError: If either side has no valid entries, or a Foldseek-database target is
-                used without the foldseek aligner or with align_struct_method "pocket".
+            PocketMapperError: If either side has no valid entries, a Foldseek-database target is not
+                the only target entry, or it is used without the foldseek aligner or with
+                align_struct_method "pocket".
         """
         log_extra = {"stage": "Determine Query/Target Types"}
 
-        qtprocessor = QTProcessor(
-            pdb_dir=self.settings.pdb_dir,
-            alphafold_dir=self.settings.alphafold_dir,
-            foldseek_preprocessed_structure_dir=self.settings.foldseek_preprocessed_structure_dir,
-            fsdb_dir=self.settings.fsdb_dir,
-        )
-        q_df = qtprocessor.process_qt_cmdline_input(
+        qtprocessor = self.qt_processor()
+        query_records, _ = qtprocessor.process_qt_cmdline_input(
             qt_input=self.settings.query,
             name="query",
             pocket_method=self.settings.query_pocket_method,
         )
-        t_df = qtprocessor.process_qt_cmdline_input(
+        target_records, _ = qtprocessor.process_qt_cmdline_input(
             qt_input=self.settings.target,
             name="target",
             pocket_method=self.settings.target_pocket_method,
         )
+
+        # A database cannot be searched against, only searched
+        for record in [record for record in query_records if record["struct_type"] == "foldseek_db"]:
+            logger.warning(
+                f"A Foldseek database cannot be a query entry: {record['pocket_id']}; skipping this entry",
+                extra=log_extra,
+            )
+            query_records.remove(record)
+
+        q_df = pd.DataFrame(query_records).assign(success=True, failure_reason="")
+        t_df = pd.DataFrame(target_records).assign(success=True, failure_reason="")
 
         errors = []
         if len(q_df) < 1:
@@ -419,11 +427,33 @@ class PocketMapper:
         if errors:
             raise PocketMapperError("; ".join(errors))
 
+        if fsdb_record(target_records) is not None and len(target_records) > 1:
+            msg = (
+                "A Foldseek database target must be the only target entry, but "
+                f"{len(target_records)} target entries were given"
+            )
+            logger.critical(msg, extra=log_extra)
+            raise PocketMapperError(msg)
+
         if t_df.loc[0, "struct_type"] == "foldseek_db":
             check_fsdb_aligner(self.settings.aligner)
             check_fsdb_align_struct_method(self.settings.align_struct_method)
             self.fsdb_target = True
         return q_df, t_df
+
+    def qt_processor(self):
+        """
+        A QTProcessor resolving record paths against this run's cache directories, made absolute.
+
+        Returns:
+            QTProcessor: The processor.
+        """
+        return QTProcessor(
+            pdb_dir=os.path.abspath(self.settings.pdb_dir),
+            alphafold_dir=os.path.abspath(self.settings.alphafold_dir),
+            foldseek_preprocessed_structure_dir=os.path.abspath(self.settings.foldseek_preprocessed_structure_dir),
+            fsdb_dir=os.path.abspath(self.settings.fsdb_dir),
+        )
 
     def fetch_missing_structures(self, name, qt_df):
         """
@@ -545,12 +575,12 @@ class PocketMapper:
             qtdf_dir_iter.append((self.target_df, self.target_tmp_dir))
 
         for df, search_dir in qtdf_dir_iter:
-            records = df.drop_duplicates(subset=["preprocess_name", "chain_info"]).to_dict(orient="records")
+            records = (
+                df.query("success").drop_duplicates(subset=["preprocess_name", "chain_info"]).to_dict(orient="records")
+            )
             logger.debug(f"Records to preprocess: {json.dumps(records, indent=4)}", extra=log_extra)
             make_dir(search_dir, log_extra)
 
-            structure_preprocessor.set_output_directory(self.settings.foldseek_preprocessed_structure_dir)
-            structure_preprocessor.update_cache()
             results = structure_preprocessor.preprocess_records(records=records, search_dir=search_dir)
             logger.debug(f"Preprocessing results: {json.dumps(results, indent=4)}", extra=log_extra)
 
@@ -698,12 +728,7 @@ class PocketMapper:
 
         # Building one record per interface the hit chain takes part in
         parser = PisaParser()
-        qtprocessor = QTProcessor(
-            pdb_dir=self.settings.pdb_dir,
-            alphafold_dir=self.settings.alphafold_dir,
-            foldseek_preprocessed_structure_dir=self.settings.foldseek_preprocessed_structure_dir,
-            fsdb_dir=self.settings.fsdb_dir,
-        )
+        qtprocessor = self.qt_processor()
         # PISA stores chain pairs the input grammar cannot spell (multi-character chain ids); those are
         # counted and skipped here rather than each rejected with a warning.
         pisa_pattern = qtprocessor.pocket_methods["pisa"][0]
@@ -714,9 +739,9 @@ class PocketMapper:
                 if not re.match(pisa_pattern, f"{chain_id}_{partner}"):
                     unspellable += 1
                     continue
-                record = qtprocessor.parse_individual_qt(f"{pdb_id}:{chain_id}_{partner}", pocket_method="pisa")
+                record, _ = qtprocessor.parse_individual_qt(f"{pdb_id}:{chain_id}_{partner}", pocket_method="pisa")
                 if record is None:
-                    continue
+                    continue  # the reason is logged
                 # The alignment is keyed by the Foldseek entry name. Nothing preprocesses these
                 # structures, so they have no preprocessing paths.
                 record.preprocess_name = hit_name

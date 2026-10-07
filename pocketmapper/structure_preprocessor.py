@@ -23,48 +23,25 @@ class StructurePreprocessor:
     """
     Splits reference structures into single-chain copies for Foldseek to index.
 
-    Call in order -- `set_output_directory()`, then `update_cache()`, then `preprocess_records()`.
-    The ordering is required: the cache is read from the output directory, and preprocessing needs
-    both. Nothing enforces it.
+    Each record names its own cached copy, in `preprocess_path_gz`, so there is no shared output
+    directory and no call order to observe.
     """
 
     def __init__(
         self,
     ):
         """
-        Initialise with no output directory; `set_output_directory` supplies it later.
+        Initialise the logging stage. The preprocessor holds no other state.
         """
         self.log_extra = {"stage": "Preprocessing Structures"}
         logger.debug("Initialized")
-
-        self.out_dir = None
-        self.cache = None
-
-    def set_output_directory(self, out_dir):
-        """
-        Set or update the target output directory, creating it if it does not exist.
-
-        Args:
-            out_dir (str): The new output directory path.
-        """
-        self.out_dir = out_dir
-        if not os.path.exists(out_dir):
-            os.makedirs(out_dir)
-
-    def update_cache(self):
-        """
-        Update the internal cache of files present in the output directory.
-
-        The cache holds bare filenames, not paths.
-        """
-        self.cache = set(os.listdir(self.out_dir))
 
     def preprocess_records(self, records, search_dir):
         """
         Split each record's reference structure down to its single alignment chain.
 
-        Writes each single-chain copy to its `preprocess_path_gz`, unless the cache already holds it, and
-        copies it into `search_dir` as `<preprocess_name>.cif.gz`.
+        Writes each single-chain copy to its `preprocess_path_gz`, creating the directory, unless a file
+        is already there, and copies it into `search_dir` as `<preprocess_name>.cif.gz`.
 
         Args:
             records (list): QTRecord dicts carrying `struct_path` and the `preprocess_*` paths.
@@ -72,15 +49,13 @@ class StructurePreprocessor:
 
         Returns:
             dict: pocket_id -> whether preprocessing succeeded. Foldseek-database records count as
-                succeeded untouched; records already marked unsuccessful are absent.
+                succeeded untouched.
         """
         status_dict = {}
 
         for record in tqdm(records):
             if record["struct_type"] == "foldseek_db":
                 status_dict[record["pocket_id"]] = True  # foldseek db records are already preprocessed
-                continue
-            elif record["success"] is False:
                 continue
 
             struct_info = record["struct_info"]
@@ -90,7 +65,7 @@ class StructurePreprocessor:
             out_path = record["preprocess_path"]
             out_path_gz = record["preprocess_path_gz"]
 
-            if os.path.basename(out_path_gz) not in self.cache:
+            if not os.path.exists(out_path_gz):
                 ref_path = record["struct_path"]  # e.g., /path/to/alphafold_dir/P12345.cif.gz
                 st = gemmi.read_structure(ref_path)
 
@@ -116,6 +91,7 @@ class StructurePreprocessor:
                         del model[chain_id]
 
                 # Output the domain and motif pdb file
+                os.makedirs(os.path.dirname(out_path), exist_ok=True)
                 groups = gemmi.MmcifOutputGroups(False, atoms=True, group_pdb=True)
                 st.make_mmcif_document(groups).write_file(out_path)
                 # Through a .part: the cache trusts any .cif.gz it finds, so a truncated one would stick

@@ -22,8 +22,6 @@ import re
 from dataclasses import asdict
 from dataclasses import dataclass
 
-import pandas as pd
-
 from pocketmapper.constants import DEFAULT_CHAIN
 from pocketmapper.constants import DEFAULT_POCKET_METHOD
 from pocketmapper.exceptions import PocketMapperError
@@ -39,8 +37,8 @@ class QTRecord:
     A single parsed query/target entry.
 
     Holds the raw input string as `pocket_id` plus everything derived from it -- structure location,
-    preprocessing paths and pocket method. `success` and `failure_reason` let a record survive a failed
-    fetch so the reason can be reported alongside the ones that worked.
+    preprocessing paths and pocket method. Paths are as absolute as the directories they were
+    resolved against, and a local file's or user Foldseek database's is made absolute.
     """
 
     pocket_id: str
@@ -53,13 +51,14 @@ class QTRecord:
     preprocess_path: str | None = None
     preprocess_path_gz: str | None = None
     pocket_method: str | None = None
-    success: bool = True
-    failure_reason: str = ""
+    # How a Foldseek-database target's pockets are resolved, once its hits are known: "pisa" for a
+    # PDB-named database, "whole_chain" for any other. None on every other record.
+    fsdb_pockets: str | None = None
 
 
 class QTProcessor:
     """
-    Parses query and target input into `QTRecord` DataFrames.
+    Parses query and target input into `QTRecord` dicts.
 
     Handles both sides identically; `process_qt_cmdline_input` is the entry point and is called once
     per side.
@@ -68,6 +67,9 @@ class QTProcessor:
     def __init__(self, pdb_dir, alphafold_dir, foldseek_preprocessed_structure_dir, fsdb_dir):
         """
         Store the directories that record paths are resolved against, and compile the input regexes.
+
+        Record paths are joined onto these directories as given, so pass them absolute for absolute
+        record paths.
 
         Args:
             pdb_dir (str): Directory fetched PDB structures are written to; where `pdb` records get
@@ -127,10 +129,10 @@ class QTProcessor:
 
     def process_qt_cmdline_input(self, qt_input, name, pocket_method=DEFAULT_POCKET_METHOD):
         """
-        Parse one side of the comparison -- a query or a target -- into a DataFrame of `QTRecord`s.
+        Parse one side of the comparison -- a query or a target -- into `QTRecord` dicts.
 
         Sets the instance's log stage to name this side, so later calls to any method log under it.
-        An entry that cannot be parsed is skipped with a warning.
+        An entry that cannot be parsed is skipped with a warning and returned among the rejected.
 
         Args:
             qt_input (str): A query or target string ("struct_info:chain_info:residue_info"), or a
@@ -145,7 +147,8 @@ class QTProcessor:
                 `accepted_pocket_methods`, or the input file cannot be read.
 
         Returns:
-            pandas.DataFrame: the parsed records for this side.
+            tuple: (records, rejected) -- the QTRecord dicts parsed for this side, in input order, and
+                an (entry, reason) pair for each entry that could not be.
         """
         self.log_extra.update({"stage": f"Processing {name}"})
         logger.debug(f"Processing {name}", extra=self.log_extra)
@@ -165,22 +168,26 @@ class QTProcessor:
             logger.critical(msg, extra=self.log_extra)
             raise PocketMapperError(msg)
 
-        records = []
         # A file holds one entry per line
         if pocket_method != "foldseek_db" and os.path.isfile(qt_input):
             try:
                 with open(qt_input) as f:
-                    for line in f.readlines():
-                        records.append(self.parse_individual_qt(line.strip(), pocket_method=pocket_method))
+                    entries = [line.strip() for line in f.readlines()]
             except Exception as e:
                 logger.critical(f"Problem reading the file {qt_input}: {e}", extra=self.log_extra)
                 raise PocketMapperError(f"Problem reading the file {qt_input}: {e}") from e
         else:
-            records.append(self.parse_individual_qt(qt_input, pocket_method=pocket_method))
+            entries = [qt_input]
 
-        # None marks an entry that could not be parsed
-        records = [r for r in records if r is not None]
-        return pd.DataFrame([asdict(r) for r in records])
+        records = []
+        rejected = []
+        for entry in entries:
+            record, reason = self.parse_individual_qt(entry, pocket_method=pocket_method)
+            if record is None:
+                rejected.append((entry, reason))
+            else:
+                records.append(asdict(record))
+        return records, rejected
 
     def parse_individual_qt(self, qt, pocket_method):
         """
@@ -192,18 +199,41 @@ class QTProcessor:
             pocket_method (str): Pocket method to force, or "auto" to infer it from the string.
 
         Returns:
-            QTRecord: The parsed record, with `preprocess_name` set to `<basename>_<chain>_<md5>`, where
-                the md5 also covers a local file's contents. None, with a warning, if the entry is unusable.
+            tuple: (record, reason). `record` is the parsed QTRecord, with `preprocess_name` set to
+                `<basename>_<chain>_<md5>`, where the md5 also covers a local file's contents, and
+                `reason` is None. If the entry is unusable, `record` is None and `reason` says why;
+                the reason is also logged as a warning.
         """
         # Foldseek databases have a special format and are treated differently
         if qt in self.bundled_foldseek_dbs or pocket_method == "foldseek_db":
             db = self.bundled_foldseek_dbs.get(qt)
-            return QTRecord(
+            record = QTRecord(
                 pocket_id=qt,
                 struct_info=qt,
                 struct_type="foldseek_db",
-                struct_path=db["db_path"] if db else qt,  # Bundled path if available, otherwise the input as is
+                struct_path=db["db_path"] if db else os.path.abspath(qt),  # Bundled path if available
             )
+            return record, None
+
+        record, reason = self.build_record(qt, pocket_method)
+        if record is None:
+            logger.warning(f"{reason}; skipping this entry", extra=self.log_extra)
+        return record, reason
+
+    def build_record(self, qt, pocket_method):
+        """
+        Parse one structure entry into a `QTRecord`, or say why it cannot be.
+
+        Args:
+            qt (str): One input entry, "struct_info:chain_info:residue_info".
+            pocket_method (str): Pocket method to force, or "auto" to infer it from the string.
+
+        Returns:
+            tuple: (record, reason) as `parse_individual_qt` returns them, without logging the reason.
+
+        Raises:
+            PocketMapperError: If the entry names a directory, which is not supported.
+        """
 
         # Unpack the input string into its components
         parts = qt.split(":")
@@ -216,10 +246,9 @@ class QTProcessor:
             chain_info = DEFAULT_CHAIN
 
         # determining structure info
-        struct_type = self.determine_struct_type(struct_info)
+        struct_type, reason = self.determine_struct_type(struct_info)
         if struct_type is None:
-            logger.warning(f"Could not determine structure type for {qt}", extra=self.log_extra)
-            return None
+            return None, reason
         struct_path = self.determine_ref_struct_path(struct_info, struct_type)
 
         # Generate a unique name for the structure: a readable stem and chain, then a hash that also covers
@@ -239,18 +268,18 @@ class QTProcessor:
             pocket_method if pocket_method != "auto" else self.determine_pocket_method(qt, struct_type)
         )
         if resolved_pocket_method is None:
-            logger.warning(f"Could not determine pocket method for {qt}", extra=self.log_extra)
-            return None
+            return None, f"Could not determine pocket method for {qt}"
 
         # Also run for an inferred method, where it is a tautology, so every record is checked
-        if not self.validate_pocket_method(qt, resolved_pocket_method, struct_type):
-            return None
+        reason = self.validate_pocket_method(qt, resolved_pocket_method, struct_type)
+        if reason is not None:
+            return None, reason
 
         # The residue list is the passthrough pocket, so it is checked before any structure is fetched
         if resolved_pocket_method == "passthrough":
-            residue_info = self.parse_residue_info(qt, residue_info)
+            residue_info, reason = self.parse_residue_info(qt, residue_info)
             if residue_info is None:
-                return None
+                return None, reason
 
         record = QTRecord(
             pocket_id=qt,
@@ -267,7 +296,7 @@ class QTProcessor:
         logger.debug(
             f"Processed {qt} into structured data: {json.dumps(asdict(record), indent=4)}", extra=self.log_extra
         )
-        return record
+        return record, None
 
     def parse_residue_info(self, qt, residue_info):
         """
@@ -278,15 +307,13 @@ class QTProcessor:
             residue_info (str | None): The entry's `residue_info` portion.
 
         Returns:
-            str: The comma-joined residue ids in canonical form, repeats dropped (with a warning) and the
-                typed order kept. None, with a warning, if the list is absent or holds anything but
-                positive integers.
+            tuple: (residue_info, reason). `residue_info` is the comma-joined residue ids in canonical
+                form, repeats dropped (with a warning) and the typed order kept, and `reason` is None.
+                If the list is absent or holds anything but positive integers, `residue_info` is None
+                and `reason` says why.
         """
         if not residue_info:
-            logger.warning(
-                f"No residue ids in {qt}, which the passthrough pocket method requires", extra=self.log_extra
-            )
-            return None
+            return None, f"No residue ids in {qt}, which the passthrough pocket method requires"
 
         res_ids = []
         duplicates = []
@@ -294,11 +321,7 @@ class QTProcessor:
             # isdecimal rather than isdigit: int() accepts every decimal digit but not every digit,
             # so isdigit would let a superscript through to a ValueError further down.
             if not res_id.isdecimal() or int(res_id) < 1:
-                logger.warning(
-                    f"Residue id '{res_id}' in {qt} is not a positive integer; skipping this entry",
-                    extra=self.log_extra,
-                )
-                return None
+                return None, f"Residue id '{res_id}' in {qt} is not a positive integer"
             res_id = str(int(res_id))  # Canonical, so "07" and "7" are recognised as the same residue
             # A repeat would pair the two sides of a comparison off by one
             if res_id in res_ids:
@@ -312,7 +335,7 @@ class QTProcessor:
                 f"Residue id(s) {','.join(duplicates)} listed more than once in {qt}; using each one once",
                 extra=self.log_extra,
             )
-        return ",".join(res_ids)
+        return ",".join(res_ids), None
 
     def determine_struct_type(self, struct_str):
         """
@@ -322,24 +345,24 @@ class QTProcessor:
             struct_str (str): The `struct_info` portion of an input entry.
 
         Returns:
-            str: One of "pdb", "alphafold", "local_file", or None if nothing matched (logged as a
-                warning). Accession patterns win over a file of the same name.
+            tuple: (struct_type, reason). `struct_type` is one of "pdb", "alphafold", "local_file",
+                and `reason` None; accession patterns win over a file of the same name. If nothing
+                matched, `struct_type` is None and `reason` says so.
 
         Raises:
             PocketMapperError: If `struct_str` names a directory, which is not supported.
         """
         if re.match(self.pdb_regex, struct_str):
-            return "pdb"
+            return "pdb", None
         elif re.match(self.uniprot_regex, struct_str):
-            return "alphafold"
+            return "alphafold", None
         elif os.path.isfile(struct_str):
-            return "local_file"
+            return "local_file", None
         elif os.path.isdir(struct_str):
             logger.critical(f"Directory input is not currently supported: {struct_str}", extra=self.log_extra)
             raise PocketMapperError(f"Directory input is not currently supported: {struct_str}")
         else:
-            logger.warning(f"Could not determine structure type for {struct_str}", extra=self.log_extra)
-            return None
+            return None, f"Could not determine structure type for {struct_str}"
 
     def determine_ref_struct_path(self, struct_info, struct_type):
         """
@@ -350,7 +373,7 @@ class QTProcessor:
             struct_type (str): Type of the structure ("alphafold", "pdb", "local_file").
 
         Returns:
-            str: Path to the structure file.
+            str: Path to the structure file. A local file's is made absolute.
         """
         match struct_type:
             case "alphafold":
@@ -358,7 +381,7 @@ class QTProcessor:
             case "pdb":
                 return os.path.join(self.pdb_dir, f"{struct_info}.cif.gz")
             case "local_file":
-                return struct_info
+                return os.path.abspath(struct_info)
             case _:
                 logger.critical(
                     f"Unknown structure type {struct_type} for struct_info {struct_info}", extra=self.log_extra
@@ -407,25 +430,20 @@ class QTProcessor:
             struct_type (str): As returned by `determine_struct_type`.
 
         Returns:
-            bool: True if the entry is usable. False, with a warning, if the method is unavailable for
-                `struct_type` or the entry does not spell the chains and residues the method reads.
+            str: None if the entry is usable. Otherwise why not: the method is unavailable for
+                `struct_type`, or the entry does not spell the chains and residues the method reads.
         """
         supported = self.struct_type_pocket_methods.get(struct_type, ())
         if pocket_method not in supported:
-            logger.warning(
+            return (
                 f"The {pocket_method} pocket method is not available for the {struct_type} entry {qt_str}; "
-                f"{struct_type} entries support: {', '.join(supported)}. Skipping this entry",
-                extra=self.log_extra,
+                f"{struct_type} entries support: {', '.join(supported)}"
             )
-            return False
 
         pattern, needs = self.pocket_methods[pocket_method]
         pocket_info_str = self.pocket_info(qt_str)
         if not re.match(pattern, pocket_info_str):
-            logger.warning(
-                f"'{pocket_info_str}' in {qt_str} is not what the {pocket_method} pocket method reads; "
-                f"it needs {needs}. Skipping this entry",
-                extra=self.log_extra,
+            return (
+                f"'{pocket_info_str}' in {qt_str} is not what the {pocket_method} pocket method reads; it needs {needs}"
             )
-            return False
-        return True
+        return None
