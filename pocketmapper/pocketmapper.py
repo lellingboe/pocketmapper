@@ -32,10 +32,10 @@ import logging
 from dataclasses import asdict
 from dataclasses import fields
 
+from pocketmapper.entries import fsdb_record
 from pocketmapper.lib import log_to_file
 from pocketmapper.lib import run_scope
 from pocketmapper.lib import temp_dir_scope
-from pocketmapper.records import fsdb_record
 from pocketmapper.settings import Settings
 from pocketmapper.settings import check_fsdb_align_struct_method
 from pocketmapper.settings import check_fsdb_aligner

@@ -13,6 +13,12 @@ from dataclasses import asdict
 
 import pandas as pd
 
+from pocketmapper.entries import failed_entry
+from pocketmapper.entries import fsdb_record
+from pocketmapper.entries import preproc_to_ids
+from pocketmapper.entries import report_failures
+from pocketmapper.entries import require_file
+from pocketmapper.entries import split_missing_structures
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.lib import fsdb_pocket_mode
 from pocketmapper.lib import log_to_file
@@ -24,12 +30,6 @@ from pocketmapper.pockets.pisa import download_pisa_interfaces
 from pocketmapper.pockets.pocket_fetcher import PocketFetcher
 from pocketmapper.pockets.pocket_fetcher import write_pockets_file
 from pocketmapper.qt_processor import QTProcessor
-from pocketmapper.records import failed_entry
-from pocketmapper.records import fsdb_record
-from pocketmapper.records import preproc_to_ids
-from pocketmapper.records import report_failures
-from pocketmapper.records import require_file
-from pocketmapper.records import split_missing_structures
 from pocketmapper.settings import dump_settings
 from pocketmapper.settings import input_path
 from pocketmapper.settings import layer_settings

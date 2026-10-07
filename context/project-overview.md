@@ -29,13 +29,13 @@ dump) as `--job_file`; nothing in `results_dir` supplies entries or cache dirs.
   `dump_pockets` mapping), `pocket_comparison.tsv` (compare's
   `unknown_ids.json`/`incorrect_mapping.json` go beside it).
 - **Each step skips what it cannot use and logs it** into `failed_entries.json` (reasons in the
-  `records.failed_entry` callers). Only fetch_structures downloads entry structures; align, pockets
-  and superpose skip a missing one as `structure_not_found` (`records.split_missing_structures`).
+  `entries.failed_entry` callers). Only fetch_structures downloads entry structures; align, pockets
+  and superpose skip a missing one as `structure_not_found` (`entries.split_missing_structures`).
   pockets lists such an entry `null`. No step rewrites its inputs, so every step is idempotent on
   rerun. `QTRecord` has no `success` flag.
 - **Each failure warns once per run.** Every step re-parses, so the same rejection or missing
-  structure recurs per step. `records.append_failed_entries` skips a `(pocket_id, reason)` already in
-  the file and `records.report_failures` logs new ones at WARNING, repeats at DEBUG. So
+  structure recurs per step. `entries.append_failed_entries` skips a `(pocket_id, reason)` already in
+  the file and `entries.report_failures` logs new ones at WARNING, repeats at DEBUG. So
   `QTProcessor.parse_individual_qt` does not log its reason; its caller does. A component's own
   warnings (e.g. `StructurePreprocessor`) are not deduplicated.
 - **`preprocess_name` is recomputed per step** (local files re-hashed each time), so consistency rests
@@ -169,7 +169,7 @@ checks that live nowhere else.
   one. `test_core_10` covers it.
 - **A pocket failing `MIN_SEQ_IDENTITY` yields no rows** (goes to `incorrect_mapping.json`).
 - **`preprocess_name` is the alignment join key** (`QTProcessor.parse_individual_qt`);
-  `pockets.json` `chains` (built by `records.preproc_to_ids` plus the FSDB hits) bridges it to
+  `pockets.json` `chains` (built by `entries.preproc_to_ids` plus the FSDB hits) bridges it to
   `pocket_id`. compare's `check_coverage` errors on an alignment name `chains` lacks (target names
   exempt when synthesising); a `null` pocket or `[]` is a skip. A local file is hashed at parse time; editing it
   before align leaves a stale name. **Local files are hashed with their contents**: by

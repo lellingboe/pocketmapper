@@ -6,13 +6,13 @@ import logging
 
 import pandas as pd
 
+from pocketmapper.entries import fsdb_record
+from pocketmapper.entries import require_file
+from pocketmapper.entries import split_missing_structures
 from pocketmapper.lib import fsdb_pocket_mode
 from pocketmapper.lib import log_to_file
 from pocketmapper.lib import run_scope
 from pocketmapper.pockets.pocket_fetcher import read_pockets_file
-from pocketmapper.records import fsdb_record
-from pocketmapper.records import require_file
-from pocketmapper.records import split_missing_structures
 from pocketmapper.settings import check_fsdb_align_struct_method
 from pocketmapper.settings import dump_settings
 from pocketmapper.settings import input_path

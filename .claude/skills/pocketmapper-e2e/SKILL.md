@@ -82,7 +82,7 @@ touched:
 | A pocket method, or `pocket_comparison.py` | `-t core`, then `test_domains_1` |
 | The Foldseek-DB path | `test_fsdb_1 test_steps_17` (need `POCKETMAPPER_PDB_FSDB` set) |
 | `Settings`, CLI plumbing, job files, option validation | `test_local_5 test_local_6` and the `test_settings_*` cases |
-| `steps/`, `records.py`, the hand-off files | the `test_steps_*` cases (`test_steps_8` is tagged `human_domains`, `test_steps_17` `needs-pdb-fsdb`) |
+| `steps/`, `entries.py`, the hand-off files | the `test_steps_*` cases (`test_steps_8` is tagged `human_domains`, `test_steps_17` `needs-pdb-fsdb`) |
 | Anything you're unsure of | `-t core` first; it's the cheap signal |
 
 ## Reading the result

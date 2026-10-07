@@ -1,8 +1,8 @@
 """
-What the steps share about records and failures: the failed-entries log and helpers over QTRecord
-dicts.
+What the steps share about parsed entries and the ones they skip: the failed-entries log and helpers
+over QTRecord dicts.
 
-No step hands another a records file: each re-derives its records from the entries
+No step hands another its records: each re-derives them from the entries
 (`steps.parse.parse_entries`). `failed_entries.json` collects every entry a step left out, with the
 reason; nothing reads it back.
 

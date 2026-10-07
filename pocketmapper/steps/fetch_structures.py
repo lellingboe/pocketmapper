@@ -9,15 +9,15 @@ import logging
 import os
 
 from pocketmapper.downloads.structure_downloader import StructureDownloader
+from pocketmapper.entries import failed_entry
+from pocketmapper.entries import report_failures
+from pocketmapper.entries import unique_by
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import run_foldseek
 from pocketmapper.lib import log_to_file
 from pocketmapper.lib import make_dir
 from pocketmapper.lib import run_scope
 from pocketmapper.lib import temp_dir_scope
-from pocketmapper.records import failed_entry
-from pocketmapper.records import report_failures
-from pocketmapper.records import unique_by
 from pocketmapper.settings import dump_settings
 from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_foldseek

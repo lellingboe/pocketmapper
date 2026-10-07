@@ -8,6 +8,8 @@ import os
 
 import pandas as pd
 
+from pocketmapper.entries import fsdb_record
+from pocketmapper.entries import require_file
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import bundled_offset_table
 from pocketmapper.lib import fsdb_pocket_mode
@@ -17,8 +19,6 @@ from pocketmapper.lib import make_dir
 from pocketmapper.lib import run_scope
 from pocketmapper.pocket_comparison import compare_pockets
 from pocketmapper.pockets.pocket_fetcher import read_pockets_file
-from pocketmapper.records import fsdb_record
-from pocketmapper.records import require_file
 from pocketmapper.settings import dump_settings
 from pocketmapper.settings import input_path
 from pocketmapper.settings import layer_settings

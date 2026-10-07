@@ -8,14 +8,14 @@ job file the rest of a chain takes.
 
 import logging
 
+from pocketmapper.entries import failed_entry
+from pocketmapper.entries import fsdb_record
+from pocketmapper.entries import report_failures
+from pocketmapper.entries import start_failed_entries
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.lib import log_to_file
 from pocketmapper.lib import run_scope
 from pocketmapper.qt_processor import QTProcessor
-from pocketmapper.records import failed_entry
-from pocketmapper.records import fsdb_record
-from pocketmapper.records import report_failures
-from pocketmapper.records import start_failed_entries
 from pocketmapper.settings import dump_settings
 from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_setting
@@ -209,7 +209,7 @@ def parse_entries(
     Parse both sides' entries into records, and check that the two sides make a search.
 
     Every entry that could not be parsed, and every Foldseek-database query entry, is a failure,
-    `invalid_entry`, reported through `records.report_failures` (a warning, or DEBUG for one already
+    `invalid_entry`, reported through `entries.report_failures` (a warning, or DEBUG for one already
     in `failed_entries_path`) before the sides are checked, so it is listed even when the check
     fails.
 
