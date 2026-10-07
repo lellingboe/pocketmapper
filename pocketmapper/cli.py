@@ -393,7 +393,7 @@ COMMANDS = {
         "Compare the pockets of every aligned query/target pair.",
         [
             (None, ["job_file", "verbosity"]),
-            ("in options", ["query_records", "target_records", "alignment", "pockets"]),
+            ("in options", ["target_records", "alignment", "pockets"]),
             ("out options", ["results_dir_required", "pocket_comparison_path", "log_path"]),
         ],
     ),

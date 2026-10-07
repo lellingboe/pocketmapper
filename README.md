@@ -157,7 +157,7 @@ pocketmapper superpose --results_dir ./out
 | `fetch_structures` | Downloads the structures and a bundled Foldseek database the records need. | records, `cache_dirs.json` | the cache; the records, without those whose structure could not be fetched |
 | `align` | Aligns the query chains against the target chains. | records, `cache_dirs.json` | `alignment.tsv`; the records |
 | `pockets` | Downloads the PISA interfaces the records need, then builds the pocket of every record in the records files it is given. Against the `pdb` database, also downloads each hit's PISA interfaces and structure and builds a pocket per interface. | `RECORDS ...`, `cache_dirs.json`, `alignment.tsv` (database target only) | `pockets.json`; each records file, without the records whose pocket could not be built |
-| `compare` | Compares the pockets of every aligned pair. | records, `alignment.tsv`, `pockets.json` | `pocket_comparison.tsv`, `unknown_ids.json`, `incorrect_mapping.json` |
+| `compare` | Compares the pockets of every aligned pair. | target records, `alignment.tsv`, `pockets.json` | `pocket_comparison.tsv`, `unknown_ids.json`, `incorrect_mapping.json` |
 | `superpose` | Superposes the top targets onto each query. | records, `pocket_comparison.tsv`, `alignment.tsv`, `pockets.json` (`pdb` database target only) | `aligned_structures/` |
 
 - **Every step but `parse` requires `--results_dir`**, here or in a job file, since its inputs default
@@ -171,8 +171,8 @@ pocketmapper superpose --results_dir ./out
   in a job file, so a chain cannot split its cache, and the commands after `parse` can run from any
   working directory.
 - **`pockets` builds both records files by default.** Name files only to build fewer: `pockets.json`
-  holds the pockets of the files named, and `compare` stops if a record has no pocket rather than
-  silently returning no rows for it.
+  holds the pockets of the files named, and `compare` stops if the alignment names a chain
+  `pockets.json` does not list, rather than silently returning no rows for it.
 - **After `fetch_structures`, only `pockets` downloads**: the PISA interfaces of the records and,
   against the `pdb` database, the PISA interfaces and structures of its hits (only known from
   `alignment.tsv`).
@@ -196,7 +196,7 @@ and `--results_dir`. Beyond those, each takes the options below; they mean what 
 | `fetch_structures` | `--query_records`, `--target_records`, `--query_records_path`, `--target_records_path`, `--failed_entries_path`, `--threads`, the [temp options](#temp-options) |
 | `align` | As `fetch_structures`, plus `--aligner` and `--alignment_path` |
 | `pockets` | `RECORDS ...` (records files; default the query and target records), `--alignment`, `--pockets_path`, `--failed_entries_path`, `--pisa_source` |
-| `compare` | `--query_records`, `--target_records`, `--alignment`, `--pockets`, `--pocket_comparison_path` |
+| `compare` | `--target_records`, `--alignment`, `--pockets`, `--pocket_comparison_path` |
 | `superpose` | `--query_records`, `--target_records`, `--pocket_comparison`, `--alignment`, `--pockets`, the [aligned structure options](#aligned-structure-options), `--aligned_structure_dir`, `--threads` |
 
 Only `search` writes `job_settings.json`, but every step takes a job file, that one included; see

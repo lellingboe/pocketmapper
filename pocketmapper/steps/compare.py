@@ -34,7 +34,6 @@ def compare(
     results_dir=None,
     verbosity=None,
     log_path=None,
-    query_records=None,
     target_records=None,
     alignment=None,
     pockets=None,
@@ -53,11 +52,10 @@ def compare(
             in `job_file`.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
         log_path (str, optional): Defaults to <results_dir>/info.log.
-        query_records (str, optional): Defaults to the job file's query_records_path, else
-            <results_dir>/query_records.json.
-        target_records (str, optional): As `query_records`, from target_records_path.
-        alignment (str, optional): As `query_records`, from alignment_path.
-        pockets (str, optional): As `query_records`, from pockets_path.
+        target_records (str, optional): Defaults to the job file's target_records_path, else
+            <results_dir>/target_records.json.
+        alignment (str, optional): As `target_records`, from alignment_path.
+        pockets (str, optional): As `target_records`, from pockets_path.
         pocket_comparison_path (str, optional): Defaults to <results_dir>/pocket_comparison.tsv.
 
     Returns:
@@ -65,7 +63,7 @@ def compare(
 
     Raises:
         PocketMapperError: If the job file cannot be read, no results_dir is given, an input is
-            missing or unreadable, or a record has no pocket.
+            missing or unreadable, or the alignment names a chain the pockets file does not.
     """
     values = layer_settings(
         job_file,
@@ -80,7 +78,6 @@ def compare(
     values = resolve_paths(values)
     with log_to_file(values["log_path"], values["verbosity"]):
         compare_aligned_pockets(
-            query_records if query_records is not None else values["query_records_path"],
             target_records if target_records is not None else values["target_records_path"],
             alignment if alignment is not None else values["alignment_path"],
             pockets if pockets is not None else values["pockets_path"],
@@ -88,7 +85,7 @@ def compare(
         )
 
 
-def compare_aligned_pockets(query_records, target_records, alignment, pockets, pocket_comparison_path):
+def compare_aligned_pockets(target_records, alignment, pockets, pocket_comparison_path):
     """
     Compare the pockets of every aligned query/target pair and write `pocket_comparison_path`.
 
@@ -96,19 +93,19 @@ def compare_aligned_pockets(query_records, target_records, alignment, pockets, p
     anything to report, and deletes any left there by an earlier run either way.
 
     Args:
-        query_records (str): The query records file.
-        target_records (str): The target records file.
+        target_records (str): The target records file; read for whether the target is a Foldseek
+            database.
         alignment (str): The alignment table.
-        pockets (str): The pockets file. Must hold a pocket for every record but a Foldseek database,
-            and its `chains` map every aligned name to the pockets on it.
+        pockets (str): The pockets file. Its `chains` must name every chain in the alignment, but
+            the hits of a Foldseek database whose pockets are synthesised.
         pocket_comparison_path (str): Where the comparison table is written.
 
     Returns:
         None
 
     Raises:
-        PocketMapperError: If an input is missing or unreadable, a record has no pocket, the bundled
-            database's offset table is missing from the installation, or an output directory cannot
+        PocketMapperError: If an input is missing or unreadable, the alignment names a chain the
+            pockets file does not, the bundled database's offset table is missing from the installation, or an output directory cannot
             be created.
     """
     log_extra = {"stage": "Comparing Pockets Based on Alignment"}
@@ -120,25 +117,10 @@ def compare_aligned_pockets(query_records, target_records, alignment, pockets, p
         if os.path.isfile(path):
             os.remove(path)
 
-    query = read_records(query_records)
     target = read_records(target_records)
     require_file(pockets, "pockets")
     pocket_dict, chain_pockets = read_pockets_file(pockets)
     require_file(alignment, "alignment")
-
-    # A record with no pocket would silently give no rows
-    unbuilt = [
-        record["pocket_id"]
-        for record in query + target
-        if record["struct_type"] != "foldseek_db" and pocket_dict.get(record["pocket_id"]) is None
-    ]
-    if unbuilt:
-        msg = (
-            f"{pockets} holds no pocket for {', '.join(dict.fromkeys(unbuilt))}; build the pockets of both "
-            "records files first"
-        )
-        logger.critical(msg, extra=log_extra)
-        raise PocketMapperError(msg)
 
     logger.info("Reading alignment results...", extra=log_extra)
     alignment_df = pd.read_csv(alignment, sep="\t", engine="c")
@@ -169,6 +151,8 @@ def compare_aligned_pockets(query_records, target_records, alignment, pockets, p
         else:
             logger.info(f"Mapping target residue ids to UniProt coordinates using {offset_table_path}", extra=log_extra)
 
+    check_coverage(alignment_df, chain_pockets, synthesise, pockets)
+
     pockets_df, unknown_alias, incorrect_mapping = compare_pockets(
         alignment_df,
         pocket_dict,
@@ -198,3 +182,34 @@ def compare_aligned_pockets(query_records, target_records, alignment, pockets, p
     make_dir(os.path.dirname(pocket_comparison_path), log_extra)
     pockets_df.to_csv(pocket_comparison_path, index=False, sep="\t")
     logger.info(f"Pocket comparison results saved to {pocket_comparison_path}", extra=log_extra)
+
+
+def check_coverage(alignment_df, chain_pockets, synthesise, pockets):
+    """
+    Check that the pockets file has seen every chain the alignment names.
+
+    A chain the pockets file lists with no built pocket is fine: its rows are skipped. One it does not
+    list at all was never given to pockets, and would otherwise silently give no rows.
+
+    Args:
+        alignment_df (pandas.DataFrame): The alignment table.
+        chain_pockets (dict): The pockets file's `chains`.
+        synthesise (bool): Whether target pockets are synthesised, which exempts the target names.
+        pockets (str): The pockets file, for the message.
+
+    Returns:
+        None
+
+    Raises:
+        PocketMapperError: If an alignment name is not a key of `chain_pockets`.
+    """
+    names = alignment_df["query"].tolist() + ([] if synthesise else alignment_df["target"].tolist())
+    unseen = [name for name in dict.fromkeys(names) if name not in chain_pockets]
+    if unseen:
+        shown = ", ".join(unseen[:5]) + (f" and {len(unseen) - 5} more" if len(unseen) > 5 else "")
+        msg = (
+            f"{pockets} does not cover the alignment: no entry for {shown}. Run pockets on the entries "
+            "that were aligned, unchanged since align"
+        )
+        logger.critical(msg, extra={"stage": "Comparing Pockets Based on Alignment"})
+        raise PocketMapperError(msg)

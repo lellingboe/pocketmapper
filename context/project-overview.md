@@ -156,7 +156,9 @@ checks that live nowhere else.
   one. `test_core_10` covers it.
 - **A pocket failing `MIN_SEQ_IDENTITY` yields no rows** (goes to `incorrect_mapping.json`).
 - **`preprocess_name` is the alignment join key** (`QTProcessor.parse_individual_qt`);
-  `records.preproc_to_ids` bridges it to `pocket_id`. A local file is hashed at parse time; editing it
+  `pockets.json` `chains` (built by `records.preproc_to_ids` plus the FSDB hits) bridges it to
+  `pocket_id`. compare's `check_coverage` errors on an alignment name `chains` lacks (target names
+  exempt when synthesising); a `null` pocket or `[]` is a skip. A local file is hashed at parse time; editing it
   before align leaves a stale name. **Local files are hashed with their contents**: by
   basename, `/dir1/structure.pdb:A` and `/dir2/structure.pdb:A` collide and one is silently mis-aligned
   (`test_core_9`, `test_local_7`). Hence identical copies share a name, in-place edits get a new one, and
