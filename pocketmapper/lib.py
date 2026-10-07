@@ -2,8 +2,8 @@
 Generic, stateless helpers shared across PocketMapper.
 
 Nothing here knows about the pipeline, Settings, or the Pocket shape -- each function takes
-plain values and returns plain values. Workflow logic belongs in the component modules rather than
-here.
+plain values and returns plain values, or does one thing to the filesystem or the package logger.
+Workflow logic belongs in the component modules rather than here.
 """
 
 import gzip
@@ -12,9 +12,14 @@ import logging
 import os
 import re
 import shutil
+from contextlib import contextmanager
 
 from pocketmapper.constants import FOLDSEEK_AA_CODES
 from pocketmapper.constants import LOG_FORMAT
+from pocketmapper.constants import PACKAGE_LOGGER
+from pocketmapper.exceptions import PocketMapperError
+
+logger = logging.getLogger(__name__)
 
 UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]")
 
@@ -134,6 +139,129 @@ def is_within(path, roots):
         except ValueError:
             continue
     return False
+
+
+def make_dir(path, log_extra):
+    """
+    Create a directory and any missing parents, if it does not already exist.
+
+    Args:
+        path (str): The directory. An empty string, the directory of a bare filename, is the
+            working directory and is left alone.
+        log_extra (dict): Logging `extra` for the failure message.
+
+    Returns:
+        None
+
+    Raises:
+        PocketMapperError: If the directory cannot be created.
+    """
+    if not path:
+        return
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError as e:
+        logger.critical(f"Error creating directory {path}", extra=log_extra)
+        raise PocketMapperError(f"Error creating directory {path}") from e
+
+
+def empty_temp_dir(temp_dir, roots):
+    """
+    Delete a scratch directory so that whatever uses it next starts with it empty.
+
+    Only a `temp_dir` inside one of `roots` is deleted, so a mistyped path costs a stray directory,
+    not its contents. One outside them is reused as it is, with a warning if it exists.
+
+    Args:
+        temp_dir (str): The scratch directory. Not created here.
+        roots (list): The directories it may be deleted under.
+
+    Returns:
+        None
+    """
+    log_extra = {"stage": "Configuring Workflow"}
+
+    if is_within(temp_dir, roots):
+        shutil.rmtree(temp_dir, ignore_errors=True)
+    elif os.path.exists(temp_dir):
+        logger.warning(
+            f"Reusing temp_dir {temp_dir} without emptying it: it is outside {' and '.join(roots)}. "
+            "Empty it yourself if a previous run left anything there.",
+            extra=log_extra,
+        )
+
+
+def delete_temp_dir(temp_dir, delete_tmp, roots):
+    """
+    Delete a scratch directory once it is no longer needed.
+
+    Nothing is deleted if `delete_tmp` is 0, the directory was never created, or it resolves
+    outside every one of `roots` (warned about).
+
+    Args:
+        temp_dir (str): The scratch directory.
+        delete_tmp (int): 1 to delete it, 0 to keep it.
+        roots (list): The directories it may be deleted under.
+
+    Returns:
+        None
+    """
+    log_extra = {"stage": "Cleaning Up"}
+
+    # Only a step that used scratch space created it
+    if not os.path.isdir(temp_dir):
+        logger.debug(f"No temp_dir was created at {temp_dir}; nothing to delete", extra=log_extra)
+        return
+
+    if delete_tmp == 0:
+        logger.info(f"delete_tmp is 0; keeping {temp_dir}", extra=log_extra)
+        return
+
+    if not is_within(temp_dir, roots):
+        logger.warning(
+            f"Not deleting temp_dir {temp_dir}: it is outside {' and '.join(roots)}. "
+            "Remove it yourself if that was intended.",
+            extra=log_extra,
+        )
+        return
+    shutil.rmtree(temp_dir)
+
+
+@contextmanager
+def log_to_file(log_path, verbosity):
+    """
+    Log the package to a file, at a level set by `verbosity`, for the length of a `with` block.
+
+    Sets the `pocketmapper` logger's level and adds a file handler appending to `log_path`. Both
+    are undone on exit, however the block ends. The file's directory must already exist.
+
+    Args:
+        log_path (str): The log file.
+        verbosity (int): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR.
+
+    Yields:
+        None
+    """
+    if verbosity == 4:
+        log_level = logging.DEBUG
+    elif verbosity == 3:
+        log_level = logging.INFO
+    elif verbosity == 2:
+        log_level = logging.WARNING
+    else:
+        log_level = logging.ERROR
+
+    package_logger = logging.getLogger(PACKAGE_LOGGER)
+    previous_log_level = package_logger.level
+    package_logger.setLevel(log_level)
+    handler = format_handler(logging.FileHandler(log_path))
+    package_logger.addHandler(handler)
+    try:
+        yield
+    finally:
+        package_logger.removeHandler(handler)
+        handler.close()
+        package_logger.setLevel(previous_log_level)
 
 
 def binary_similarity(seqA, seqB, similarity_matrix):

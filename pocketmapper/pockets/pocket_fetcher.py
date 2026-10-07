@@ -12,6 +12,8 @@ import os
 from dataclasses import asdict
 
 from pocketmapper.pockets.pisa import pisa_pockets
+from pocketmapper.pockets.pocket import Pocket
+from pocketmapper.pockets.pocket import PocketResidue
 from pocketmapper.pockets.structure import passthrough_pockets
 from pocketmapper.pockets.structure import whole_chain_pockets
 from pocketmapper.pockets.vdw import vdw_pockets
@@ -43,6 +45,29 @@ def dump_pockets(pockets, path):
     serialisable = {pid: asdict(pocket) if pocket is not None else None for pid, pocket in pockets.items()}
     with open(path, "w") as f:
         json.dump(serialisable, f)
+
+
+def load_pockets(path):
+    """
+    Read a pocket collection written by `dump_pockets`.
+
+    Args:
+        path (str): File to read.
+
+    Returns:
+        dict: pocket_id -> Pocket, or None where the file holds `null`. Each Pocket's residues are
+            rebuilt as PocketResidues, keeping `res_auth_ids` in file order and every None field.
+    """
+    with open(path) as f:
+        serialised = json.load(f)
+    pockets = {}
+    for pid, fields in serialised.items():
+        if fields is None:
+            pockets[pid] = None
+            continue
+        residues = {res_id: PocketResidue(**residue) for res_id, residue in fields["residues"].items()}
+        pockets[pid] = Pocket(**(fields | {"residues": residues}))
+    return pockets
 
 
 class PocketFetcher:
