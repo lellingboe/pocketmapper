@@ -20,14 +20,16 @@ from a typed value.
   (JSON list of `QTRecord` dicts, JSON to keep None/bools), `cache_dirs.json` (absolute cache dirs;
   written by parse and search, read by fetch, align, pockets, which take no cache options),
   `failed_entries.json` (truncated by parse/search, appended by fetch/align/pockets), `alignment.tsv`,
-  `pockets.json` (`dump_pockets`/`load_pockets`), `pocket_comparison.tsv`.
+  `pockets.json` (`dump_pockets`/`load_pockets`), `pocket_comparison.tsv` (compare's
+  `unknown_ids.json`/`incorrect_mapping.json` go beside it).
 - **A records file holds only usable records.** fetch, align and pockets drop the records they fail
   into `failed_entries.json` (reasons in the `records.failed_entry` callers). No step filters on a
   `success` flag; `QTRecord` has none.
 - **The target side's shape replaces the old `self.` flags.** A `foldseek_db` record, always the only
   target entry from parse, means an FSDB target; its `fsdb_pockets` (set only by align) is `"pisa"`
   for a PDB-named DB (expanded pisa records appended after it) or `"whole_chain"`.
-  `records.synthesise_target_pockets` derives the rest. Align keeps only the `foldseek_db` record on
+  `records.synthesise_target_pockets` derives the rest and rejects an unset `fsdb_pockets` (align never
+  ran on that file), rather than guessing. Align keeps only the `foldseek_db` record on
   entry, so it reruns on its own output.
 - **Record paths are absolute**: parse passes absolute cache dirs to `QTProcessor`, which also
   `abspath`s a local file and a user FSDB. `pocket_id`/`struct_info` stay as typed.
@@ -235,7 +237,7 @@ open so the skip warning reaches `info.log`. `lib.delete_temp_dir` does nothing 
 
 `search --help` is generated from `help=` strings; `CLI_SEARCH_EPILOG` holds only examples. Resolution
 order, the `aligner` check and tri-state `align_struct_method`: `Settings` docstring and `# 4b.`/`# 4c.` in
-`configure_workflow`. `aligner` has no auto mode; a broken `foldseek` fails at 4b before fetching.
+`resolve_settings`. `aligner` has no auto mode; a broken `foldseek` fails at 4b before fetching.
 
 ## Python versions
 

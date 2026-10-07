@@ -141,6 +141,7 @@ test_steps_9|needs-pdb-fsdb slow|rows same=rerun|align rerun on its own output a
 test_steps_10|core local|fail|compare rejects target records whose pockets were not built|parse 4Q5J:A_E 4Q5J:B_F ; fetch ; align --aligner seq ; pockets @OUT@/query_records.json ; compare
 test_steps_11|core local|fail|parse rejects a Foldseek database beside a structure target|parse 4Q5J:A_E fsdb_mixed_target.txt
 test_steps_12|core local|fail failed=invalid_entry@human_domains|parse rejects a Foldseek database query|parse human_domains 4Q5J:B_F
+test_steps_13|human_domains|fail|compare rejects a Foldseek database target file align never rewrote|parse 4Q5J:B_F human_domains ; fetch ; align --target_records_path @OUT@/aligned_targets.json ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare
 EOF
 
 # ---------------------------------------------------------------------------

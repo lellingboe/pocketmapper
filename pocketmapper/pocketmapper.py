@@ -281,7 +281,6 @@ class PocketMapper:
                 settings.alignment_path,
                 settings.pockets_path,
                 settings.pocket_comparison_path,
-                settings.results_dir,
             )
             superpose_top_targets(
                 settings.query_records_path,

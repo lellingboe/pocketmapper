@@ -315,8 +315,8 @@ Everything is written under `--results_dir`:
 | `pockets.json` | Every record's pocket, keyed by pocket id. |
 | `failed_entries.json` | Every entry dropped along the way: the entry, the step that dropped it, the reason (`invalid_entry`, `structure_not_found`, `structure_preprocessing_failed`, `pocket_not_built`) and the record. Empty when nothing was dropped. |
 | `cache_dirs.json` | The absolute cache directories the run used, for [step commands](#running-one-step-at-a-time) rerun in this directory. |
-| `unknown_ids.json` | Residue codes the aligner and the structure disagreed on (e.g. MSE -> M). Only written if any were seen. |
-| `incorrect_mapping.json` | Pockets dropped because their own sequence disagreed with the aligner's for that chain — typically assembly vs asymmetric unit numbering. Only written if any were dropped. |
+| `unknown_ids.json` | Residue codes the aligner and the structure disagreed on (e.g. MSE -> M). Only written if any were seen, beside `pocket_comparison.tsv`. |
+| `incorrect_mapping.json` | Pockets dropped because their own sequence disagreed with the aligner's for that chain — typically assembly vs asymmetric unit numbering. Only written if any were dropped, beside `pocket_comparison.tsv`. |
 
 Under `--cache_dir` and surviving between runs: the downloaded mmCIF files (`pdb_structures/` and
 `alphafold_structures/`), the raw PISA responses (`pockets/pisa/`), and the derived

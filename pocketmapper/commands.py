@@ -369,8 +369,8 @@ def compare(
     """
     Compare the pockets of every aligned query/target pair into a pocket comparison table.
 
-    Writes unknown_ids.json and incorrect_mapping.json to `results_dir` when either has anything to
-    report, deleting any left there by an earlier run.
+    Writes unknown_ids.json and incorrect_mapping.json beside `pocket_comparison_path` when either has
+    anything to report, deleting any left there by an earlier run.
 
     Args:
         results_dir (str): The results directory the inputs default to.
@@ -386,7 +386,8 @@ def compare(
         None
 
     Raises:
-        PocketMapperError: If an input is missing or unreadable, or a record has no pocket.
+        PocketMapperError: If an input is missing or unreadable, a record has no pocket, or a
+            Foldseek-database target has not been through align.
     """
     with command_log(results_path(results_dir, "log_path", log_path), verbosity):
         compare_aligned_pockets(
@@ -395,7 +396,6 @@ def compare(
             results_path(results_dir, "alignment_path", alignment),
             results_path(results_dir, "pockets_path", pockets),
             results_path(results_dir, "pocket_comparison_path", pocket_comparison_path),
-            results_dir,
         )
 
 

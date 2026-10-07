@@ -269,9 +269,22 @@ def synthesise_target_pockets(target_records):
 
     Returns:
         bool: True for a Foldseek-database target that was not expanded into PISA records.
+
+    Raises:
+        PocketMapperError: If the Foldseek-database record has not been through align, which is what
+            decides between the two.
     """
     record = fsdb_record(target_records)
-    return record is not None and record["fsdb_pockets"] != "pisa"
+    if record is None:
+        return False
+    if record["fsdb_pockets"] is None:
+        msg = (
+            "The Foldseek database target record has not been through align (fsdb_pockets is unset); "
+            "run align on it, or point --target_records at the file align wrote"
+        )
+        logger.critical(msg)
+        raise PocketMapperError(msg)
+    return record["fsdb_pockets"] != "pisa"
 
 
 def preproc_to_ids(records):

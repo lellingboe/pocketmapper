@@ -26,12 +26,12 @@ logger = logging.getLogger(__name__)
 BLOSUM_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "blosum62.bla")
 
 
-def compare_aligned_pockets(query_records, target_records, alignment, pockets, pocket_comparison_path, results_dir):
+def compare_aligned_pockets(query_records, target_records, alignment, pockets, pocket_comparison_path):
     """
     Compare the pockets of every aligned query/target pair and write `pocket_comparison_path`.
 
-    Writes unknown_ids.json and incorrect_mapping.json to `results_dir` when either has anything to
-    report, and deletes any left there by an earlier run either way.
+    Writes unknown_ids.json and incorrect_mapping.json beside `pocket_comparison_path` when either has
+    anything to report, and deletes any left there by an earlier run either way.
 
     Args:
         query_records (str): The query records file.
@@ -39,20 +39,20 @@ def compare_aligned_pockets(query_records, target_records, alignment, pockets, p
         alignment (str): The alignment table.
         pockets (str): The pockets file. Must hold a pocket for every record but a Foldseek database.
         pocket_comparison_path (str): Where the comparison table is written.
-        results_dir (str): Where unknown_ids.json and incorrect_mapping.json are written.
 
     Returns:
         None
 
     Raises:
-        PocketMapperError: If an input is missing or unreadable, a record has no pocket, the bundled
-            database's offset table is missing from the installation, or an output directory cannot
-            be created.
+        PocketMapperError: If an input is missing or unreadable, a record has no pocket, a
+            Foldseek-database target has not been through align, the bundled database's offset table
+            is missing from the installation, or an output directory cannot be created.
     """
     log_extra = {"stage": "Comparing Pockets Based on Alignment"}
 
     # Both are written only when non-empty, so an old copy would otherwise outlive this run
-    report_paths = {name: os.path.join(results_dir, f"{name}.json") for name in ("unknown_ids", "incorrect_mapping")}
+    report_dir = os.path.dirname(pocket_comparison_path)
+    report_paths = {name: os.path.join(report_dir, f"{name}.json") for name in ("unknown_ids", "incorrect_mapping")}
     for path in report_paths.values():
         if os.path.isfile(path):
             os.remove(path)
@@ -60,7 +60,13 @@ def compare_aligned_pockets(query_records, target_records, alignment, pockets, p
     query = read_records(query_records)
     target = read_records(target_records)
     require_file(pockets, "pockets")
-    pocket_dict = load_pockets(pockets)
+    try:
+        pocket_dict = load_pockets(pockets)
+    except (ValueError, TypeError, AttributeError, KeyError) as e:
+        # Not JSON, or JSON that is not a pockets file
+        msg = f"Could not read the pockets file {pockets}: {e}"
+        logger.critical(msg, extra=log_extra)
+        raise PocketMapperError(msg) from e
     require_file(alignment, "alignment")
 
     # A record with no pocket would silently give no rows
@@ -117,15 +123,18 @@ def compare_aligned_pockets(query_records, target_records, alignment, pockets, p
 
     # Logging cases where a residue was given a single char name unfamiliar to pocketmapper
     if len(unknown_alias) > 0:
-        make_dir(results_dir, log_extra)
-        logger.warning("Unknown Foldseek Alias, see unknown_ids.json in results directory", extra=log_extra)
+        make_dir(report_dir, log_extra)
+        logger.warning(f"Unknown Foldseek Alias, see {report_paths['unknown_ids']}", extra=log_extra)
         with open(report_paths["unknown_ids"], "w") as f:
             json.dump(jsonify_dict(dict(unknown_alias)), f)
 
     # logging cases where foldseek mapping had low sequence identity to the parsed structure
     if len(incorrect_mapping) > 0:
-        make_dir(results_dir, log_extra)
-        logger.warning("Foldseek mapping with low sequence identity to parsed structure", extra=log_extra)
+        make_dir(report_dir, log_extra)
+        logger.warning(
+            f"Foldseek mapping with low sequence identity to parsed structure, see {report_paths['incorrect_mapping']}",
+            extra=log_extra,
+        )
         with open(report_paths["incorrect_mapping"], "w") as f:
             json.dump(jsonify_dict(dict(incorrect_mapping)), f)
 
