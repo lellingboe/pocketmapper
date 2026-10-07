@@ -65,6 +65,10 @@ dump) as `--job_file`; nothing in `results_dir` supplies entries or cache dirs.
 - **vdw's partner chain is required.** When optional, a forced `vdw` on `4Q5J:A` reached gemmi as chain `None`.
   Tightening is inference-neutral (`whole_chain` claims bare chains first) — verified by replaying the old
   per-struct_type ladder against the loop over 400 generated entries.
+- **Structure-only parse**: `QTProcessor.parse_structure` (and `process_structure_input` for a file)
+  resolves struct type and path without `build_record`, so `P12345:A_B` (no method fits) still
+  resolves. `struct_type` forces `pdb`/`alphafold` (checked against the id pattern) or `foldseek_db`
+  (`constants.STRUCT_TYPES`); a user FSDB path otherwise passes `isfile` and parses as a local file.
 - **A rejected entry is skipped, not fatal**: `parse_individual_qt` returns `(None, reason)` and parse
   lists it in `failed_entries.json` as `invalid_entry`. `steps.parse.parse_entries` (both sides, on the
   one-side `parse_side`, which takes an entry, a file or a list) raises only when a

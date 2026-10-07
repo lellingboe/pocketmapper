@@ -204,6 +204,10 @@ DELETE_TMP_VALUES = (0, 1)
 # assembly. Both serve identical JSON.
 PISA_SOURCES = ("ftp", "api")
 
+# The structure types a structure-only parse can be forced to, and "auto", which infers one per entry.
+# A local file is inferred only: forcing it would add nothing to the path check that infers it.
+STRUCT_TYPES = ("auto", "pdb", "alphafold", "foldseek_db")
+
 # Defaults for the settings that have a static value. Settings whose default depends on the run
 # (results_dir, threads and the derived paths) default to None and are resolved at run time.
 DEFAULT_CACHE_DIR = "pocketmapper_cache"
