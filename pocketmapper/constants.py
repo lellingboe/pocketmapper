@@ -248,24 +248,22 @@ documented in the README:
 # The examples for every other command's --help, kept to 80 columns like CLI_SEARCH_EPILOG
 CLI_STEP_EPILOG = """
 Examples:
-  # The search workflow one step at a time, in one results directory.
+  # The search workflow one step at a time. parse writes the settings the
+  # rest of the chain takes as its job file.
   pocketmapper parse 4Q5J:B_F 4Q5J:A_E --results_dir ./out
-  pocketmapper fetch_structures --results_dir ./out
-  pocketmapper align --results_dir ./out
-  pocketmapper pockets --results_dir ./out
-  pocketmapper compare --results_dir ./out
-  pocketmapper superpose --results_dir ./out
+  pocketmapper fetch_structures --job_file ./out/parse_settings.json
+  pocketmapper align --job_file ./out/parse_settings.json
+  pocketmapper pockets --job_file ./out/parse_settings.json
+  pocketmapper compare --job_file ./out/parse_settings.json
+  pocketmapper superpose --job_file ./out/parse_settings.json
 
   # After a search, superpose again with other settings.
-  pocketmapper superpose --results_dir ./out --align_count 3 \\
+  pocketmapper superpose --job_file ./out/job_settings.json --align_count 3 \\
       --aligned_structure_dir ./out/top3
 
-  # Rerun a step with a run's own settings; arguments override them.
-  pocketmapper align --job_file ./out/job_settings.json
-
-Each step reads the previous step's files from --results_dir, and
-fetch_structures, align and pockets read the cache directories parse recorded
-there. The README documents each step's inputs and outputs:
+Each step parses the query and target entries its job file names, and
+reads the earlier steps' files from --results_dir. The README documents each
+step's inputs and outputs:
     https://github.com/lellingboe/pocketmapper
 """
 

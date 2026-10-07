@@ -2,11 +2,12 @@
 PocketMapper: map and compare binding pockets across protein structures.
 
 `PocketMapper.search()` is the whole workflow. It resolves its settings, then runs the steps in
-`pocketmapper.steps` in order, each handing the next its files under `results_dir`:
+`pocketmapper.steps` in order. Each step parses the query and target entries again from the same
+settings; what they hand each other is the cache and the files under `results_dir`:
 
 1. `configure_workflow` -> arguments over job file; `resolve_settings` -> Settings, job_settings.json.
-2. `steps.parse` -> query_records.json, target_records.json, cache_dirs.json; failed_entries.json
-   started afresh.
+2. `steps.parse` -> every entry checked before anything is fetched; failed_entries.json started
+   afresh.
 3. `steps.fetch_structures` -> structures and a bundled Foldseek database into the cache.
 4. `steps.align` -> foldseek or the local sequence aligner, per `aligner` -> alignment.tsv.
 5. `steps.pockets` -> PISA interfaces into the cache, then pockets.json. Against a PDB Foldseek
@@ -15,9 +16,9 @@ PocketMapper: map and compare binding pockets across protein structures.
 6. `steps.compare` -> pocket_comparison.tsv.
 7. `steps.superpose` -> the top align_count targets per query, superposed into aligned_structures/.
 
-Every step but parse drops the records it fails, into failed_entries.json, so each records file
-holds only usable records. `search` calls each step's entry function with its resolved Settings as
-the job file, so each step also runs on its own, the same way; see `pocketmapper.steps`.
+Each step skips what it cannot use and lists it, with the reason, in failed_entries.json. `search`
+calls each step's entry function with its resolved Settings as the job file, so each step also runs
+on its own, the same way; see `pocketmapper.steps`.
 
 This is the only module that builds a `Settings`. Steps take a job dict keyed by its field names,
 and components are handed the individual values they need, so none of them has to build one to be
@@ -35,7 +36,6 @@ from pocketmapper.lib import log_to_file
 from pocketmapper.lib import run_scope
 from pocketmapper.lib import temp_dir_scope
 from pocketmapper.records import fsdb_record
-from pocketmapper.records import read_records
 from pocketmapper.settings import Settings
 from pocketmapper.settings import check_fsdb_align_struct_method
 from pocketmapper.settings import check_fsdb_aligner
@@ -53,6 +53,7 @@ from pocketmapper.steps.align import align
 from pocketmapper.steps.compare import compare
 from pocketmapper.steps.fetch_structures import fetch_structures
 from pocketmapper.steps.parse import parse
+from pocketmapper.steps.parse import parse_job_entries
 from pocketmapper.steps.pockets import pockets
 from pocketmapper.steps.superpose import superpose
 
@@ -91,8 +92,6 @@ class PocketMapper:
         aligned_structure_dir=None,
         alignment_path=None,
         pocket_comparison_path=None,
-        query_records_path=None,
-        target_records_path=None,
         pockets_path=None,
         failed_entries_path=None,
         job_settings_path=None,
@@ -105,9 +104,9 @@ class PocketMapper:
         For the length of the call, sets the `pocketmapper` logger's level and adds a handler writing
         to `log_path`; both are restored on return. Empties `temp_dir` on the way in and, unless
         `delete_tmp` is 0, deletes it on the way out. Each directory is created only when something
-        is first written into it. Besides the results, writes the steps' hand-off files into
-        `results_dir` -- the records files, cache_dirs.json, pockets.json and failed_entries.json --
-        so any step can be rerun there on its own.
+        is first written into it. Besides the results, writes pockets.json, failed_entries.json and
+        job_settings.json into `results_dir`, so any step can be rerun there on its own, with
+        job_settings.json as its job file.
 
         Args:
             query (str, optional): Query identifier, string or path to a list. Required here or in
@@ -155,10 +154,6 @@ class PocketMapper:
                 Defaults to <results_dir>/alignment.tsv.
             pocket_comparison_path (str, optional): Where the pocket comparison table is written.
                 Defaults to <results_dir>/pocket_comparison.tsv.
-            query_records_path (str, optional): Where the query records are written.
-                Defaults to <results_dir>/query_records.json.
-            target_records_path (str, optional): Where the target records are written.
-                Defaults to <results_dir>/target_records.json.
             pockets_path (str, optional): Where the pockets are written.
                 Defaults to <results_dir>/pockets.json.
             failed_entries_path (str, optional): Where the entries dropped along the way are written.
@@ -203,8 +198,6 @@ class PocketMapper:
             "aligned_structure_dir": aligned_structure_dir,
             "alignment_path": alignment_path,
             "pocket_comparison_path": pocket_comparison_path,
-            "query_records_path": query_records_path,
-            "target_records_path": target_records_path,
             "pockets_path": pockets_path,
             "failed_entries_path": failed_entries_path,
             "job_settings_path": job_settings_path,
@@ -223,7 +216,7 @@ class PocketMapper:
             with temp_dir_scope(settings.temp_dir, settings.delete_tmp, [settings.cache_dir, settings.results_dir]):
                 parse(job_file=job)
                 # Checked before the database is downloaded
-                if fsdb_record(read_records(settings.target_records_path)) is not None:
+                if fsdb_record(parse_job_entries(job, "search")["target"]) is not None:
                     check_fsdb_aligner(settings.aligner)
                     check_fsdb_align_struct_method(settings.align_struct_method)
                 fetch_structures(job_file=job)

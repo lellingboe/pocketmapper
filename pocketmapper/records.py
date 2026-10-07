@@ -1,12 +1,12 @@
 """
-The files steps hand each other: records, the cache manifest and the failed-entries log.
+What the steps share about records and failures: the failed-entries log and helpers over QTRecord
+dicts.
 
-A records file is a JSON list of `QTRecord` dicts. The cache manifest, `cache_dirs.json` in a
-results directory, names the cache directories a chain of steps shares. `failed_entries.json`
-collects every record a step dropped, with the reason.
+No step hands another a records file: each re-derives its records from the entries
+(`steps.parse.parse_entries`). `failed_entries.json` collects every entry a step left out, with the
+reason; nothing reads it back.
 
-Also derives what a target records file says about the run: whether the target is a Foldseek
-database.
+Also derives what the target records say about the run: whether the target is a Foldseek database.
 """
 
 import json
@@ -15,19 +15,9 @@ import os
 
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.lib import make_dir
+from pocketmapper.lib import outer_command
 
 logger = logging.getLogger(__name__)
-
-# The cache manifest's fixed name within a results directory, and the directories it names
-CACHE_MANIFEST_NAME = "cache_dirs.json"
-CACHE_MANIFEST_KEYS = (
-    "cache_dir",
-    "pdb_dir",
-    "alphafold_dir",
-    "pocket_dir",
-    "foldseek_preprocessed_structure_dir",
-    "fsdb_dir",
-)
 
 
 def require_file(path, what):
@@ -93,87 +83,6 @@ def write_json(value, path):
         json.dump(value, f, indent=4)
 
 
-def read_records(path):
-    """
-    Read a records file.
-
-    Args:
-        path (str): The records file.
-
-    Returns:
-        list: QTRecord dicts, in file order.
-
-    Raises:
-        PocketMapperError: If the file is missing or is not JSON.
-    """
-    return read_json(path, "records")
-
-
-def write_records(records, path):
-    """
-    Write a records file, creating its directory.
-
-    Args:
-        records (list): QTRecord dicts.
-        path (str): The records file.
-
-    Returns:
-        None
-    """
-    write_json(records, path)
-    logger.debug(f"Wrote {len(records)} records to {path}")
-
-
-def write_cache_manifest(results_dir, cache_dirs):
-    """
-    Write `cache_dirs.json` into a results directory.
-
-    Args:
-        results_dir (str): The results directory.
-        cache_dirs (dict): Each of CACHE_MANIFEST_KEYS -> its directory. Stored absolute.
-
-    Returns:
-        None
-    """
-    write_json({key: os.path.abspath(cache_dirs[key]) for key in CACHE_MANIFEST_KEYS}, cache_manifest_path(results_dir))
-
-
-def read_cache_manifest(results_dir):
-    """
-    Read `cache_dirs.json` from a results directory.
-
-    Args:
-        results_dir (str): The results directory.
-
-    Returns:
-        dict: Each of CACHE_MANIFEST_KEYS -> its absolute directory.
-
-    Raises:
-        PocketMapperError: If the manifest is missing, unreadable or lacks a directory.
-    """
-    path = cache_manifest_path(results_dir)
-    manifest = read_json(path, "cache manifest")
-    missing = [key for key in CACHE_MANIFEST_KEYS if key not in manifest]
-    if missing:
-        msg = f"Cache manifest {path} does not name {', '.join(missing)}; rerun parse"
-        logger.critical(msg)
-        raise PocketMapperError(msg)
-    return manifest
-
-
-def cache_manifest_path(results_dir):
-    """
-    Where a results directory's cache manifest lives.
-
-    Args:
-        results_dir (str): The results directory.
-
-    Returns:
-        str: The path of `cache_dirs.json` in it.
-    """
-    return os.path.join(results_dir, CACHE_MANIFEST_NAME)
-
-
 def failed_entry(pocket_id, step, reason, source, record=None, detail=None):
     """
     Build one `failed_entries.json` entry.
@@ -182,8 +91,8 @@ def failed_entry(pocket_id, step, reason, source, record=None, detail=None):
         pocket_id (str): The entry as typed.
         step (str): The step that dropped it, e.g. "fetch_structures".
         reason (str): Why, e.g. "structure_not_found".
-        source (str): The records file the record came from, or the query/target input it was
-            parsed from.
+        source (str): The query/target input the entry was parsed from, or the file it was read
+            from.
         record (dict, optional): The dropped record, whose fields are appended. Defaults to None,
             for an entry that never became a record.
         detail (str, optional): A human-readable explanation. Defaults to None, which adds none.
@@ -228,6 +137,36 @@ def append_failed_entries(path, entries):
     existing = read_json(path, "failed entries") if os.path.isfile(path) else []
     write_json(existing + list(entries), path)
     logger.info(f"{len(entries)} entries dropped; see {path}")
+
+
+def split_missing_structures(records, step, source, log_extra):
+    """
+    Set aside the records whose structure, or Foldseek database, is not on disk.
+
+    Logs a warning naming them, with a hint to run fetch_structures unless running inside search,
+    which already has.
+
+    Args:
+        records (list): One side's QTRecord dicts.
+        step (str): The step skipping them, for the failure entries.
+        source (str): The input they were parsed from, for the failure entries.
+        log_extra (dict): Logging `extra` for the warning.
+
+    Returns:
+        tuple: (records with their structure, `structure_not_found` failure entries for the rest).
+    """
+    kept = []
+    failures = []
+    for record in records:
+        if os.path.exists(record["struct_path"]):
+            kept.append(record)
+        else:
+            failures.append(failed_entry(record["pocket_id"], step, "structure_not_found", source, record))
+    if failures:
+        missing = ", ".join(dict.fromkeys(entry["pocket_id"] for entry in failures))
+        hint = "" if outer_command() == "search" else "; run fetch_structures first"
+        logger.warning(f"No structure on disk for {missing}; skipping them{hint}", extra=log_extra)
+    return kept, failures
 
 
 def unique_by(records, *fields):

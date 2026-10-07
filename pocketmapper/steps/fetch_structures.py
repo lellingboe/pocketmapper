@@ -1,5 +1,5 @@
 """
-Step 2: download the structures and bundled Foldseek database the records need.
+Step 2: download the structures and bundled Foldseek database the query and target entries need.
 
 A Foldseek PDB database's hits are not known yet; the align step fetches theirs. PISA interfaces are
 fetched by the pockets step.
@@ -17,18 +17,15 @@ from pocketmapper.lib import run_scope
 from pocketmapper.lib import temp_dir_scope
 from pocketmapper.records import append_failed_entries
 from pocketmapper.records import failed_entry
-from pocketmapper.records import read_cache_manifest
-from pocketmapper.records import read_records
 from pocketmapper.records import unique_by
-from pocketmapper.records import write_records
 from pocketmapper.settings import dump_settings
-from pocketmapper.settings import input_path
 from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_foldseek
 from pocketmapper.settings import require_setting
 from pocketmapper.settings import resolve_delete_tmp
 from pocketmapper.settings import resolve_paths
 from pocketmapper.settings import resolve_threads
+from pocketmapper.steps.parse import parse_job_entries
 
 logger = logging.getLogger(__name__)
 
@@ -41,39 +38,42 @@ def fetch_structures(
     log_path=None,
     job_settings_path=None,
     failed_entries_path=None,
-    query_records=None,
-    target_records=None,
-    query_records_path=None,
-    target_records_path=None,
+    cache_dir=None,
+    pdb_dir=None,
+    alphafold_dir=None,
+    pocket_dir=None,
+    foldseek_preprocessed_structure_dir=None,
+    fsdb_dir=None,
     threads=None,
     temp_dir=None,
     delete_tmp=None,
 ):
     """
-    Download the structures and Foldseek database the records need.
+    Download the structures and Foldseek database the query and target entries need.
 
-    Reads the cache directories from `results_dir`'s cache manifest. Drops the records whose
-    structure cannot be fetched, adding them to `failed_entries_path`. Empties `temp_dir` on the way
-    in and, unless `delete_tmp` is 0, deletes it on the way out, unless an enclosing call holds it.
+    Parses the entries the job file names. Adds the entries whose structure cannot be fetched to
+    `failed_entries_path`. Empties `temp_dir` on the way in and, unless `delete_tmp` is 0, deletes it
+    on the way out, unless an enclosing call holds it.
 
     Args:
-        job_file (str or dict, optional): JSON job file of job key -> value, or the same
-            already loaded. Any argument given overrides it.
-        results_dir (str, optional): The results directory `parse` wrote to. Required here or in
-            `job_file`.
+        job_file (str or dict, optional): JSON job file of job key -> value, or the same already
+            loaded, e.g. parse's settings. Any argument given overrides it. Must set query and target.
+        results_dir (str, optional): Required here or in `job_file`.
         work_dir (str, optional): Directory that entries and relative paths resolve against.
             Defaults to the working directory.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
         log_path (str, optional): Defaults to <results_dir>/info.log.
         job_settings_path (str, optional): Where these settings are written, as a job file for later
-            steps. Defaults to <results_dir>/fetch_structures_settings.json. Not written when run inside search.
+            steps. Defaults to <results_dir>/fetch_structures_settings.json. Not written when run
+            inside search.
         failed_entries_path (str, optional): Defaults to <results_dir>/failed_entries.json.
-        query_records (str, optional): Defaults to the job file's query_records_path, else
-            <results_dir>/query_records.json.
-        target_records (str, optional): As `query_records`, for the target side.
-        query_records_path (str, optional): Where the query records left are written. Defaults to
-            `query_records`.
-        target_records_path (str, optional): As `query_records_path`. Defaults to `target_records`.
+        cache_dir (str, optional): Defaults to DEFAULT_CACHE_DIR.
+        pdb_dir (str, optional): Defaults to <cache_dir>/pdb_structures.
+        alphafold_dir (str, optional): Defaults to <cache_dir>/alphafold_structures.
+        pocket_dir (str, optional): Defaults to <cache_dir>/pockets.
+        foldseek_preprocessed_structure_dir (str, optional): Defaults to
+            <cache_dir>/foldseek_preprocessed_structures.
+        fsdb_dir (str, optional): Defaults to <cache_dir>/fsdb.
         threads (int, optional): Defaults to one per available core.
         temp_dir (str, optional): Defaults to <results_dir>/tmp.
         delete_tmp (int, optional): 1 deletes `temp_dir` at the end; 0 keeps it. Defaults to
@@ -83,12 +83,10 @@ def fetch_structures(
         None
 
     Raises:
-        PocketMapperError: If the job file cannot be read, no results_dir is given, the manifest or a
-            records file is missing, a setting is invalid, no structure for a side could be fetched,
-            or a Foldseek database cannot be downloaded.
+        PocketMapperError: If the job file cannot be read, query, target or results_dir is not given,
+            the entries are rejected as `parse` rejects them, a setting is invalid, no structure for a
+            side could be fetched, or a Foldseek database cannot be downloaded.
     """
-    # The records paths rewrite the inputs, so they are not layered: an explicit one would become
-    # its input's default too
     values = layer_settings(
         job_file,
         {
@@ -98,55 +96,49 @@ def fetch_structures(
             "log_path": log_path,
             "job_settings_path": job_settings_path,
             "failed_entries_path": failed_entries_path,
+            "cache_dir": cache_dir,
+            "pdb_dir": pdb_dir,
+            "alphafold_dir": alphafold_dir,
+            "pocket_dir": pocket_dir,
+            "foldseek_preprocessed_structure_dir": foldseek_preprocessed_structure_dir,
+            "fsdb_dir": fsdb_dir,
             "threads": threads,
             "temp_dir": temp_dir,
             "delete_tmp": delete_tmp,
         },
     )
-    require_setting(values, "results_dir")
+    for key in ("query", "target", "results_dir"):
+        require_setting(values, key)
     values = resolve_paths(values, "fetch_structures")
-    query_records = input_path(values, query_records, "query_records_path")
-    target_records = input_path(values, target_records, "target_records_path")
     with run_scope("fetch_structures") as outermost, log_to_file(values["log_path"], values["verbosity"]):
         if outermost:
             dump_settings(values)
-        cache_dirs = read_cache_manifest(values["results_dir"])
         threads = resolve_threads(values["threads"])
         delete_tmp = resolve_delete_tmp(values["delete_tmp"])
+        sides = parse_job_entries(values, "fetch_structures")
 
-        roots = [cache_dirs["cache_dir"], values["results_dir"]]
+        roots = [values["cache_dir"], values["results_dir"]]
         with temp_dir_scope(values["temp_dir"], delete_tmp, roots):
             fetch_inputs(
-                query_records,
-                target_records,
-                query_records_path if query_records_path is not None else query_records,
-                target_records_path if target_records_path is not None else target_records,
+                sides,
+                {"query": values["query"], "target": values["target"]},
                 values["failed_entries_path"],
                 threads,
                 values["temp_dir"],
             )
 
 
-def fetch_inputs(
-    query_records,
-    target_records,
-    query_records_path,
-    target_records_path,
-    failed_entries_path,
-    threads,
-    temp_dir,
-):
+def fetch_inputs(sides, sources, failed_entries_path, threads, temp_dir):
     """
     Download the structures and Foldseek database both sides' records need.
 
     Writes each structure to its record's `struct_path`. Records whose structure cannot be fetched
-    are dropped and added to `failed_entries_path` as `structure_not_found`.
+    are added to `failed_entries_path` as `structure_not_found`.
 
     Args:
-        query_records (str): The query records file.
-        target_records (str): The target records file.
-        query_records_path (str): Where the query records left are written. May be `query_records`.
-        target_records_path (str): As `query_records_path`, for the target side.
+        sides (dict): "query" and "target" -> that side's QTRecord dicts.
+        sources (dict): "query" and "target" -> the input the side was parsed from, for the failure
+            entries.
         failed_entries_path (str): The failed-entries file, appended to.
         threads (int): Thread count for a Foldseek database download.
         temp_dir (str): Scratch directory; a Foldseek database download works under it.
@@ -155,14 +147,12 @@ def fetch_inputs(
         None
 
     Raises:
-        PocketMapperError: If a records file cannot be read, no structure for a side could be fetched,
-            or a Foldseek database cannot be downloaded.
+        PocketMapperError: If no structure for a side could be fetched, or a Foldseek database cannot
+            be downloaded.
     """
     log_extra = {"stage": "Downloading Structures"}
 
-    kept = {}
-    for name, in_path in (("query", query_records), ("target", target_records)):
-        records = read_records(in_path)
+    for name, records in sides.items():
         for record in records:
             if record["struct_type"] == "foldseek_db":
                 fetch_missing_fsdb(record, threads, os.path.join(temp_dir, "foldseek_tmp"))
@@ -170,20 +160,14 @@ def fetch_inputs(
         found = fetch_missing_structures(name, structure_records) if structure_records else {}
 
         failures = [
-            failed_entry(record["pocket_id"], "fetch_structures", "structure_not_found", in_path, record)
+            failed_entry(record["pocket_id"], "fetch_structures", "structure_not_found", sources[name], record)
             for record in structure_records
             if not found[record["struct_info"]]
         ]
         append_failed_entries(failed_entries_path, failures)
-        kept[name] = [
-            record for record in records if record["struct_type"] == "foldseek_db" or found[record["struct_info"]]
-        ]
-        if not kept[name]:
+        if len(failures) == len(records):
             logger.critical(f"Insufficient {name} structures after fetching", extra=log_extra)
             raise PocketMapperError(f"Insufficient {name} structures after fetching. No valid {name} entries remain.")
-
-    write_records(kept["query"], query_records_path)
-    write_records(kept["target"], target_records_path)
 
 
 def fetch_missing_structures(name, records):

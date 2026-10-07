@@ -1,7 +1,9 @@
 """
-Step 1: parse the query and target inputs into records files.
+Step 1: parse the query and target inputs, checking each entry against its pocket method.
 
-No network. Writes the cache manifest, so later steps resolve every cache path the way this one did.
+No network. Every later step parses the entries again, from its own settings, through
+`parse_entries`; parse is the cheap check before anything is fetched, and its settings dump is the
+job file the rest of a chain takes.
 """
 
 import logging
@@ -10,18 +12,14 @@ from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.lib import log_to_file
 from pocketmapper.lib import run_scope
 from pocketmapper.qt_processor import QTProcessor
-from pocketmapper.records import CACHE_MANIFEST_KEYS
 from pocketmapper.records import append_failed_entries
 from pocketmapper.records import failed_entry
 from pocketmapper.records import fsdb_record
 from pocketmapper.records import start_failed_entries
-from pocketmapper.records import write_cache_manifest
-from pocketmapper.records import write_records
 from pocketmapper.settings import dump_settings
 from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_setting
 from pocketmapper.settings import resolve_paths
-from pocketmapper.settings import work_path
 
 logger = logging.getLogger(__name__)
 
@@ -44,14 +42,11 @@ def parse(
     pocket_dir=None,
     foldseek_preprocessed_structure_dir=None,
     fsdb_dir=None,
-    query_records_path=None,
-    target_records_path=None,
 ):
     """
-    Parse the query and target inputs into records files. No network.
+    Parse the query and target inputs, checking each entry against its pocket method. No network.
 
-    Writes the records files and `cache_dirs.json`, naming every cache directory absolute, and
-    starts `failed_entries_path` afresh with the entries that could not be parsed.
+    Starts `failed_entries_path` afresh with the entries that could not be parsed.
 
     Args:
         query (str, optional): Query entry, or a file of one entry per line. Required here or in
@@ -77,8 +72,6 @@ def parse(
         foldseek_preprocessed_structure_dir (str, optional): Defaults to
             <cache_dir>/foldseek_preprocessed_structures.
         fsdb_dir (str, optional): Defaults to <cache_dir>/fsdb.
-        query_records_path (str, optional): Defaults to <results_dir>/query_records.json.
-        target_records_path (str, optional): Defaults to <results_dir>/target_records.json.
 
     Returns:
         None
@@ -107,8 +100,6 @@ def parse(
             "pocket_dir": pocket_dir,
             "foldseek_preprocessed_structure_dir": foldseek_preprocessed_structure_dir,
             "fsdb_dir": fsdb_dir,
-            "query_records_path": query_records_path,
-            "target_records_path": target_records_path,
         },
     )
     for key in ("query", "target"):
@@ -122,11 +113,8 @@ def parse(
             values["target"],
             values["query_pocket_method"],
             values["target_pocket_method"],
-            {key: values[key] for key in CACHE_MANIFEST_KEYS},
+            values,
             values["work_dir"],
-            values["results_dir"],
-            values["query_records_path"],
-            values["target_records_path"],
             values["failed_entries_path"],
         )
 
@@ -138,33 +126,26 @@ def parse_inputs(
     target_pocket_method,
     cache_dirs,
     work_dir,
-    results_dir,
-    query_records_path,
-    target_records_path,
     failed_entries_path,
 ):
     """
-    Parse both sides' input into records, and write them with the cache manifest.
+    Parse both sides' input, starting `failed_entries_path` afresh with the entries that fail.
 
-    Starts `failed_entries_path` afresh, then adds every entry that could not be parsed and every
-    Foldseek-database query entry, as `invalid_entry`.
+    Every entry that could not be parsed and every Foldseek-database query entry is listed as
+    `invalid_entry`.
 
     Args:
         query (str): Query entry, or a file of one entry per line.
         target (str): Target entry, a file of them, or a Foldseek database.
         query_pocket_method (str): Pocket method to force on every query entry, or "auto".
         target_pocket_method (str): As `query_pocket_method`, for the target side.
-        cache_dirs (dict): Each of `records.CACHE_MANIFEST_KEYS` -> its directory. Resolved against
-            `work_dir` for the record paths and the manifest.
+        cache_dirs (dict): Holds "pdb_dir", "alphafold_dir" and "fsdb_dir".
         work_dir (str): Directory that entries files, local structure files, a user Foldseek
             database and relative cache directories resolve against.
-        results_dir (str): Where the manifest is written.
-        query_records_path (str): Where the query records are written.
-        target_records_path (str): Where the target records are written.
         failed_entries_path (str): The failed-entries file.
 
     Returns:
-        None
+        dict: "query" and "target" -> that side's QTRecord dicts, as `parse_entries` returns them.
 
     Raises:
         PocketMapperError: If a pocket method is unknown, either side has no valid entries, or a
@@ -182,11 +163,36 @@ def parse_inputs(
         work_dir,
         failed_entries_path=failed_entries_path,
     )
-
-    write_records(sides["query"], query_records_path)
-    write_records(sides["target"], target_records_path)
-    write_cache_manifest(results_dir, {key: work_path(work_dir, path) for key, path in cache_dirs.items()})
     logger.info(f"Parsed {len(sides['query'])} query and {len(sides['target'])} target entries", extra=log_extra)
+    return sides
+
+
+def parse_job_entries(values, step):
+    """
+    Parse both sides' entries as a step's settings name them, adding failures to its failed-entries file.
+
+    Args:
+        values (dict): Job key -> value, from `settings.resolve_paths`. Reads query, target, both
+            pocket methods, the cache directories, `work_dir` and `failed_entries_path`.
+        step (str): The step parsing them, named in the failure entries.
+
+    Returns:
+        dict: "query" and "target" -> that side's QTRecord dicts.
+
+    Raises:
+        PocketMapperError: As `parse_entries`.
+    """
+    sides, _ = parse_entries(
+        values["query"],
+        values["target"],
+        values["query_pocket_method"],
+        values["target_pocket_method"],
+        values,
+        values["work_dir"],
+        step=step,
+        failed_entries_path=values["failed_entries_path"],
+    )
+    return sides
 
 
 def parse_entries(

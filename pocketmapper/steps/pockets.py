@@ -1,9 +1,9 @@
 """
-Step 4: build the pocket of every record into one pockets file.
+Step 4: build the pocket of every query and target entry into one pockets file.
 
-A record whose pocket cannot be built is dropped from its records file, so every record left has a
-pocket for the comparison to read. Against a PDB-named Foldseek database, each hit's PISA interfaces
-are expanded into pockets of their own here, keyed in the pockets file by hit name.
+Every entry given is listed, `null` where its pocket could not be built. Against a PDB-named Foldseek
+database, each hit's PISA interfaces are expanded into pockets of their own here, keyed in the
+pockets file by hit name.
 """
 
 import logging
@@ -28,10 +28,8 @@ from pocketmapper.records import append_failed_entries
 from pocketmapper.records import failed_entry
 from pocketmapper.records import fsdb_record
 from pocketmapper.records import preproc_to_ids
-from pocketmapper.records import read_cache_manifest
-from pocketmapper.records import read_records
 from pocketmapper.records import require_file
-from pocketmapper.records import write_records
+from pocketmapper.records import split_missing_structures
 from pocketmapper.settings import dump_settings
 from pocketmapper.settings import input_path
 from pocketmapper.settings import layer_settings
@@ -39,12 +37,12 @@ from pocketmapper.settings import require_setting
 from pocketmapper.settings import resolve_paths
 from pocketmapper.settings import resolve_pisa_source
 from pocketmapper.steps.fetch_structures import fetch_missing_structures
+from pocketmapper.steps.parse import parse_job_entries
 
 logger = logging.getLogger(__name__)
 
 
 def pockets(
-    records=None,
     job_file=None,
     results_dir=None,
     work_dir=None,
@@ -52,27 +50,28 @@ def pockets(
     log_path=None,
     job_settings_path=None,
     failed_entries_path=None,
+    cache_dir=None,
+    pdb_dir=None,
+    alphafold_dir=None,
+    pocket_dir=None,
+    foldseek_preprocessed_structure_dir=None,
+    fsdb_dir=None,
     alignment=None,
     pockets_path=None,
     pisa_source=None,
 ):
     """
-    Build the pocket of every record in some records files.
+    Build the pocket of every query and target entry into one pockets file.
 
-    Reads the cache directories from `results_dir`'s cache manifest. Overwrites `pockets_path`
-    with the pockets of every file named, and rewrites each file in place without the records whose
-    pocket could not be built, adding those to `failed_entries_path`. Downloads any PISA data not
-    already cached and, against a PDB-named Foldseek database, the structures of its hits.
+    Parses the entries the job file names. Overwrites `pockets_path`, and adds the entries whose
+    structure is missing or whose pocket could not be built to `failed_entries_path`. Downloads any
+    PISA data not already cached and, against a PDB-named Foldseek database, the structures of its
+    hits.
 
     Args:
-        records (list, optional): The records files. The pockets file holds only the pockets of the
-            files named. Defaults, when None or empty, to the query and target records files: the
-            job file's query_records_path and target_records_path, else the standard files under
-            <results_dir>.
-        job_file (str or dict, optional): JSON job file of job key -> value, or the same
-            already loaded. Any argument given overrides it.
-        results_dir (str, optional): The results directory `parse` wrote to. Required here or in
-            `job_file`.
+        job_file (str or dict, optional): JSON job file of job key -> value, or the same already
+            loaded, e.g. parse's settings. Any argument given overrides it. Must set query and target.
+        results_dir (str, optional): Required here or in `job_file`.
         work_dir (str, optional): Directory that entries and relative paths resolve against.
             Defaults to the working directory.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
@@ -80,6 +79,13 @@ def pockets(
         job_settings_path (str, optional): Where these settings are written, as a job file for later
             steps. Defaults to <results_dir>/pockets_settings.json. Not written when run inside search.
         failed_entries_path (str, optional): Defaults to <results_dir>/failed_entries.json.
+        cache_dir (str, optional): Defaults to DEFAULT_CACHE_DIR.
+        pdb_dir (str, optional): Defaults to <cache_dir>/pdb_structures.
+        alphafold_dir (str, optional): Defaults to <cache_dir>/alphafold_structures.
+        pocket_dir (str, optional): Defaults to <cache_dir>/pockets.
+        foldseek_preprocessed_structure_dir (str, optional): Defaults to
+            <cache_dir>/foldseek_preprocessed_structures.
+        fsdb_dir (str, optional): Defaults to <cache_dir>/fsdb.
         alignment (str, optional): The alignment table, read only for a Foldseek-database target.
             Defaults to the job file's alignment_path, else <results_dir>/alignment.tsv.
         pockets_path (str, optional): Defaults to <results_dir>/pockets.json.
@@ -89,9 +95,9 @@ def pockets(
         None
 
     Raises:
-        PocketMapperError: If the job file cannot be read, no results_dir is given, the manifest or a
-            records file is missing, `pisa_source` is invalid, or a Foldseek-database target has no
-            alignment.
+        PocketMapperError: If the job file cannot be read, query, target or results_dir is not given,
+            the entries are rejected as `parse` rejects them, `pisa_source` is invalid, or a
+            Foldseek-database target has no alignment.
     """
     values = layer_settings(
         job_file,
@@ -102,94 +108,106 @@ def pockets(
             "log_path": log_path,
             "job_settings_path": job_settings_path,
             "failed_entries_path": failed_entries_path,
+            "cache_dir": cache_dir,
+            "pdb_dir": pdb_dir,
+            "alphafold_dir": alphafold_dir,
+            "pocket_dir": pocket_dir,
+            "foldseek_preprocessed_structure_dir": foldseek_preprocessed_structure_dir,
+            "fsdb_dir": fsdb_dir,
             "pockets_path": pockets_path,
             "pisa_source": pisa_source,
         },
     )
-    require_setting(values, "results_dir")
+    for key in ("query", "target", "results_dir"):
+        require_setting(values, key)
     values = resolve_paths(values, "pockets")
-    # The command line gives [] for none
-    if not records:
-        records = [values["query_records_path"], values["target_records_path"]]
     with run_scope("pockets") as outermost, log_to_file(values["log_path"], values["verbosity"]):
         if outermost:
             dump_settings(values)
-        cache_dirs = read_cache_manifest(values["results_dir"])
         pisa_source = resolve_pisa_source(values["pisa_source"])
+        sides = parse_job_entries(values, "pockets")
         build_pockets(
-            records,
+            sides,
+            {"query": values["query"], "target": values["target"]},
             input_path(values, alignment, "alignment_path"),
             values["pockets_path"],
             values["failed_entries_path"],
-            cache_dirs,
+            values,
             pisa_source,
         )
 
 
-def build_pockets(records_paths, alignment, pockets_path, failed_entries_path, cache_dirs, pisa_source):
+def build_pockets(sides, sources, alignment, pockets_path, failed_entries_path, cache_dirs, pisa_source):
     """
-    Build a Pocket for every record across several records files, and write them to `pockets_path`.
+    Build a Pocket for every record of both sides, and write them to `pockets_path`.
 
-    Rewrites each records file in place without the records whose pocket could not be built, and
-    adds those to `failed_entries_path` as `pocket_not_built`. Foldseek-database records have no
-    pocket and are kept. Against a PDB-named Foldseek database, also builds a pisa pocket per PISA
-    interface of each hit (see `expand_fsdb_pdb_targets`). The pockets file lists every record and
-    hit pocket, `null` where it was not built, and maps each `preprocess_name` and hit name to its
-    pocket_ids. Downloads any PISA data not already cached under `pocket_dir/pisa/`, and overwrites
-    the per-method pocket files under `pocket_dir`.
+    Adds the records whose structure is missing (`structure_not_found`) or whose pocket could not be
+    built (`pocket_not_built`) to `failed_entries_path`. Foldseek-database records have no pocket.
+    Against a PDB-named Foldseek database, also builds a pisa pocket per PISA interface of each hit
+    (see `expand_fsdb_pdb_targets`). The pockets file lists every record and hit pocket, `null`
+    where it was not built, and maps each `preprocess_name` and hit name to its pocket_ids.
+    Downloads any PISA data not already cached under `pocket_dir/pisa/`, and overwrites the
+    per-method pocket files under `pocket_dir`.
 
     Args:
-        records_paths (list): The records files, e.g. query then target. Records are built in this
-            order, then the hits, which decides which of several identical pisa records names the
+        sides (dict): "query" and "target" -> that side's QTRecord dicts. Built query first, then
+            target, then the hits, which decides which of several identical pisa records names the
             shared pocket.
-        alignment (str): The alignment table. Read only when a record is a Foldseek database.
+        sources (dict): "query" and "target" -> the input the side was parsed from, for the failure
+            entries.
+        alignment (str): The alignment table. Read only when the target is a Foldseek database.
         pockets_path (str): Where the pockets are written, overwriting any there.
         failed_entries_path (str): The failed-entries file, appended to.
-        cache_dirs (dict): Each of `records.CACHE_MANIFEST_KEYS` -> its absolute directory.
+        cache_dirs (dict): Holds "pdb_dir", "alphafold_dir", "fsdb_dir" and "pocket_dir".
         pisa_source (str): Where PISA interfaces are fetched from: "ftp" or "api".
 
     Returns:
         None
 
     Raises:
-        PocketMapperError: If a records file cannot be read, a Foldseek-database target has no
-            alignment, or a PDB-named database's hits have interfaces but none of their structures
-            could be fetched.
+        PocketMapperError: If a Foldseek-database target has no alignment, or a PDB-named database's
+            hits have interfaces but none of their structures could be fetched.
     """
     log_extra = {"stage": "Getting Pockets"}
 
-    files = {path: read_records(path) for path in records_paths}
-    buildable = [record for records in files.values() for record in records if record["struct_type"] != "foldseek_db"]
-    chains = preproc_to_ids(buildable)
+    # (record, the input it came from), in build order
+    given = [
+        (record, sources[name])
+        for name, records in sides.items()
+        for record in records
+        if record["struct_type"] != "foldseek_db"
+    ]
+    chains = preproc_to_ids([record for record, _ in given])
+    buildable = []
+    for name, records in sides.items():
+        kept, missing = split_missing_structures(
+            [record for record in records if record["struct_type"] != "foldseek_db"],
+            "pockets",
+            sources[name],
+            log_extra,
+        )
+        buildable += [(record, sources[name]) for record in kept]
+        append_failed_entries(failed_entries_path, missing)
 
-    hits = []
-    if fsdb_record([record for records in files.values() for record in records]) is not None:
+    if fsdb_record(sides["target"]) is not None:
         require_file(alignment, "alignment")
         hit_names = pd.read_csv(alignment, sep="\t", usecols=["target"], dtype=str)["target"].unique().tolist()
         if fsdb_pocket_mode(hit_names) == "pisa":
             hits, hit_chains, failures = expand_fsdb_pdb_targets(hit_names, cache_dirs, pisa_source, alignment)
             append_failed_entries(failed_entries_path, failures)
+            buildable += [(record, alignment) for record in hits]
             chains |= hit_chains
 
     built = PocketFetcher().fetch_pockets(
-        buildable + hits,
+        [record for record, _ in buildable],
         cache_dirs["pocket_dir"],
         builder_options={"pisa": {"pisa_source": pisa_source}},
     )
 
     # Checked on the merged pockets: a later method can overwrite an earlier one's pocket with None
-    failures = []
-    for path, records in files.items():
-        kept = []
-        for record in records:
-            if record["struct_type"] == "foldseek_db" or built.get(record["pocket_id"]) is not None:
-                kept.append(record)
-            else:
-                failures.append(failed_entry(record["pocket_id"], "pockets", "pocket_not_built", path, record))
-        files[path] = kept
-    failures += [
-        failed_entry(record["pocket_id"], "pockets", "pocket_not_built", alignment, record)
-        for record in hits
+    failures = [
+        failed_entry(record["pocket_id"], "pockets", "pocket_not_built", source, record)
+        for record, source in buildable
         if built.get(record["pocket_id"]) is None
     ]
     if failures:
@@ -200,13 +218,11 @@ def build_pockets(records_paths, alignment, pockets_path, failed_entries_path, c
     append_failed_entries(failed_entries_path, failures)
 
     # Every pocket given or expanded is listed, None where it was not built
-    pocket_ids = [record["pocket_id"] for record in buildable] + [pid for ids in chains.values() for pid in ids]
+    pocket_ids = [record["pocket_id"] for record, _ in given] + [pid for ids in chains.values() for pid in ids]
     pockets = {pocket_id: built.get(pocket_id) for pocket_id in pocket_ids}
     make_dir(os.path.dirname(pockets_path), log_extra)
     write_pockets_file(pockets, chains, pockets_path)
     logger.info(f"Pockets written to {pockets_path}", extra=log_extra)
-    for path, records in files.items():
-        write_records(records, path)
 
 
 def expand_fsdb_pdb_targets(hit_names, cache_dirs, pisa_source, source):
@@ -218,7 +234,7 @@ def expand_fsdb_pdb_targets(hit_names, cache_dirs, pisa_source, source):
 
     Args:
         hit_names (list): The database entry names the search hit.
-        cache_dirs (dict): Each of `records.CACHE_MANIFEST_KEYS` -> its absolute directory.
+        cache_dirs (dict): Holds "pdb_dir", "alphafold_dir", "fsdb_dir" and "pocket_dir".
         pisa_source (str): Where PISA interfaces are fetched from: "ftp" or "api".
         source (str): The alignment table, for the failure entries.
 

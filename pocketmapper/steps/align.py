@@ -18,14 +18,11 @@ from pocketmapper.lib import temp_dir_scope
 from pocketmapper.records import append_failed_entries
 from pocketmapper.records import failed_entry
 from pocketmapper.records import fsdb_record
-from pocketmapper.records import read_cache_manifest
-from pocketmapper.records import read_records
+from pocketmapper.records import split_missing_structures
 from pocketmapper.records import unique_by
-from pocketmapper.records import write_records
 from pocketmapper.sequence_aligner import SequenceAligner
 from pocketmapper.settings import check_fsdb_aligner
 from pocketmapper.settings import dump_settings
-from pocketmapper.settings import input_path
 from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_foldseek
 from pocketmapper.settings import require_setting
@@ -33,6 +30,7 @@ from pocketmapper.settings import resolve_aligner
 from pocketmapper.settings import resolve_delete_tmp
 from pocketmapper.settings import resolve_paths
 from pocketmapper.settings import resolve_threads
+from pocketmapper.steps.parse import parse_job_entries
 from pocketmapper.structure_preprocessor import StructurePreprocessor
 
 logger = logging.getLogger(__name__)
@@ -46,10 +44,12 @@ def align(
     log_path=None,
     job_settings_path=None,
     failed_entries_path=None,
-    query_records=None,
-    target_records=None,
-    query_records_path=None,
-    target_records_path=None,
+    cache_dir=None,
+    pdb_dir=None,
+    alphafold_dir=None,
+    pocket_dir=None,
+    foldseek_preprocessed_structure_dir=None,
+    fsdb_dir=None,
     alignment_path=None,
     aligner=None,
     threads=None,
@@ -59,16 +59,14 @@ def align(
     """
     Align the query chains against the target chains into an alignment table.
 
-    Reads the cache directories from `results_dir`'s cache manifest. Drops the records whose
-    structure is missing or cannot be preprocessed, adding them to `failed_entries_path`. Empties
-    `temp_dir` on the way in and, unless `delete_tmp` is 0, deletes it on the way out, unless an
-    enclosing call holds it.
+    Parses the entries the job file names. Adds the entries whose structure is missing or cannot be
+    preprocessed to `failed_entries_path`. Empties `temp_dir` on the way in and, unless `delete_tmp`
+    is 0, deletes it on the way out, unless an enclosing call holds it.
 
     Args:
-        job_file (str or dict, optional): JSON job file of job key -> value, or the same
-            already loaded. Any argument given overrides it.
-        results_dir (str, optional): The results directory `parse` wrote to. Required here or in
-            `job_file`.
+        job_file (str or dict, optional): JSON job file of job key -> value, or the same already
+            loaded, e.g. parse's settings. Any argument given overrides it. Must set query and target.
+        results_dir (str, optional): Required here or in `job_file`.
         work_dir (str, optional): Directory that entries and relative paths resolve against.
             Defaults to the working directory.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
@@ -76,12 +74,13 @@ def align(
         job_settings_path (str, optional): Where these settings are written, as a job file for later
             steps. Defaults to <results_dir>/align_settings.json. Not written when run inside search.
         failed_entries_path (str, optional): Defaults to <results_dir>/failed_entries.json.
-        query_records (str, optional): Defaults to the job file's query_records_path, else
-            <results_dir>/query_records.json.
-        target_records (str, optional): As `query_records`, for the target side.
-        query_records_path (str, optional): Where the query records left are written. Defaults to
-            `query_records`.
-        target_records_path (str, optional): As `query_records_path`. Defaults to `target_records`.
+        cache_dir (str, optional): Defaults to DEFAULT_CACHE_DIR.
+        pdb_dir (str, optional): Defaults to <cache_dir>/pdb_structures.
+        alphafold_dir (str, optional): Defaults to <cache_dir>/alphafold_structures.
+        pocket_dir (str, optional): Defaults to <cache_dir>/pockets.
+        foldseek_preprocessed_structure_dir (str, optional): Defaults to
+            <cache_dir>/foldseek_preprocessed_structures.
+        fsdb_dir (str, optional): Defaults to <cache_dir>/fsdb.
         alignment_path (str, optional): Defaults to <results_dir>/alignment.tsv.
         aligner (str, optional): "foldseek" or "seq". Defaults to DEFAULT_ALIGNER.
         threads (int, optional): Defaults to one per available core.
@@ -93,13 +92,11 @@ def align(
         None
 
     Raises:
-        PocketMapperError: If the job file cannot be read, no results_dir is given, the manifest or a
-            records file is missing, a setting is invalid, foldseek is needed but cannot run, a
-            Foldseek-database target is aligned with "seq", a side has no usable records, or a
-            Foldseek invocation fails.
+        PocketMapperError: If the job file cannot be read, query, target or results_dir is not given,
+            the entries are rejected as `parse` rejects them, a setting is invalid, foldseek is
+            needed but cannot run, a Foldseek-database target is aligned with "seq", a side has no
+            usable records, or a Foldseek invocation fails.
     """
-    # The records paths rewrite the inputs, so they are not layered: an explicit one would become
-    # its input's default too
     values = layer_settings(
         job_file,
         {
@@ -109,6 +106,12 @@ def align(
             "log_path": log_path,
             "job_settings_path": job_settings_path,
             "failed_entries_path": failed_entries_path,
+            "cache_dir": cache_dir,
+            "pdb_dir": pdb_dir,
+            "alphafold_dir": alphafold_dir,
+            "pocket_dir": pocket_dir,
+            "foldseek_preprocessed_structure_dir": foldseek_preprocessed_structure_dir,
+            "fsdb_dir": fsdb_dir,
             "alignment_path": alignment_path,
             "aligner": aligner,
             "threads": threads,
@@ -116,16 +119,15 @@ def align(
             "delete_tmp": delete_tmp,
         },
     )
-    require_setting(values, "results_dir")
+    for key in ("query", "target", "results_dir"):
+        require_setting(values, key)
     values = resolve_paths(values, "align")
-    query_records = input_path(values, query_records, "query_records_path")
-    target_records = input_path(values, target_records, "target_records_path")
     with run_scope("align") as outermost, log_to_file(values["log_path"], values["verbosity"]):
         if outermost:
             dump_settings(values)
-        cache_dirs = read_cache_manifest(values["results_dir"])
         aligner = resolve_aligner(values["aligner"])
-        if fsdb_record(read_records(target_records)) is not None:
+        sides = parse_job_entries(values, "align")
+        if fsdb_record(sides["target"]) is not None:
             check_fsdb_aligner(aligner)
         if aligner == "foldseek":
             require_foldseek(
@@ -135,28 +137,24 @@ def align(
         threads = resolve_threads(values["threads"])
         delete_tmp = resolve_delete_tmp(values["delete_tmp"])
 
-        roots = [cache_dirs["cache_dir"], values["results_dir"]]
+        roots = [values["cache_dir"], values["results_dir"]]
         with temp_dir_scope(values["temp_dir"], delete_tmp, roots):
             align_chains(
-                query_records,
-                target_records,
-                query_records_path if query_records_path is not None else query_records,
-                target_records_path if target_records_path is not None else target_records,
+                sides,
+                {"query": values["query"], "target": values["target"]},
                 values["alignment_path"],
                 values["failed_entries_path"],
                 aligner,
                 threads,
                 values["verbosity"],
                 values["temp_dir"],
-                cache_dirs["foldseek_preprocessed_structure_dir"],
+                values["foldseek_preprocessed_structure_dir"],
             )
 
 
 def align_chains(
-    query_records,
-    target_records,
-    query_records_path,
-    target_records_path,
+    sides,
+    sources,
     alignment_path,
     failed_entries_path,
     aligner,
@@ -168,14 +166,14 @@ def align_chains(
     """
     Align every query chain against every target chain and write the table to `alignment_path`.
 
-    Drops, and adds to `failed_entries_path`, each record whose structure is missing
-    (`structure_not_found`) or cannot be cut down to its chain (`structure_preprocessing_failed`).
+    Leaves out, adding to `failed_entries_path`, each record whose structure or Foldseek database is
+    missing (`structure_not_found`) or whose structure cannot be cut down to its chain
+    (`structure_preprocessing_failed`).
 
     Args:
-        query_records (str): The query records file.
-        target_records (str): The target records file.
-        query_records_path (str): Where the query records left are written. May be `query_records`.
-        target_records_path (str): As `query_records_path`, for the target side.
+        sides (dict): "query" and "target" -> that side's QTRecord dicts.
+        sources (dict): "query" and "target" -> the input the side was parsed from, for the failure
+            entries.
         alignment_path (str): Where the alignment table is written.
         failed_entries_path (str): The failed-entries file, appended to.
         aligner (str): "foldseek" or "seq". A Foldseek-database target needs "foldseek".
@@ -188,29 +186,18 @@ def align_chains(
         None
 
     Raises:
-        PocketMapperError: If a records file cannot be read, a side has no usable records, or a
-            Foldseek invocation fails.
+        PocketMapperError: If a side has no usable records, or a Foldseek invocation fails.
     """
     log_extra = {"stage": "Alignment"}
-
-    sides = {"query": read_records(query_records), "target": read_records(target_records)}
-    sources = {"query": query_records, "target": target_records}
 
     database = fsdb_record(sides["target"])
 
     # A structure fetch never produced, or one removed since
     failures = []
+    usable = {}
     for name, records in sides.items():
-        sides[name] = []
-        for record in records:
-            if record["struct_type"] == "foldseek_db" or os.path.isfile(record["struct_path"]):
-                sides[name].append(record)
-                continue
-            logger.warning(
-                f"No structure at {record['struct_path']} for {name} {record['pocket_id']}; skipping it",
-                extra=log_extra,
-            )
-            failures.append(failed_entry(record["pocket_id"], "align", "structure_not_found", sources[name], record))
+        usable[name], missing = split_missing_structures(records, "align", sources[name], log_extra)
+        failures += missing
 
     tmp_dirs = {
         "query": os.path.join(temp_dir, "query_structures"),
@@ -219,15 +206,15 @@ def align_chains(
     if aligner == "foldseek":
         logger.info("Preprocessing structures for Foldseek...", extra=log_extra)
         for name in ("query",) if database is not None else ("query", "target"):
-            sides[name], preprocess_failures = foldseek_preprocessing(
-                sides[name], preprocessed_dir, tmp_dirs[name], sources[name]
+            usable[name], preprocess_failures = foldseek_preprocessing(
+                usable[name], preprocessed_dir, tmp_dirs[name], sources[name]
             )
             failures += preprocess_failures
         logger.info("Finished preprocessing structures", extra={"stage": "Preprocessing Structures"})
     append_failed_entries(failed_entries_path, failures)
 
     errors = []
-    for name, records in sides.items():
+    for name, records in usable.items():
         if not records:
             logger.critical(f"No usable {name} records to align", extra=log_extra)
             errors.append(f"no usable {name} records")
@@ -242,10 +229,7 @@ def align_chains(
         )
     else:
         logger.info("Running local pairwise aligner...", extra=log_extra)
-        local_alignment(sides["query"], sides["target"], alignment_path)
-
-    write_records(sides["query"], query_records_path)
-    write_records(sides["target"], target_records_path)
+        local_alignment(usable["query"], usable["target"], alignment_path)
 
 
 def foldseek_preprocessing(records, cache_dir, search_dir, source):
@@ -259,7 +243,7 @@ def foldseek_preprocessing(records, cache_dir, search_dir, source):
         records (list): One side's QTRecord dicts. Foldseek-database records are passed through.
         cache_dir (str): Directory the single-chain copies are cached in.
         search_dir (str): The side's scratch directory for Foldseek's input.
-        source (str): The records file they came from, for the failure entries.
+        source (str): The input they were parsed from, for the failure entries.
 
     Returns:
         tuple: (records left, failure entries). Every record on a chain that could not be

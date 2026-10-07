@@ -78,8 +78,6 @@ class Settings:
     aligned_structure_dir: str
     alignment_path: str
     pocket_comparison_path: str
-    query_records_path: str
-    target_records_path: str
     pockets_path: str
     failed_entries_path: str
     job_settings_path: str
@@ -93,7 +91,10 @@ STEP_ONLY_KEYS = ()
 JOB_KEYS = tuple(field.name for field in fields(Settings)) + STEP_ONLY_KEYS
 
 # Job keys no longer accepted -> what replaced them, for the error a stale job file gets
-REMOVED_JOB_KEYS = {}
+REMOVED_JOB_KEYS = {
+    "query_records_path": "steps re-derive records from query and target; rerun parse for a new job file",
+    "target_records_path": "steps re-derive records from query and target; rerun parse for a new job file",
+}
 
 # Setting -> its static default. The others default to None: resolved at run time, or required.
 SETTING_DEFAULTS = {
@@ -123,8 +124,6 @@ RESULTS_PATH_DEFAULTS = {
     "aligned_structure_dir": "aligned_structures",
     "alignment_path": "alignment.tsv",
     "pocket_comparison_path": "pocket_comparison.tsv",
-    "query_records_path": "query_records.json",
-    "target_records_path": "target_records.json",
     "pockets_path": "pockets.json",
     "failed_entries_path": "failed_entries.json",
     "log_path": "info.log",

@@ -18,13 +18,13 @@ from pocketmapper.lib import run_scope
 from pocketmapper.pocket_comparison import compare_pockets
 from pocketmapper.pockets.pocket_fetcher import read_pockets_file
 from pocketmapper.records import fsdb_record
-from pocketmapper.records import read_records
 from pocketmapper.records import require_file
 from pocketmapper.settings import dump_settings
 from pocketmapper.settings import input_path
 from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_setting
 from pocketmapper.settings import resolve_paths
+from pocketmapper.steps.parse import parse_job_entries
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,13 @@ def compare(
     verbosity=None,
     log_path=None,
     job_settings_path=None,
-    target_records=None,
+    failed_entries_path=None,
+    cache_dir=None,
+    pdb_dir=None,
+    alphafold_dir=None,
+    pocket_dir=None,
+    foldseek_preprocessed_structure_dir=None,
+    fsdb_dir=None,
     alignment=None,
     pockets=None,
     pocket_comparison_path=None,
@@ -47,12 +53,13 @@ def compare(
     """
     Compare the pockets of every aligned query/target pair into a pocket comparison table.
 
-    Writes unknown_ids.json and incorrect_mapping.json beside `pocket_comparison_path` when either has
+    Parses the entries the job file names, for whether the target is a Foldseek database. Writes
+    unknown_ids.json and incorrect_mapping.json beside `pocket_comparison_path` when either has
     anything to report, deleting any left there by an earlier run.
 
     Args:
-        job_file (str or dict, optional): JSON job file of job key -> value, or the same
-            already loaded. Any argument given overrides it.
+        job_file (str or dict, optional): JSON job file of job key -> value, or the same already
+            loaded, e.g. parse's settings. Any argument given overrides it. Must set query and target.
         results_dir (str, optional): The results directory the inputs default to. Required here or
             in `job_file`.
         work_dir (str, optional): Directory that entries and relative paths resolve against.
@@ -61,18 +68,27 @@ def compare(
         log_path (str, optional): Defaults to <results_dir>/info.log.
         job_settings_path (str, optional): Where these settings are written, as a job file for later
             steps. Defaults to <results_dir>/compare_settings.json. Not written when run inside search.
-        target_records (str, optional): Defaults to the job file's target_records_path, else
-            <results_dir>/target_records.json.
-        alignment (str, optional): As `target_records`, from alignment_path.
-        pockets (str, optional): As `target_records`, from pockets_path.
+        failed_entries_path (str, optional): Where entries rejected on parsing are listed. Defaults
+            to <results_dir>/failed_entries.json.
+        cache_dir (str, optional): Defaults to DEFAULT_CACHE_DIR.
+        pdb_dir (str, optional): Defaults to <cache_dir>/pdb_structures.
+        alphafold_dir (str, optional): Defaults to <cache_dir>/alphafold_structures.
+        pocket_dir (str, optional): Defaults to <cache_dir>/pockets.
+        foldseek_preprocessed_structure_dir (str, optional): Defaults to
+            <cache_dir>/foldseek_preprocessed_structures.
+        fsdb_dir (str, optional): Defaults to <cache_dir>/fsdb.
+        alignment (str, optional): Defaults to the job file's alignment_path, else
+            <results_dir>/alignment.tsv.
+        pockets (str, optional): As `alignment`, from pockets_path.
         pocket_comparison_path (str, optional): Defaults to <results_dir>/pocket_comparison.tsv.
 
     Returns:
         None
 
     Raises:
-        PocketMapperError: If the job file cannot be read, no results_dir is given, an input is
-            missing or unreadable, or the alignment names a chain the pockets file does not.
+        PocketMapperError: If the job file cannot be read, query, target or results_dir is not given,
+            the entries are rejected as `parse` rejects them, an input is missing or unreadable, or
+            the alignment names a chain the pockets file does not.
     """
     values = layer_settings(
         job_file,
@@ -82,16 +98,25 @@ def compare(
             "verbosity": verbosity,
             "log_path": log_path,
             "job_settings_path": job_settings_path,
+            "failed_entries_path": failed_entries_path,
+            "cache_dir": cache_dir,
+            "pdb_dir": pdb_dir,
+            "alphafold_dir": alphafold_dir,
+            "pocket_dir": pocket_dir,
+            "foldseek_preprocessed_structure_dir": foldseek_preprocessed_structure_dir,
+            "fsdb_dir": fsdb_dir,
             "pocket_comparison_path": pocket_comparison_path,
         },
     )
-    require_setting(values, "results_dir")
+    for key in ("query", "target", "results_dir"):
+        require_setting(values, key)
     values = resolve_paths(values, "compare")
     with run_scope("compare") as outermost, log_to_file(values["log_path"], values["verbosity"]):
         if outermost:
             dump_settings(values)
+        sides = parse_job_entries(values, "compare")
         compare_aligned_pockets(
-            input_path(values, target_records, "target_records_path"),
+            sides["target"],
             input_path(values, alignment, "alignment_path"),
             input_path(values, pockets, "pockets_path"),
             values["pocket_comparison_path"],
@@ -106,7 +131,7 @@ def compare_aligned_pockets(target_records, alignment, pockets, pocket_compariso
     anything to report, and deletes any left there by an earlier run either way.
 
     Args:
-        target_records (str): The target records file; read for whether the target is a Foldseek
+        target_records (list): The target QTRecord dicts; read for whether the target is a Foldseek
             database.
         alignment (str): The alignment table.
         pockets (str): The pockets file. Its `chains` must name every chain in the alignment, but
@@ -118,8 +143,8 @@ def compare_aligned_pockets(target_records, alignment, pockets, pocket_compariso
 
     Raises:
         PocketMapperError: If an input is missing or unreadable, the alignment names a chain the
-            pockets file does not, the bundled database's offset table is missing from the installation, or an output directory cannot
-            be created.
+            pockets file does not, the bundled database's offset table is missing from the
+            installation, or an output directory cannot be created.
     """
     log_extra = {"stage": "Comparing Pockets Based on Alignment"}
 
@@ -130,7 +155,6 @@ def compare_aligned_pockets(target_records, alignment, pockets, pocket_compariso
         if os.path.isfile(path):
             os.remove(path)
 
-    target = read_records(target_records)
     require_file(pockets, "pockets")
     pocket_dict, chain_pockets = read_pockets_file(pockets)
     require_file(alignment, "alignment")
@@ -144,7 +168,7 @@ def compare_aligned_pockets(target_records, alignment, pockets, pocket_compariso
 
     # A PDB Foldseek database's hits have PISA pockets; any other database's hits have none, so
     # their pockets must be synthesised
-    database = fsdb_record(target)
+    database = fsdb_record(target_records)
     synthesise = database is not None and fsdb_pocket_mode(alignment_df["target"].unique()) == "whole_chain"
     offset_table_path = None
     if synthesise:

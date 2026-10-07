@@ -123,8 +123,6 @@ split a run's outputs across directories.
 | `--aligned_structure_dir` | `<results_dir>/aligned_structures` | Where superposed structures for the top hits are written. |
 | `--alignment_path` | `<results_dir>/alignment.tsv` | Where the alignment table is written. |
 | `--pocket_comparison_path` | `<results_dir>/pocket_comparison.tsv` | Where the pocket comparison table is written. |
-| `--query_records_path` | `<results_dir>/query_records.json` | Where the query records are written. |
-| `--target_records_path` | `<results_dir>/target_records.json` | Where the target records are written. |
 | `--pockets_path` | `<results_dir>/pockets.json` | Where the pockets are written. |
 | `--failed_entries_path` | `<results_dir>/failed_entries.json` | Where the entries dropped along the way are listed, with the reason. |
 | `--job_settings_path` | `<results_dir>/job_settings.json` | Where this run's resolved settings are dumped. |
@@ -144,66 +142,69 @@ bundled Foldseek database.
 
 ### Running one step at a time
 
-`search` runs six steps, and each is also a command of its own. Run in order in one `--results_dir`,
-they produce what `search` produces: each reads the previous step's files from there. So you can stop
-after any step, look at or edit its output and carry on, or rerun one step with other settings.
+`search` runs six steps, and each is also a command of its own. Chained, they produce what `search`
+produces. So you can stop after any step, look at its output and carry on, or rerun one step with
+other settings.
 
 ```bash
 pocketmapper parse 4Q5J:B_F 4Q5J:A_E --results_dir ./out
-pocketmapper fetch_structures --results_dir ./out
-pocketmapper align --results_dir ./out
-pocketmapper pockets --results_dir ./out
-pocketmapper compare --results_dir ./out
-pocketmapper superpose --results_dir ./out
+pocketmapper fetch_structures --job_file ./out/parse_settings.json
+pocketmapper align --job_file ./out/parse_settings.json
+pocketmapper pockets --job_file ./out/parse_settings.json
+pocketmapper compare --job_file ./out/parse_settings.json
+pocketmapper superpose --job_file ./out/parse_settings.json
 ```
 
 | Command | Does | Reads | Writes |
 | --- | --- | --- | --- |
-| `parse` | Parses the query and target into records, checking each entry against its pocket method. No network. | `QUERY`, `TARGET` | `query_records.json`, `target_records.json`, `cache_dirs.json`; starts `failed_entries.json` afresh |
-| `fetch_structures` | Downloads the structures and a bundled Foldseek database the records need. | records, `cache_dirs.json` | the cache; the records, without those whose structure could not be fetched |
-| `align` | Aligns the query chains against the target chains. | records, `cache_dirs.json` | `alignment.tsv`; the records |
-| `pockets` | Downloads the PISA interfaces the records need, then builds the pocket of every record in the records files it is given. Against the `pdb` database, also downloads each hit's PISA interfaces and structure and builds a pocket per interface. | `RECORDS ...`, `cache_dirs.json`, `alignment.tsv` (database target only) | `pockets.json`; each records file, without the records whose pocket could not be built |
-| `compare` | Compares the pockets of every aligned pair. | target records, `alignment.tsv`, `pockets.json` | `pocket_comparison.tsv`, `unknown_ids.json`, `incorrect_mapping.json` |
-| `superpose` | Superposes the top targets onto each query. | records, `pocket_comparison.tsv`, `alignment.tsv`, `pockets.json` (`pdb` database target only) | `aligned_structures/` |
+| `parse` | Checks how each query and target entry parses, against its pocket method. No network. | `QUERY`, `TARGET` | starts `failed_entries.json` afresh |
+| `fetch_structures` | Downloads the structures and a bundled Foldseek database the entries need. | the entries | the cache |
+| `align` | Aligns the query chains against the target chains. | the entries, the cache | `alignment.tsv` |
+| `pockets` | Downloads the PISA interfaces the entries need, then builds the pocket of every entry. Against the `pdb` database, also downloads each hit's PISA interfaces and structure and builds a pocket per interface. | the entries, the cache, `alignment.tsv` (database target only) | `pockets.json` |
+| `compare` | Compares the pockets of every aligned pair. | the target entry, `alignment.tsv`, `pockets.json` | `pocket_comparison.tsv`, `unknown_ids.json`, `incorrect_mapping.json` |
+| `superpose` | Superposes the top targets onto each query. | the entries, the cache, `pocket_comparison.tsv`, `alignment.tsv`, `pockets.json` (`pdb` database target only) | `aligned_structures/` |
 
+- **Every step parses the entries again**, from the `query`, `target` and pocket methods in its job
+  file, and rejects what `parse` rejects. No step reads another's records. So every step after
+  `parse` needs a job file naming the entries: `parse` writes one, `parse_settings.json`, and so does
+  every step run on its own (`<command>_settings.json`), each a valid job file for any later step.
 - **Every step but `parse` requires `--results_dir`**, here or in a job file, since its inputs default
-  to files in it. An option
-  without `_path` (`--alignment`, `--query_records`) names a file the step reads, one ending in `_path`
-  a file it writes; both default to the names above under `--results_dir`. `fetch_structures` and
-  `align` rewrite the records files in place unless given `--query_records_path`/`--target_records_path`;
-  `pockets` always does, so copy a file first to keep it.
-- **The cache is chosen once, by `parse`**, which records every cache directory in `cache_dirs.json`.
-  `fetch_structures`, `align` and `pockets` read them from there, take no cache options and ignore any
-  in a job file, so a chain cannot split its cache, and the commands after `parse` can run from any
-  working directory.
-- **`pockets` builds both records files by default.** Name files only to build fewer: `pockets.json`
-  holds the pockets of the files named, and `compare` stops if the alignment names a chain
-  `pockets.json` does not list, rather than silently returning no rows for it.
-- **After `fetch_structures`, only `pockets` downloads**: the PISA interfaces of the records and,
-  against the `pdb` database, the PISA interfaces and structures of its hits (only known from
-  `alignment.tsv`).
+  to files in it. An option without `_path` (`--alignment`, `--pockets`) names a file the step reads,
+  one ending in `_path` a file it writes; both default to the names above under `--results_dir`.
+- **The cache is just a setting.** Every step takes the [cache options](#cache-options); a chain
+  shares a cache by taking them from the same job file. Entries, entries files and relative paths
+  resolve against `--work_dir`, which the settings record absolute, so the commands after `parse`
+  can run from any working directory.
+- **Only `fetch_structures` downloads the entries' structures.** `align`, `pockets` and `superpose`
+  skip an entry whose structure is not in the cache, listing it as `structure_not_found`. `pockets`
+  downloads PISA interfaces and, against the `pdb` database, its hits' structures, which only it needs.
+- **`compare` stops if `alignment.tsv` names a chain `pockets.json` does not list**, rather than
+  silently returning no rows for it — say an entry's local file changed between `align` and
+  `pockets`. An entry `pockets` listed but could not build is skipped.
 - **`superpose` reads the aligner off `alignment.tsv`**, so `--align_struct_method auto` resolves as it
   would have in `search` without restating `--aligner`.
-- **Records files hold only usable records.** A step that drops one lists it in `failed_entries.json`
-  with the step and the reason; `parse` starts that file afresh. A dropped record cannot come back by
-  rerunning the step on its output: rerun `parse`.
-- **A `search` writes all of these files too**, so any step can be rerun in its `--results_dir`:
+- **Each step skips what it cannot use** and lists it in `failed_entries.json` with the step and the
+  reason; `parse` starts that file afresh.
+- **A `search` writes the same result files** and its settings, `job_settings.json`, so any step can
+  be rerun on a finished search:
 
 ```bash
-pocketmapper superpose --results_dir ./out --align_count 3 --aligned_structure_dir ./out/top3
+pocketmapper superpose --job_file ./out/job_settings.json --align_count 3 --aligned_structure_dir ./out/top3
 ```
 
 Every step takes `--job_file`, `--verbosity`, `--log_path` (appended to, so a chain writes one log),
-`--work_dir` and `--results_dir`. Beyond those, each takes the options below; they mean what they do for `search`.
+`--work_dir`, `--results_dir`, `--job_settings_path` and `--failed_entries_path`; every step after
+`parse` also takes the [cache options](#cache-options). Beyond those, each takes the options below;
+they mean what they do for `search`.
 
 | Command | Options |
 | --- | --- |
-| `parse` | `QUERY`, `TARGET` (or from the job file), `--query_pocket_method`, `--target_pocket_method`, the [cache options](#cache-options), `--query_records_path`, `--target_records_path`, `--failed_entries_path` |
-| `fetch_structures` | `--query_records`, `--target_records`, `--query_records_path`, `--target_records_path`, `--failed_entries_path`, `--threads`, the [temp options](#temp-options) |
+| `parse` | `QUERY`, `TARGET` (or from the job file), `--query_pocket_method`, `--target_pocket_method`, the [cache options](#cache-options) |
+| `fetch_structures` | `--threads`, the [temp options](#temp-options) |
 | `align` | As `fetch_structures`, plus `--aligner` and `--alignment_path` |
-| `pockets` | `RECORDS ...` (records files; default the query and target records), `--alignment`, `--pockets_path`, `--failed_entries_path`, `--pisa_source` |
-| `compare` | `--target_records`, `--alignment`, `--pockets`, `--pocket_comparison_path` |
-| `superpose` | `--query_records`, `--target_records`, `--pocket_comparison`, `--alignment`, `--pockets`, the [aligned structure options](#aligned-structure-options), `--aligned_structure_dir`, `--threads` |
+| `pockets` | `--alignment`, `--pockets_path`, `--pisa_source` |
+| `compare` | `--alignment`, `--pockets`, `--pocket_comparison_path` |
+| `superpose` | `--pocket_comparison`, `--alignment`, `--pockets`, the [aligned structure options](#aligned-structure-options), `--aligned_structure_dir`, `--threads` |
 
 Each step writes the settings it ran with to `<results_dir>/<command>_settings.json` (move it with
 `--job_settings_path`), a job file any later step takes; `search` writes only `job_settings.json`. See
@@ -323,10 +324,8 @@ Everything is written under `--results_dir`:
 | `aligned_structures/*.pdb` | The top `--align_count` targets superposed onto each query. Named after the query, so identify a file by its `MOLECULE` records rather than its filename. |
 | `job_settings.json` | The fully resolved settings for the run. A step run on its own writes `<command>_settings.json` instead. |
 | `info.log` | The run log. |
-| `query_records.json`, `target_records.json` | Every query and target entry as parsed, with its structure path, chain and pocket method, minus the entries dropped along the way. |
-| `pockets.json` | Every record's pocket, keyed by pocket id (`null` where it could not be built), and `chains`: each aligned chain's name -> the pocket ids on it. Versioned; a file from an older version is rejected, so rerun `pockets`. |
-| `failed_entries.json` | Every entry dropped along the way: the entry, the step that dropped it, the reason (`invalid_entry`, `structure_not_found`, `structure_preprocessing_failed`, `pocket_not_built`) and the record. Empty when nothing was dropped. |
-| `cache_dirs.json` | The absolute cache directories the run used, for [step commands](#running-one-step-at-a-time) rerun in this directory. |
+| `pockets.json` | Every entry's pocket, keyed by pocket id (`null` where it could not be built), and `chains`: each aligned chain's name -> the pocket ids on it. Versioned; a file from an older version is rejected, so rerun `pockets`. |
+| `failed_entries.json` | Every entry skipped along the way: the entry, the step that skipped it, the reason (`invalid_entry`, `structure_not_found`, `structure_preprocessing_failed`, `pocket_not_built`) and the parsed entry. Empty when nothing was skipped. |
 | `unknown_ids.json` | Residue codes the aligner and the structure disagreed on (e.g. MSE -> M). Only written if any were seen, beside `pocket_comparison.tsv`. |
 | `incorrect_mapping.json` | Pockets dropped because their own sequence disagreed with the aligner's for that chain — typically assembly vs asymmetric unit numbering. Only written if any were dropped, beside `pocket_comparison.tsv`. |
 
@@ -447,10 +446,9 @@ that run's settings: `pocketmapper superpose --job_file out/job_settings.json --
 every step's own `<command>_settings.json`. None of them sets `job_settings_path`, and a job file that
 does has it ignored, so a step run from another command's settings never writes over them. A dump
 sets *every* option, paths included, so a command-line option changes only the setting it names:
-`--results_dir` beside it moves no path, and `--alignment_path` moves only the alignment. Two things do
-follow `--results_dir` all the same: where `fetch_structures`, `align` and `pockets` read
-`cache_dirs.json`, and where `--temp_dir` may be emptied. So to reuse a run's files, give its
-`results_dir` or none. With `search`, a new `--results_dir` beside it writes over that run's outputs.
+`--results_dir` beside it moves no path, and `--alignment_path` moves only the alignment. One thing does
+follow `--results_dir` all the same: where `--temp_dir` may be emptied. So to reuse a run's files, give
+its `results_dir` or none. With `search`, a new `--results_dir` beside it writes over that run's outputs.
 
 **`--temp_dir` is emptied on the way in and deleted on the way out.** It holds `query_structures/`,
 `target_structures/` and `foldseek_tmp/`, each created only when used, so a rerun into the same
@@ -490,21 +488,30 @@ from `verbosity` for the length of the call. For the CLI's console format, use
 `logging.getLogger("pocketmapper")`.
 
 The last step is the one you can defer: run with `align_count=0` and no aligned structures are written,
-then run `pocketmapper.steps.superpose.superpose` in the same `results_dir`. For finer control, hand
-`StructureAligner.align_structs` the run's own records and result files: it takes `query_ids` and
+then run `pocketmapper.steps.superpose.superpose(job_file=settings)`. For finer control, hand
+`StructureAligner.align_structs` the run's entries, parsed by `pocketmapper.steps.parse.parse_entries`,
+and its result files: it takes `query_ids` and
 `target_ids` to superpose only part of the run, and `overwrite=False` to leave alone what it has already
 written. (Against a Foldseek database target it also needs `fsdb_path`; `steps.superpose` handles that.)
 
 ```python
 from pocketmapper import PocketMapper
-from pocketmapper.records import read_records
+from pocketmapper.steps.parse import parse_entries
 from pocketmapper.structure_aligner import StructureAligner
 
 settings = PocketMapper().search("4Q5J:A_E", "4Q5J:B_F", align_count=0, results_dir="results")
+sides, _ = parse_entries(
+    settings["query"],
+    settings["target"],
+    settings["query_pocket_method"],
+    settings["target_pocket_method"],
+    settings,  # the cache directories
+    settings["work_dir"],
+)
 
 StructureAligner().align_structs(
-    query_records=read_records(settings["query_records_path"]),
-    target_records=read_records(settings["target_records_path"]),
+    query_records=sides["query"],
+    target_records=sides["target"],
     pocket_comparison=settings["pocket_comparison_path"],
     alignment=settings["alignment_path"],
     out_dir=settings["aligned_structure_dir"],

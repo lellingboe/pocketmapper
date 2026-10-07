@@ -100,24 +100,14 @@ OPTIONS = {
             "Required unless the job file sets target.",
         ),
     ),
-    "records": (
-        ["records"],
-        dict(
-            nargs="*",
-            default=None,
-            metavar="RECORDS",
-            help="Records files, e.g. query_records.json target_records.json. Each is rewritten in place "
-            "without the records whose pocket could not be built. (default: the query and target records "
-            "files)",
-        ),
-    ),
     "job_file": (
         ["-j", "--job_file"],
         dict(
             default=None,
             metavar="PATH",
-            help='JSON file of {"option": value}, e.g. a run\'s job_settings.json. Arguments override it, '
-            "but it sets every path, so pass a specific path option to move one. (default: none)",
+            help="JSON file of {\"option\": value}, e.g. a run's job_settings.json or a step's "
+            "<command>_settings.json. Arguments override it, but it sets every path, so pass a specific path "
+            "option to move one. (default: none)",
         ),
     ),
     "work_dir": (
@@ -246,21 +236,15 @@ OPTIONS = {
         dict(
             default=None,
             metavar="DIR",
-            help="The results directory of the earlier steps; inputs and outputs default to files in it. "
-            "Required here or in the job file.",
+            help="The results directory; inputs and outputs default to files in it. Required here or in the "
+            "job file.",
         ),
     ),
-    "query_records": input_file("--query_records", "query records file", "<results_dir>/query_records.json"),
-    "target_records": input_file("--target_records", "target records file", "<results_dir>/target_records.json"),
     "alignment": input_file("--alignment", "alignment table", "<results_dir>/alignment.tsv"),
     "pockets": input_file("--pockets", "pockets file", "<results_dir>/pockets.json"),
     "pocket_comparison": input_file(
         "--pocket_comparison", "pocket comparison table", "<results_dir>/pocket_comparison.tsv"
     ),
-    "query_records_path": output_file("--query_records_path", "query records", "<results_dir>/query_records.json"),
-    "target_records_path": output_file("--target_records_path", "target records", "<results_dir>/target_records.json"),
-    "query_records_path_rewrite": output_file("--query_records_path", "remaining query records", "--query_records"),
-    "target_records_path_rewrite": output_file("--target_records_path", "remaining target records", "--target_records"),
     "aligned_structure_dir": (
         ["--aligned_structure_dir"],
         dict(
@@ -328,7 +312,7 @@ OPTIONS = {
 # temp, advanced. argparse prints groups after the main options, in the order declared.
 COMMANDS = {
     "parse": (
-        "Parse the query and target into records files, and check the inferred pocket methods. No network.",
+        "Check how each query and target entry parses, before anything is fetched. No network.",
         [
             (
                 None,
@@ -353,34 +337,28 @@ COMMANDS = {
                     "fsdb_dir",
                 ],
             ),
-            (
-                "out options",
-                [
-                    "results_dir",
-                    "query_records_path",
-                    "target_records_path",
-                    "failed_entries_path",
-                    "job_settings_path_step",
-                    "log_path",
-                ],
-            ),
+            ("out options", ["results_dir", "failed_entries_path", "job_settings_path_step", "log_path"]),
         ],
     ),
     "fetch_structures": (
-        "Download the structures and Foldseek database the records need.",
+        "Download the structures and Foldseek database the query and target entries need.",
         [
             (None, ["job_file", "verbosity", "threads"]),
-            ("in options", ["work_dir", "query_records", "target_records"]),
+            ("in options", ["work_dir"]),
+            (
+                "cache options",
+                [
+                    "cache_dir",
+                    "pdb_dir",
+                    "alphafold_dir",
+                    "pocket_dir",
+                    "foldseek_preprocessed_structure_dir",
+                    "fsdb_dir",
+                ],
+            ),
             (
                 "out options",
-                [
-                    "results_dir_required",
-                    "query_records_path_rewrite",
-                    "target_records_path_rewrite",
-                    "failed_entries_path",
-                    "job_settings_path_step",
-                    "log_path",
-                ],
+                ["results_dir_required", "failed_entries_path", "job_settings_path_step", "log_path"],
             ),
             ("temp options", ["temp_dir", "delete_tmp"]),
         ],
@@ -389,14 +367,23 @@ COMMANDS = {
         "Align the query chains against the target chains.",
         [
             (None, ["job_file", "verbosity", "aligner", "threads"]),
-            ("in options", ["work_dir", "query_records", "target_records"]),
+            ("in options", ["work_dir"]),
+            (
+                "cache options",
+                [
+                    "cache_dir",
+                    "pdb_dir",
+                    "alphafold_dir",
+                    "pocket_dir",
+                    "foldseek_preprocessed_structure_dir",
+                    "fsdb_dir",
+                ],
+            ),
             (
                 "out options",
                 [
                     "results_dir_required",
                     "alignment_path",
-                    "query_records_path_rewrite",
-                    "target_records_path_rewrite",
                     "failed_entries_path",
                     "job_settings_path_step",
                     "log_path",
@@ -406,13 +393,30 @@ COMMANDS = {
         ],
     ),
     "pockets": (
-        "Build the pocket of every record in the records files, by default the query and target ones.",
+        "Build the pocket of every query and target entry.",
         [
-            (None, ["records", "job_file", "verbosity"]),
+            (None, ["job_file", "verbosity"]),
             ("in options", ["work_dir", "alignment"]),
             (
+                "cache options",
+                [
+                    "cache_dir",
+                    "pdb_dir",
+                    "alphafold_dir",
+                    "pocket_dir",
+                    "foldseek_preprocessed_structure_dir",
+                    "fsdb_dir",
+                ],
+            ),
+            (
                 "out options",
-                ["results_dir_required", "pockets_path", "failed_entries_path", "job_settings_path_step", "log_path"],
+                [
+                    "results_dir_required",
+                    "pockets_path",
+                    "failed_entries_path",
+                    "job_settings_path_step",
+                    "log_path",
+                ],
             ),
             ("advanced options", ["pisa_source"]),
         ],
@@ -421,20 +425,57 @@ COMMANDS = {
         "Compare the pockets of every aligned query/target pair.",
         [
             (None, ["job_file", "verbosity"]),
-            ("in options", ["work_dir", "target_records", "alignment", "pockets"]),
-            ("out options", ["results_dir_required", "pocket_comparison_path", "job_settings_path_step", "log_path"]),
+            ("in options", ["work_dir", "alignment", "pockets"]),
+            (
+                "cache options",
+                [
+                    "cache_dir",
+                    "pdb_dir",
+                    "alphafold_dir",
+                    "pocket_dir",
+                    "foldseek_preprocessed_structure_dir",
+                    "fsdb_dir",
+                ],
+            ),
+            (
+                "out options",
+                [
+                    "results_dir_required",
+                    "pocket_comparison_path",
+                    "failed_entries_path",
+                    "job_settings_path_step",
+                    "log_path",
+                ],
+            ),
         ],
     ),
     "superpose": (
         "Superpose the top targets of each query onto it.",
         [
             (None, ["job_file", "verbosity", "threads"]),
-            (
-                "in options",
-                ["work_dir", "query_records", "target_records", "pocket_comparison", "alignment", "pockets"],
-            ),
+            ("in options", ["work_dir", "pocket_comparison", "alignment", "pockets"]),
             ("aligned structure options", ["align_count", "align_struct_method"]),
-            ("out options", ["results_dir_required", "aligned_structure_dir", "job_settings_path_step", "log_path"]),
+            (
+                "cache options",
+                [
+                    "cache_dir",
+                    "pdb_dir",
+                    "alphafold_dir",
+                    "pocket_dir",
+                    "foldseek_preprocessed_structure_dir",
+                    "fsdb_dir",
+                ],
+            ),
+            (
+                "out options",
+                [
+                    "results_dir_required",
+                    "aligned_structure_dir",
+                    "failed_entries_path",
+                    "job_settings_path_step",
+                    "log_path",
+                ],
+            ),
         ],
     ),
     "search": (
@@ -473,8 +514,6 @@ COMMANDS = {
                     "aligned_structure_dir",
                     "alignment_path",
                     "pocket_comparison_path",
-                    "query_records_path",
-                    "target_records_path",
                     "pockets_path",
                     "failed_entries_path",
                     "job_settings_path",

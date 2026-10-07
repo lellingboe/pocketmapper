@@ -12,32 +12,38 @@ parse to None or it would hide the job file's value.
 
 ### Steps and hand-off files
 
+**No records are handed on.** Every step re-derives its records from the entries in its settings
+(`steps.parse.parse_job_entries` → `parse_entries`), in memory; what steps hand each other is the
+cache and the files below. A chain passes settings explicitly: `parse_settings.json` (or any step's
+dump) as `--job_file`; nothing in `results_dir` supplies entries or cache dirs.
+
 - **Two layers.** `steps/<step>.py` holds an entry function named after the step (job file + arguments,
   path defaults under `results_dir`, logging, validation, temp dir) and a core function (explicit
   paths and values, no `Settings`, no state); conventions in the `steps` package docstring.
   `PocketMapper.search` builds `Settings`, opens the log and temp scope once, and calls every entry
   function with `asdict(settings)` as the job file, so chained commands == `search` by construction.
-- **Hand-off files** (`records.py` reads/writes them): `query_records.json` / `target_records.json`
-  (JSON list of `QTRecord` dicts, JSON to keep None/bools), `cache_dirs.json` (absolute cache dirs;
-  written by parse and search, read by fetch_structures, align, pockets, which take no cache options),
-  `failed_entries.json` (truncated by parse/search, appended by fetch_structures/align/pockets),
-  `alignment.tsv`,
+- **Hand-off files**: `failed_entries.json` (truncated by parse/search, appended by every step that
+  parses; nothing reads it back), `alignment.tsv`,
   `pockets.json` (`write_pockets_file`/`read_pockets_file`: `version` 2, `pockets` with `null` for a record
   given and not built, `chains` = `preprocess_name` -> pocket_ids; per-method cache files keep the plain
   `dump_pockets` mapping), `pocket_comparison.tsv` (compare's
   `unknown_ids.json`/`incorrect_mapping.json` go beside it).
-- **A records file holds only usable records.** fetch_structures, align and pockets drop the records they fail
-  into `failed_entries.json` (reasons in the `records.failed_entry` callers). No step filters on a
-  `success` flag; `QTRecord` has none.
+- **Each step skips what it cannot use and logs it** into `failed_entries.json` (reasons in the
+  `records.failed_entry` callers). Only fetch_structures downloads entry structures; align, pockets
+  and superpose skip a missing one as `structure_not_found` (`records.split_missing_structures`).
+  pockets lists such an entry `null`. No step rewrites its inputs, so every step is idempotent on
+  rerun. `QTRecord` has no `success` flag.
+- **`preprocess_name` is recomputed per step** (local files re-hashed each time), so consistency rests
+  on the inputs not changing between steps; compare's coverage check (Invariants) catches a
+  mismatch.
 - **The target side's shape replaces the old `self.` flags.** A `foldseek_db` record, always the only
   target entry from parse, means an FSDB target. Its pocket mode comes from the alignment, not from
   any record: `lib.fsdb_pocket_mode` gives `"pisa"` when any hit name is PDB-style, else
-  `"whole_chain"` (pockets, compare and superpose each call it). No step appends hit records to a
-  records file; the hits' pockets and names live only in `pockets.json`.
-- **Record paths are absolute**: parse passes absolute cache dirs to `QTProcessor`, which resolves an
-  entries file, a local file and a user FSDB against `work_dir`. `pocket_id`/`struct_info` stay as
-  typed.
-- `--pisa_source` is not in the manifest; only pockets takes it. fetch_structures and align fetch no
+  `"whole_chain"` (pockets, compare and superpose each call it). The hits' pockets and names live only
+  in `pockets.json`.
+- **Record paths are absolute**: `QTProcessor` resolves the cache dirs, an entries file, a local file
+  and a user FSDB against `work_dir`. `pocket_id`/`struct_info` stay as typed.
+- Only pockets takes `--pisa_source`. fetch_structures and align fetch no
   PISA: the pockets step downloads it, so a pisa record whose PISA fails is aligned, then dropped as
   `pocket_not_built`.
 
@@ -238,11 +244,8 @@ from `resolve_paths(values, command)`, not `RESULTS_PATH_DEFAULTS`). `layer_sett
 nested in search writes none: `lib.run_scope` records the outermost command and nested scopes yield
 False (`lib.outer_command()` reads it).
 
-**A reused `job_settings.json` names every path**, so an argument moves only the path it names.
-`results_dir` is not inert beside it all the same: it locates `cache_dirs.json` (fetch_structures, align,
-pockets) and is a `temp_dir` emptying root. In fetch_structures and align, explicit
-`query_records_path`/`target_records_path` stay out of `layer_settings` and default to their input;
-layered in, an explicit output would also become the input's default (breaks `test_steps_9`/`_13`).
+**A reused dump names every path**, so an argument moves only the path it names. `results_dir` is not
+inert beside it all the same: it is a `temp_dir` emptying root.
 
 A new option goes in **four hand-maintained places per command**: the function signature and its
 `layer_settings` arguments dict (for search also `Settings`; for a step-only option
@@ -316,8 +319,10 @@ classifiers, `[tool.black] target-version`, README Installation; CI `compat` mat
   `StructureDownloader` uses each record's `struct_path` and `lib_download`'s `.part`.
 - **`StructureDownloader` makes a destination's parent directory** just before downloading into it;
   one it cannot make surfaces as `structure_not_found`.
-- **e2e cases can chain commands** (`parse ... ; fetch_structures ; cd DIR ; ...`) and assert `files=`, `failed=`,
-  `same=`; format in the `run_e2e.sh` header. `test_steps_9` needs `POCKETMAPPER_PDB_FSDB`: any
+- **e2e cases can chain commands** (`parse ... ; fetch_structures --job_file @OUT@/parse_settings.json ;
+  cd DIR ; ...`) and assert `files=`, `failed=`, `same=`; format in the `run_e2e.sh` header. Every
+  chained step after parse needs that `--job_file`: the runner adds only `--results_dir` (and
+  `--cache_dir` for parse/search). `test_fsdb_1`/`test_steps_17` need `POCKETMAPPER_PDB_FSDB`: any
   Foldseek DB of `<pdb>-assembly<N>.cif.gz` files (`createdb`) has PDB-style entry names, so a few
   cached mmCIFs make a small local one.
 
@@ -328,9 +333,13 @@ classifiers, `[tool.black] target-version`, README Installation; CI `compat` mat
 `sequence_aligner`, `structure_aligner`, `foldseek`). No component or step takes a `Settings`; the
 entry functions take its dict as `job_file`.
 
-- **Superposition can be deferred**: `search(align_count=0)`, then `steps.superpose.superpose(results_dir=...)`,
-  or `StructureAligner.align_structs` with `records.read_records` of the records paths in the returned
-  settings (FSDB targets also need `fsdb_path`; `steps.superpose` derives it). Records point at
+- **Records come from `steps.parse.parse_entries`** (query, target, both pocket methods, a dict
+  holding the cache dirs, `work_dir`): the side checks parse makes, no files. `parse_side` takes one
+  side as an entry, an entries file or a list.
+- **Superposition can be deferred**: `search(align_count=0)`, then
+  `steps.superpose.superpose(job_file=settings)`, or `StructureAligner.align_structs` with
+  `parse_entries` of the returned settings (FSDB targets also need `fsdb_path`; `steps.superpose`
+  derives it). Records point at
   `pdb_dir`/`alphafold_dir`, which temp deletion never touches. `query_ids`/`target_ids`/`overwrite`
   exist for batching this.
 - `__init__` exports only `PocketMapper` and `__version__`; always import submodules explicitly.

@@ -10,9 +10,10 @@ from pocketmapper.lib import fsdb_pocket_mode
 from pocketmapper.lib import log_to_file
 from pocketmapper.lib import run_scope
 from pocketmapper.pockets.pocket_fetcher import read_pockets_file
+from pocketmapper.records import append_failed_entries
 from pocketmapper.records import fsdb_record
-from pocketmapper.records import read_records
 from pocketmapper.records import require_file
+from pocketmapper.records import split_missing_structures
 from pocketmapper.settings import check_fsdb_align_struct_method
 from pocketmapper.settings import dump_settings
 from pocketmapper.settings import input_path
@@ -22,6 +23,7 @@ from pocketmapper.settings import require_setting
 from pocketmapper.settings import resolve_align_struct_method
 from pocketmapper.settings import resolve_paths
 from pocketmapper.settings import resolve_threads
+from pocketmapper.steps.parse import parse_job_entries
 from pocketmapper.structure_aligner import StructureAligner
 
 logger = logging.getLogger(__name__)
@@ -34,8 +36,13 @@ def superpose(
     verbosity=None,
     log_path=None,
     job_settings_path=None,
-    query_records=None,
-    target_records=None,
+    failed_entries_path=None,
+    cache_dir=None,
+    pdb_dir=None,
+    alphafold_dir=None,
+    pocket_dir=None,
+    foldseek_preprocessed_structure_dir=None,
+    fsdb_dir=None,
     pocket_comparison=None,
     alignment=None,
     pockets=None,
@@ -47,12 +54,14 @@ def superpose(
     """
     Superpose the top targets of each query onto it, one PDB per query.
 
-    The aligner is read off the alignment table: the seq aligner leaves its `u` column "-". Against
-    a Foldseek database, the target structures are rebuilt out of it, which needs foldseek.
+    Parses the entries the job file names, and adds those whose structure is missing to
+    `failed_entries_path`. The aligner is read off the alignment table: the seq aligner leaves its
+    `u` column "-". Against a Foldseek database, the target structures are rebuilt out of it, which
+    needs foldseek.
 
     Args:
-        job_file (str or dict, optional): JSON job file of job key -> value, or the same
-            already loaded. Any argument given overrides it.
+        job_file (str or dict, optional): JSON job file of job key -> value, or the same already
+            loaded, e.g. parse's settings. Any argument given overrides it. Must set query and target.
         results_dir (str, optional): The results directory the inputs default to. Required here or
             in `job_file`.
         work_dir (str, optional): Directory that entries and relative paths resolve against.
@@ -61,13 +70,19 @@ def superpose(
         log_path (str, optional): Defaults to <results_dir>/info.log.
         job_settings_path (str, optional): Where these settings are written, as a job file for later
             steps. Defaults to <results_dir>/superpose_settings.json. Not written when run inside search.
-        query_records (str, optional): Defaults to the job file's query_records_path, else
-            <results_dir>/query_records.json.
-        target_records (str, optional): As `query_records`, from target_records_path.
-        pocket_comparison (str, optional): As `query_records`, from pocket_comparison_path.
-        alignment (str, optional): As `query_records`, from alignment_path.
-        pockets (str, optional): As `query_records`, from pockets_path. Read only against a PDB-named
-            Foldseek database, for its hits' pockets.
+        failed_entries_path (str, optional): Defaults to <results_dir>/failed_entries.json.
+        cache_dir (str, optional): Defaults to DEFAULT_CACHE_DIR.
+        pdb_dir (str, optional): Defaults to <cache_dir>/pdb_structures.
+        alphafold_dir (str, optional): Defaults to <cache_dir>/alphafold_structures.
+        pocket_dir (str, optional): Defaults to <cache_dir>/pockets.
+        foldseek_preprocessed_structure_dir (str, optional): Defaults to
+            <cache_dir>/foldseek_preprocessed_structures.
+        fsdb_dir (str, optional): Defaults to <cache_dir>/fsdb.
+        pocket_comparison (str, optional): Defaults to the job file's pocket_comparison_path, else
+            <results_dir>/pocket_comparison.tsv.
+        alignment (str, optional): As `pocket_comparison`, from alignment_path.
+        pockets (str, optional): As `pocket_comparison`, from pockets_path. Read only against a
+            PDB-named Foldseek database, for its hits' pockets.
         aligned_structure_dir (str, optional): Defaults to <results_dir>/aligned_structures.
         align_struct_method (str, optional): "pocket", "foldseek" or "auto", which picks "foldseek"
             for a Foldseek alignment and "pocket" for a seq one. Defaults to
@@ -80,8 +95,8 @@ def superpose(
         None
 
     Raises:
-        PocketMapperError: If the job file cannot be read, no results_dir is given, an input is
-            missing, a setting is invalid or does not suit the alignment or target, or foldseek is
+        PocketMapperError: If the job file cannot be read, query, target or results_dir is not given,
+            the entries are rejected as `parse` rejects them, an input is missing, a setting is invalid or does not suit the alignment or target, or foldseek is
             needed but cannot run.
     """
     log_extra = {"stage": "Structural Alignment"}
@@ -94,16 +109,22 @@ def superpose(
             "verbosity": verbosity,
             "log_path": log_path,
             "job_settings_path": job_settings_path,
+            "failed_entries_path": failed_entries_path,
+            "cache_dir": cache_dir,
+            "pdb_dir": pdb_dir,
+            "alphafold_dir": alphafold_dir,
+            "pocket_dir": pocket_dir,
+            "foldseek_preprocessed_structure_dir": foldseek_preprocessed_structure_dir,
+            "fsdb_dir": fsdb_dir,
             "aligned_structure_dir": aligned_structure_dir,
             "align_struct_method": align_struct_method,
             "align_count": align_count,
             "threads": threads,
         },
     )
-    require_setting(values, "results_dir")
+    for key in ("query", "target", "results_dir"):
+        require_setting(values, key)
     values = resolve_paths(values, "superpose")
-    query_records = input_path(values, query_records, "query_records_path")
-    target_records = input_path(values, target_records, "target_records_path")
     pocket_comparison = input_path(values, pocket_comparison, "pocket_comparison_path")
     alignment = input_path(values, alignment, "alignment_path")
     pockets = input_path(values, pockets, "pockets_path")
@@ -118,14 +139,16 @@ def superpose(
             return
         aligner = "seq" if transforms.iloc[0] == "-" else "foldseek"
         align_struct_method = resolve_align_struct_method(values["align_struct_method"], aligner)
-        if fsdb_record(read_records(target_records)) is not None:
+        sides = parse_job_entries(values, "superpose")
+        if fsdb_record(sides["target"]) is not None:
             check_fsdb_align_struct_method(align_struct_method)
             require_foldseek("Rebuilding the target structures out of the Foldseek database needs foldseek")
         threads = resolve_threads(values["threads"])
 
         superpose_top_targets(
-            query_records,
-            target_records,
+            sides,
+            {"query": values["query"], "target": values["target"]},
+            values["failed_entries_path"],
             pocket_comparison,
             alignment,
             pockets,
@@ -137,8 +160,9 @@ def superpose(
 
 
 def superpose_top_targets(
-    query_records,
-    target_records,
+    sides,
+    sources,
+    failed_entries_path,
     pocket_comparison,
     alignment,
     pockets,
@@ -150,12 +174,15 @@ def superpose_top_targets(
     """
     Superpose the top `align_count` targets of each query onto it, into `aligned_structure_dir`.
 
-    Against a Foldseek database, the target structures are rebuilt out of it under
-    `aligned_structure_dir`.
+    Leaves out, adding to `failed_entries_path`, each record whose structure is missing
+    (`structure_not_found`). Against a Foldseek database, the target structures are rebuilt out of it
+    under `aligned_structure_dir`.
 
     Args:
-        query_records (str): The query records file.
-        target_records (str): The target records file.
+        sides (dict): "query" and "target" -> that side's QTRecord dicts.
+        sources (dict): "query" and "target" -> the input the side was parsed from, for the failure
+            entries.
+        failed_entries_path (str): The failed-entries file, appended to.
         pocket_comparison (str): The pocket comparison table.
         alignment (str): The alignment table; its transforms are read with the "foldseek" method.
         pockets (str): The pockets file; read only against a PDB-named Foldseek database, whose
@@ -169,18 +196,24 @@ def superpose_top_targets(
         None
 
     Raises:
-        PocketMapperError: If a records file or the pockets file cannot be read, or Foldseek fails
-            rebuilding structures.
+        PocketMapperError: If the pockets file cannot be read, or Foldseek fails rebuilding
+            structures.
     """
-    query = read_records(query_records)
-    target = read_records(target_records)
+    log_extra = {"stage": "Structural Alignment"}
+
+    # A structure fetch never produced, or one removed since
+    query, failures = split_missing_structures(sides["query"], "superpose", sources["query"], log_extra)
+    target = sides["target"]
 
     # With a Foldseek database, a hit's transform fits the database's own structure, so that is
     # what is superposed. Given no target records, the aligner reads target ids as entry names: only
     # a PDB database's hits have pockets of their own, each found on its hit by `chains`.
     database = fsdb_record(target)
     fsdb_path = database["struct_path"] if database is not None else None
-    if database is not None:
+    if database is None:
+        target, missing = split_missing_structures(target, "superpose", sources["target"], log_extra)
+        failures += missing
+    else:
         hit_names = pd.read_csv(alignment, sep="\t", usecols=["target"], dtype=str)["target"].unique()
         target = []
         if fsdb_pocket_mode(hit_names) == "pisa":
@@ -193,6 +226,8 @@ def superpose_top_targets(
                 if name in hit_names
                 for pocket_id in pocket_ids
             ]
+
+    append_failed_entries(failed_entries_path, failures)
 
     StructureAligner().align_structs(
         query_records=query,

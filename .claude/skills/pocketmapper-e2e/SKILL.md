@@ -65,7 +65,7 @@ DB targets, `test_local_*` the local aligner, `test_invalid_*` rejected or skipp
 `test_settings_*` run configuration, `test_steps_*` the step commands (`parse`, `fetch_structures`, `align`,
 `pockets`, `compare`, `superpose`) run on their own and chained.
 
-`needs-pdb-fsdb` cases (`test_fsdb_1`, `test_steps_9`) do not need the 7 GB PDB database: any
+`needs-pdb-fsdb` cases (`test_fsdb_1`, `test_steps_17`) do not need the 7 GB PDB database: any
 Foldseek DB built with `foldseek createdb` from files named `<pdb>-assembly<N>.cif.gz` has
 PDB-style entry names. Copy a few mmCIFs from the warm cache's `pdb_structures/` under such names
 into a scratch directory, run `createdb` on it, and point `POCKETMAPPER_PDB_FSDB` at the result.
@@ -80,9 +80,9 @@ touched:
 | Alignment, pockets, comparison, superposition | `-t core` |
 | Local BLOSUM62 aligner (`SequenceAligner`) | `-t local` |
 | A pocket method, or `pocket_comparison.py` | `-t core`, then `test_domains_1` |
-| The Foldseek-DB path | `test_fsdb_1 test_steps_9` (need `POCKETMAPPER_PDB_FSDB` set) |
+| The Foldseek-DB path | `test_fsdb_1 test_steps_17` (need `POCKETMAPPER_PDB_FSDB` set) |
 | `Settings`, CLI plumbing, job files, option validation | `test_local_5 test_local_6` and the `test_settings_*` cases |
-| `steps/`, `records.py`, the hand-off files | the `test_steps_*` cases (`test_steps_8` is tagged `human_domains`) |
+| `steps/`, `records.py`, the hand-off files | the `test_steps_*` cases (`test_steps_8` is tagged `human_domains`, `test_steps_17` `needs-pdb-fsdb`) |
 | Anything you're unsure of | `-t core` first; it's the cheap signal |
 
 ## Reading the result
@@ -125,8 +125,8 @@ case it is a chain of commands separated by ` ; `, run in order. Every command b
 succeed; the last one's exit status is the case's. A `cd DIR` segment sets the working directory of
 the commands after it. The runner appends `--verbosity` to every command, and `--results_dir`
 (and, for `parse`/`search`, `--cache_dir`) unless the command sets it — don't put them in a case
-otherwise. `pockets` takes its records files positionally: `@OUT@/query_records.json
-@OUT@/target_records.json`. Cases run with `tests/e2e/fixtures/` as their working directory,
+otherwise. Every chained step after `parse` takes `--job_file @OUT@/parse_settings.json` (or another
+step's `<command>_settings.json`): steps get their entries and cache only from a job file. Cases run with `tests/e2e/fixtures/` as their working directory,
 because `testfile.txt` refers to `4Q5J.cif.gz` by a relative path; keep that relative reference
 if you edit the fixtures.
 
