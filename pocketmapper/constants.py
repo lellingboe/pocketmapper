@@ -244,3 +244,36 @@ Input grammar, databases, output columns and the choice of aligner are
 documented in the README:
     https://github.com/lellingboe/pocketmapper
 """
+
+# The examples for every other command's --help, kept to 80 columns like CLI_SEARCH_EPILOG
+CLI_STEP_EPILOG = """
+Examples:
+  # The search workflow one step at a time, in one results directory.
+  pocketmapper parse 4Q5J:B_F 4Q5J:A_E --results_dir ./out
+  pocketmapper fetch --results_dir ./out
+  pocketmapper align --results_dir ./out
+  pocketmapper pockets out/query_records.json out/target_records.json \\
+      --results_dir ./out
+  pocketmapper compare --results_dir ./out
+  pocketmapper superpose --results_dir ./out
+
+  # After a search, superpose again with other settings.
+  pocketmapper superpose --results_dir ./out --align_count 3 \\
+      --aligned_structure_dir ./out/top3
+
+Each step reads the previous step's files from --results_dir, and fetch, align
+and pockets read the cache directories parse recorded there. The README
+documents each step's inputs and outputs:
+    https://github.com/lellingboe/pocketmapper
+"""
+
+# Command -> the examples for its --help
+CLI_COMMAND_EPILOGS = {
+    "parse": CLI_STEP_EPILOG,
+    "fetch": CLI_STEP_EPILOG,
+    "align": CLI_STEP_EPILOG,
+    "pockets": CLI_STEP_EPILOG,
+    "compare": CLI_STEP_EPILOG,
+    "superpose": CLI_STEP_EPILOG,
+    "search": CLI_SEARCH_EPILOG,
+}

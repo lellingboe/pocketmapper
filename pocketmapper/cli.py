@@ -1,20 +1,23 @@
 """
-Command-line front end: argparse over `PocketMapper.search`.
+Command-line front end: argparse over `PocketMapper.search` and the step commands in
+`pocketmapper.commands`.
 
-This is the only module that knows about `sys.argv`, terminals or exit codes. `search` is the whole
-CLI -- one subcommand, because it is the one public method on `PocketMapper` -- and everything here
-exists to turn a command line into its keyword arguments and nothing more. The pipeline itself stays
-importable without a terminal; see `pocketmapper.pocketmapper`.
+This is the only module that knows about `sys.argv`, terminals or exit codes. Everything here exists
+to turn a command line into one function's keyword arguments and nothing more: each subcommand's
+options are exactly its function's parameters, and `cli()` passes the parsed arguments straight
+through. The pipeline itself stays importable without a terminal.
 
-Three parsing details are load-bearing, each for a reason the code alone would not show:
+`OPTIONS` holds every option once; `COMMANDS` lists which options each subcommand takes, grouped
+for `--help`. Three parsing details are load-bearing, each for a reason the code alone would not show:
 
-- Query and target are optional positionals; there are no `--query`/`--target` options. A job file
-  may supply them instead, and `configure_workflow` requires each from exactly one of the two.
-- Defaults are real values, shared with `PocketMapper.search` through `constants`. The job file is
-  layered on top of the parsed arguments, so a default here never hides a job-file value. Options
-  whose default depends on the run default to None and are resolved downstream.
-- No `choices=` anywhere. The same values arrive from the job file, which never passes through
-  this parser, so validation lives downstream where both paths reach it.
+- `search`'s query and target are optional positionals; there are no `--query`/`--target` options.
+  A job file may supply them instead, and `configure_workflow` requires each from exactly one of
+  the two.
+- Defaults are real values, shared with the functions through `constants`. The job file is layered
+  on top of the parsed arguments, so a default here never hides a job-file value. Options whose
+  default depends on the run default to None and are resolved downstream.
+- No `choices=` anywhere. The same values arrive from the job file and from library calls, which
+  never pass through this parser, so validation lives downstream where every path reaches it.
 
 Author: Lachlan Ellingboe
 """
@@ -23,7 +26,8 @@ import argparse
 import logging
 import sys
 
-from pocketmapper.constants import CLI_SEARCH_EPILOG
+from pocketmapper import commands
+from pocketmapper.constants import CLI_COMMAND_EPILOGS
 from pocketmapper.constants import DEFAULT_ALIGN_COUNT
 from pocketmapper.constants import DEFAULT_ALIGN_STRUCT_METHOD
 from pocketmapper.constants import DEFAULT_ALIGNER
@@ -38,9 +42,419 @@ from pocketmapper.lib import format_handler
 from pocketmapper.pocketmapper import PocketMapper
 
 
+def input_file(flag, name, default):
+    """
+    The spec of an option naming a file a command reads.
+
+    Args:
+        flag (str): The option, e.g. "--alignment".
+        name (str): What the file holds, for the help.
+        default (str): The default, for the help.
+
+    Returns:
+        tuple: (flags, add_argument keyword arguments).
+    """
+    return [flag], dict(default=None, metavar="PATH", help=f"The {name} to read. (default: {default})")
+
+
+def output_file(flag, name, default):
+    """
+    The spec of an option naming a file a command writes.
+
+    Args:
+        flag (str): The option, e.g. "--alignment_path".
+        name (str): What the file holds, for the help.
+        default (str): The default, for the help.
+
+    Returns:
+        tuple: (flags, add_argument keyword arguments).
+    """
+    return [flag], dict(default=None, metavar="PATH", help=f"Where to write the {name}. (default: {default})")
+
+
+# Option name -> (flags, add_argument keyword arguments). The name is the dest, except for a variant
+# of an option whose wording differs between commands, named after it with a suffix.
+OPTIONS = {
+    "query": (
+        ["query"],
+        dict(
+            metavar="QUERY",
+            help="Query entry, or a file with one entry per line. STRUCT[:CHAIN[:RESIDUES]], e.g. 4Q5J:B_F.",
+        ),
+    ),
+    "target": (
+        ["target"],
+        dict(
+            metavar="TARGET",
+            help="Target entry, a file with one entry per line, or a Foldseek DB name: human_domains, pdb.",
+        ),
+    ),
+    "query_optional": (
+        ["query"],
+        dict(
+            nargs="?",
+            default=None,
+            metavar="QUERY",
+            help="Query entry, or a file with one entry per line. STRUCT[:CHAIN[:RESIDUES]], e.g. 4Q5J:B_F. "
+            "Required unless the job file sets query.",
+        ),
+    ),
+    "target_optional": (
+        ["target"],
+        dict(
+            nargs="?",
+            default=None,
+            metavar="TARGET",
+            help="Target entry, a file with one entry per line, or a Foldseek DB name: human_domains, pdb. "
+            "Required unless the job file sets target.",
+        ),
+    ),
+    "records": (
+        ["records"],
+        dict(
+            nargs="+",
+            metavar="RECORDS",
+            help="Records files, e.g. query_records.json target_records.json. Each is rewritten in place "
+            "without the records whose pocket could not be built.",
+        ),
+    ),
+    "job_file": (
+        ["-j", "--job_file"],
+        dict(
+            default=None,
+            metavar="PATH",
+            help='JSON file of {"option": value}, query and target included; it overrides CLI args. ' "(default: none)",
+        ),
+    ),
+    "verbosity": (
+        ["-v", "--verbosity"],
+        dict(
+            type=int,
+            default=DEFAULT_VERBOSITY,
+            metavar="INT",
+            help=f"Log level: 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. (default: {DEFAULT_VERBOSITY})",
+        ),
+    ),
+    "aligner": (
+        ["-a", "--aligner"],
+        dict(
+            default=DEFAULT_ALIGNER,
+            metavar="STR",
+            help="Chain aligner: foldseek (needs the binary) or seq (built-in BLOSUM62 sequence aligner). "
+            f"(default: {DEFAULT_ALIGNER})",
+        ),
+    ),
+    "query_pocket_method": (
+        ["-q", "--query_pocket_method"],
+        dict(
+            default=DEFAULT_POCKET_METHOD,
+            metavar="STR",
+            help="Query pocket method: auto (infer it from each entry), pisa, passthrough, vdw or whole_chain. "
+            f"(default: {DEFAULT_POCKET_METHOD})",
+        ),
+    ),
+    "target_pocket_method": (
+        ["-t", "--target_pocket_method"],
+        dict(
+            default=DEFAULT_POCKET_METHOD,
+            metavar="STR",
+            help="As --query_pocket_method, for targets; also accepts foldseek_db. "
+            f"(default: {DEFAULT_POCKET_METHOD})",
+        ),
+    ),
+    "threads": (
+        ["-T", "--threads"],
+        dict(
+            type=int,
+            default=None,
+            metavar="INT",
+            help="Cap on the cores Foldseek uses. (default: one per available core)",
+        ),
+    ),
+    "align_count": (
+        ["--align_count"],
+        dict(
+            type=int,
+            default=DEFAULT_ALIGN_COUNT,
+            metavar="INT",
+            help="How many top-scoring targets to superpose onto each query; 0 disables. "
+            f"(default: {DEFAULT_ALIGN_COUNT})",
+        ),
+    ),
+    "align_struct_method": (
+        ["--align_struct_method"],
+        dict(
+            default=DEFAULT_ALIGN_STRUCT_METHOD,
+            metavar="STR",
+            help="Which transform superposes a target onto its query: auto, pocket or foldseek. "
+            f"(default: {DEFAULT_ALIGN_STRUCT_METHOD})",
+        ),
+    ),
+    "cache_dir": (
+        ["--cache_dir"],
+        dict(
+            default=DEFAULT_CACHE_DIR,
+            metavar="DIR",
+            help=f"Where structures, pockets and PISA responses are cached. (default: {DEFAULT_CACHE_DIR})",
+        ),
+    ),
+    "pdb_dir": (
+        ["--pdb_dir"],
+        dict(
+            default=None, metavar="DIR", help="Cache of fetched PDB structures. (default: <cache_dir>/pdb_structures)"
+        ),
+    ),
+    "alphafold_dir": (
+        ["--alphafold_dir"],
+        dict(
+            default=None,
+            metavar="DIR",
+            help="Cache of fetched AlphaFold structures. (default: <cache_dir>/alphafold_structures)",
+        ),
+    ),
+    "pocket_dir": (
+        ["--pocket_dir"],
+        dict(default=None, metavar="DIR", help="Cache of parsed pockets. (default: <cache_dir>/pockets)"),
+    ),
+    "foldseek_preprocessed_structure_dir": (
+        ["--foldseek_preprocessed_structure_dir"],
+        dict(
+            default=None,
+            metavar="DIR",
+            help="Cache of the single-chain structures Foldseek is given. "
+            "(default: <cache_dir>/foldseek_preprocessed_structures)",
+        ),
+    ),
+    "fsdb_dir": (
+        ["--fsdb_dir"],
+        dict(default=None, metavar="DIR", help="Cache of bundled Foldseek databases. (default: <cache_dir>/fsdb)"),
+    ),
+    "results_dir": (
+        ["--results_dir"],
+        dict(
+            default=None,
+            metavar="DIR",
+            help="Where results are written. (default: pocketmapper_results_<YYMMDD_HHMMSS>)",
+        ),
+    ),
+    "results_dir_required": (
+        ["--results_dir"],
+        dict(
+            required=True,
+            metavar="DIR",
+            help="The results directory of the earlier steps; inputs and outputs default to files in it.",
+        ),
+    ),
+    "query_records": input_file("--query_records", "query records file", "<results_dir>/query_records.json"),
+    "target_records": input_file("--target_records", "target records file", "<results_dir>/target_records.json"),
+    "alignment": input_file("--alignment", "alignment table", "<results_dir>/alignment.tsv"),
+    "pockets": input_file("--pockets", "pockets file", "<results_dir>/pockets.json"),
+    "pocket_comparison": input_file(
+        "--pocket_comparison", "pocket comparison table", "<results_dir>/pocket_comparison.tsv"
+    ),
+    "query_records_path": output_file("--query_records_path", "query records", "<results_dir>/query_records.json"),
+    "target_records_path": output_file("--target_records_path", "target records", "<results_dir>/target_records.json"),
+    "query_records_path_rewrite": output_file("--query_records_path", "remaining query records", "--query_records"),
+    "target_records_path_rewrite": output_file("--target_records_path", "remaining target records", "--target_records"),
+    "aligned_structure_dir": (
+        ["--aligned_structure_dir"],
+        dict(
+            default=None,
+            metavar="DIR",
+            help="Where superposed structures for the top hits are written. (default: <results_dir>/aligned_structures)",
+        ),
+    ),
+    "alignment_path": output_file("--alignment_path", "alignment table", "<results_dir>/alignment.tsv"),
+    "pockets_path": output_file("--pockets_path", "pockets", "<results_dir>/pockets.json"),
+    "pocket_comparison_path": output_file(
+        "--pocket_comparison_path", "pocket comparison table", "<results_dir>/pocket_comparison.tsv"
+    ),
+    "failed_entries_path": (
+        ["--failed_entries_path"],
+        dict(
+            default=None,
+            metavar="PATH",
+            help="Where the entries dropped along the way are listed, with the reason. "
+            "(default: <results_dir>/failed_entries.json)",
+        ),
+    ),
+    "job_settings_path": output_file(
+        "--job_settings_path", "run's resolved settings", "<results_dir>/job_settings.json"
+    ),
+    "log_path": (
+        ["--log_path"],
+        dict(default=None, metavar="PATH", help="The run log, appended to. (default: <results_dir>/info.log)"),
+    ),
+    "temp_dir": (
+        ["--temp_dir"],
+        dict(
+            default=None,
+            metavar="DIR",
+            help="Scratch space, emptied before use and deleted at the end. (default: <results_dir>/tmp)",
+        ),
+    ),
+    "delete_tmp": (
+        ["--delete_tmp"],
+        dict(
+            type=int,
+            default=DEFAULT_DELETE_TMP,
+            metavar="INT",
+            help=f"1 deletes --temp_dir at the end; 0 keeps it. (default: {DEFAULT_DELETE_TMP})",
+        ),
+    ),
+    "pisa_source": (
+        ["--pisa_source"],
+        dict(
+            default=DEFAULT_PISA_SOURCE,
+            metavar="STR",
+            help="Where PISA interfaces are fetched from: ftp (EBI FTP server) or api (paced PDBe API). "
+            f"(default: {DEFAULT_PISA_SOURCE})",
+        ),
+    ),
+}
+
+# Command -> (description, [(--help group title, or None for the main options, [option names])]).
+# Groups follow the options' lifetime rather than their kind: in, aligned structure, cache, out,
+# temp, advanced. argparse prints groups after the main options, in the order declared.
+COMMANDS = {
+    "parse": (
+        "Parse the query and target into records files, and check the inferred pocket methods. No network.",
+        [
+            (None, ["query", "target", "verbosity", "query_pocket_method", "target_pocket_method"]),
+            (
+                "cache options",
+                [
+                    "cache_dir",
+                    "pdb_dir",
+                    "alphafold_dir",
+                    "pocket_dir",
+                    "foldseek_preprocessed_structure_dir",
+                    "fsdb_dir",
+                ],
+            ),
+            (
+                "out options",
+                ["results_dir", "query_records_path", "target_records_path", "failed_entries_path", "log_path"],
+            ),
+        ],
+    ),
+    "fetch": (
+        "Download the structures, Foldseek database and PISA interfaces the records need.",
+        [
+            (None, ["verbosity", "threads"]),
+            ("in options", ["query_records", "target_records"]),
+            (
+                "out options",
+                [
+                    "results_dir_required",
+                    "query_records_path_rewrite",
+                    "target_records_path_rewrite",
+                    "failed_entries_path",
+                    "log_path",
+                ],
+            ),
+            ("temp options", ["temp_dir", "delete_tmp"]),
+            ("advanced options", ["pisa_source"]),
+        ],
+    ),
+    "align": (
+        "Align the query chains against the target chains.",
+        [
+            (None, ["verbosity", "aligner", "threads"]),
+            ("in options", ["query_records", "target_records"]),
+            (
+                "out options",
+                [
+                    "results_dir_required",
+                    "alignment_path",
+                    "query_records_path_rewrite",
+                    "target_records_path_rewrite",
+                    "failed_entries_path",
+                    "log_path",
+                ],
+            ),
+            ("temp options", ["temp_dir", "delete_tmp"]),
+            ("advanced options", ["pisa_source"]),
+        ],
+    ),
+    "pockets": (
+        "Build the pocket of every record in the records files named.",
+        [
+            (None, ["records", "verbosity"]),
+            ("out options", ["results_dir_required", "pockets_path", "failed_entries_path", "log_path"]),
+            ("advanced options", ["pisa_source"]),
+        ],
+    ),
+    "compare": (
+        "Compare the pockets of every aligned query/target pair.",
+        [
+            (None, ["verbosity"]),
+            ("in options", ["query_records", "target_records", "alignment", "pockets"]),
+            ("out options", ["results_dir_required", "pocket_comparison_path", "log_path"]),
+        ],
+    ),
+    "superpose": (
+        "Superpose the top targets of each query onto it.",
+        [
+            (None, ["verbosity", "threads"]),
+            ("in options", ["query_records", "target_records", "pocket_comparison", "alignment"]),
+            ("aligned structure options", ["align_count", "align_struct_method"]),
+            ("out options", ["results_dir_required", "aligned_structure_dir", "log_path"]),
+        ],
+    ),
+    "search": (
+        "Run the full search workflow: every step above, in order.",
+        [
+            (
+                None,
+                [
+                    "query_optional",
+                    "target_optional",
+                    "job_file",
+                    "verbosity",
+                    "aligner",
+                    "query_pocket_method",
+                    "target_pocket_method",
+                    "threads",
+                ],
+            ),
+            ("aligned structure options", ["align_count", "align_struct_method"]),
+            (
+                "cache options",
+                [
+                    "cache_dir",
+                    "pdb_dir",
+                    "alphafold_dir",
+                    "pocket_dir",
+                    "foldseek_preprocessed_structure_dir",
+                    "fsdb_dir",
+                ],
+            ),
+            (
+                "out options",
+                [
+                    "results_dir",
+                    "aligned_structure_dir",
+                    "alignment_path",
+                    "pocket_comparison_path",
+                    "query_records_path",
+                    "target_records_path",
+                    "pockets_path",
+                    "failed_entries_path",
+                    "job_settings_path",
+                    "log_path",
+                ],
+            ),
+            ("temp options", ["temp_dir", "delete_tmp"]),
+            ("advanced options", ["pisa_source"]),
+        ],
+    ),
+}
+
+
 def build_parser():
     """
-    Build the top-level parser and its one `search` subcommand.
+    Build the top-level parser and one subparser per command in `COMMANDS`.
 
     Returns:
         argparse.ArgumentParser: The configured parser.
@@ -51,207 +465,19 @@ def build_parser():
     )
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
 
-    search = subparsers.add_parser(
-        "search",
-        help="Run the full search workflow.",
-        description="Run the full search workflow.",
-        epilog=CLI_SEARCH_EPILOG,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-
-    search.add_argument(
-        "query",
-        nargs="?",
-        default=None,
-        metavar="QUERY",
-        help="Query entry, or a file with one entry per line. STRUCT[:CHAIN[:RESIDUES]], e.g. 4Q5J:B_F. "
-        "Required unless the job file sets query.",
-    )
-    search.add_argument(
-        "target",
-        nargs="?",
-        default=None,
-        metavar="TARGET",
-        help="Target entry, a file with one entry per line, or a Foldseek DB name: human_domains, pdb. "
-        "Required unless the job file sets target.",
-    )
-    search.add_argument(
-        "-j",
-        "--job_file",
-        default=None,
-        metavar="PATH",
-        help='JSON file of {"option": value}, query and target included; it overrides CLI args. ' "(default: none)",
-    )
-    search.add_argument(
-        "-v",
-        "--verbosity",
-        type=int,
-        default=DEFAULT_VERBOSITY,
-        metavar="INT",
-        help=f"Log level: 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. (default: {DEFAULT_VERBOSITY})",
-    )
-    search.add_argument(
-        "-a",
-        "--aligner",
-        default=DEFAULT_ALIGNER,
-        metavar="STR",
-        help="Chain aligner: foldseek (needs the binary) or seq (built-in BLOSUM62 sequence aligner). "
-        f"(default: {DEFAULT_ALIGNER})",
-    )
-    search.add_argument(
-        "-q",
-        "--query_pocket_method",
-        default=DEFAULT_POCKET_METHOD,
-        metavar="STR",
-        help="Query pocket method: auto (infer it from each entry), pisa, passthrough, vdw or whole_chain. "
-        f"(default: {DEFAULT_POCKET_METHOD})",
-    )
-    search.add_argument(
-        "-t",
-        "--target_pocket_method",
-        default=DEFAULT_POCKET_METHOD,
-        metavar="STR",
-        help=f"As --query_pocket_method, for targets; also accepts foldseek_db. (default: {DEFAULT_POCKET_METHOD})",
-    )
-    search.add_argument(
-        "-T",
-        "--threads",
-        type=int,
-        default=None,
-        metavar="INT",
-        help="Cap on the cores Foldseek uses. (default: one per available core)",
-    )
-
-    # Grouped by lifetime rather than by kind: the twelve path options roughly double the option
-    # count, and leaving them in one list would bury --aligner and --query_pocket_method among
-    # them. argparse prints groups after the main options, in the order declared.
-    aligned_structure_options = search.add_argument_group(
-        "aligned structure options",
-    )
-    aligned_structure_options.add_argument(
-        "--align_count",
-        type=int,
-        default=DEFAULT_ALIGN_COUNT,
-        metavar="INT",
-        help=f"How many top-scoring targets to superpose onto each query; 0 disables. "
-        f"(default: {DEFAULT_ALIGN_COUNT})",
-    )
-    aligned_structure_options.add_argument(
-        "--align_struct_method",
-        default=DEFAULT_ALIGN_STRUCT_METHOD,
-        metavar="STR",
-        help=f"Which transform superposes a target onto its query: auto, pocket or foldseek. "
-        f"(default: {DEFAULT_ALIGN_STRUCT_METHOD})",
-    )
-
-    cache_paths = search.add_argument_group(
-        "cache options",
-    )
-    cache_paths.add_argument(
-        "--cache_dir",
-        default=DEFAULT_CACHE_DIR,
-        metavar="DIR",
-        help=f"Where structures, pockets and PISA responses are cached. (default: {DEFAULT_CACHE_DIR})",
-    )
-    cache_paths.add_argument(
-        "--pdb_dir",
-        default=None,
-        metavar="DIR",
-        help="Cache of fetched PDB structures. (default: <cache_dir>/pdb_structures)",
-    )
-    cache_paths.add_argument(
-        "--alphafold_dir",
-        default=None,
-        metavar="DIR",
-        help="Cache of fetched AlphaFold structures. (default: <cache_dir>/alphafold_structures)",
-    )
-    cache_paths.add_argument(
-        "--pocket_dir",
-        default=None,
-        metavar="DIR",
-        help="Cache of parsed pockets. (default: <cache_dir>/pockets)",
-    )
-    cache_paths.add_argument(
-        "--foldseek_preprocessed_structure_dir",
-        default=None,
-        metavar="DIR",
-        help="Cache of the single-chain structures Foldseek is given. "
-        "(default: <cache_dir>/foldseek_preprocessed_structures)",
-    )
-    cache_paths.add_argument(
-        "--fsdb_dir",
-        default=None,
-        metavar="DIR",
-        help="Cache of bundled Foldseek databases. (default: <cache_dir>/fsdb)",
-    )
-
-    out_paths = search.add_argument_group(
-        "out options",
-    )
-    out_paths.add_argument(
-        "--results_dir",
-        default=None,
-        metavar="DIR",
-        help="Where results are written. (default: pocketmapper_results_<YYMMDD_HHMMSS>)",
-    )
-    out_paths.add_argument(
-        "--aligned_structure_dir",
-        default=None,
-        metavar="DIR",
-        help="Where superposed structures for the top hits are written. (default: <results_dir>/aligned_structures)",
-    )
-    out_paths.add_argument(
-        "--alignment_path",
-        default=None,
-        metavar="PATH",
-        help="Where the alignment table is written. (default: <results_dir>/alignment.tsv)",
-    )
-    out_paths.add_argument(
-        "--pocket_comparison_path",
-        default=None,
-        metavar="PATH",
-        help="Where the pocket comparison table is written. (default: <results_dir>/pocket_comparison.tsv)",
-    )
-    out_paths.add_argument(
-        "--job_settings_path",
-        default=None,
-        metavar="PATH",
-        help="Where this run's resolved settings are dumped. (default: <results_dir>/job_settings.json)",
-    )
-    out_paths.add_argument(
-        "--log_path",
-        default=None,
-        metavar="PATH",
-        help="Where the run log is written. (default: <results_dir>/info.log)",
-    )
-
-    temp_paths = search.add_argument_group(
-        "temp options",
-    )
-    temp_paths.add_argument(
-        "--temp_dir",
-        default=None,
-        metavar="DIR",
-        help="Per-run scratch, emptied before use and deleted at the end. (default: <results_dir>/tmp)",
-    )
-    temp_paths.add_argument(
-        "--delete_tmp",
-        type=int,
-        default=DEFAULT_DELETE_TMP,
-        metavar="INT",
-        help=f"1 deletes --temp_dir at the end of the run; 0 keeps it. (default: {DEFAULT_DELETE_TMP})",
-    )
-
-    advanced_options = search.add_argument_group(
-        "advanced options",
-    )
-    advanced_options.add_argument(
-        "--pisa_source",
-        default=DEFAULT_PISA_SOURCE,
-        metavar="STR",
-        help="Where PISA interfaces are fetched from: ftp (EBI FTP server) or api (paced PDBe API). "
-        f"(default: {DEFAULT_PISA_SOURCE})",
-    )
+    for command, (description, groups) in COMMANDS.items():
+        subparser = subparsers.add_parser(
+            command,
+            help=description,
+            description=description,
+            epilog=CLI_COMMAND_EPILOGS[command],
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
+        for title, names in groups:
+            group = subparser if title is None else subparser.add_argument_group(title)
+            for name in names:
+                flags, kwargs = OPTIONS[name]
+                group.add_argument(*flags, **kwargs)
 
     return parser
 
@@ -277,37 +503,23 @@ def cli(argv=None):
         parser.print_help()
         return
 
+    # Command -> the function its options are the parameters of
+    dispatch = {
+        "parse": commands.parse,
+        "fetch": commands.fetch,
+        "align": commands.align,
+        "pockets": commands.pockets,
+        "compare": commands.compare,
+        "superpose": commands.superpose,
+        "search": PocketMapper().search,
+    }
+    kwargs = {dest: value for dest, value in vars(args).items() if dest != "command"}
+
     package_logger = logging.getLogger(PACKAGE_LOGGER)
     handler = format_handler(logging.StreamHandler(sys.stdout))
     package_logger.addHandler(handler)
     try:
-        PocketMapper().search(
-            query=args.query,
-            target=args.target,
-            job_file=args.job_file,
-            cache_dir=args.cache_dir,
-            results_dir=args.results_dir,
-            verbosity=args.verbosity,
-            threads=args.threads,
-            aligner=args.aligner,
-            align_count=args.align_count,
-            align_struct_method=args.align_struct_method,
-            query_pocket_method=args.query_pocket_method,
-            target_pocket_method=args.target_pocket_method,
-            delete_tmp=args.delete_tmp,
-            pisa_source=args.pisa_source,
-            pdb_dir=args.pdb_dir,
-            alphafold_dir=args.alphafold_dir,
-            pocket_dir=args.pocket_dir,
-            foldseek_preprocessed_structure_dir=args.foldseek_preprocessed_structure_dir,
-            temp_dir=args.temp_dir,
-            aligned_structure_dir=args.aligned_structure_dir,
-            alignment_path=args.alignment_path,
-            pocket_comparison_path=args.pocket_comparison_path,
-            job_settings_path=args.job_settings_path,
-            log_path=args.log_path,
-            fsdb_dir=args.fsdb_dir,
-        )
+        dispatch[args.command](**kwargs)
     except PocketMapperError:
         # Already logged at the raise site
         sys.exit(1)

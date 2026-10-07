@@ -97,6 +97,10 @@ class PocketMapper:
         aligned_structure_dir=None,
         alignment_path=None,
         pocket_comparison_path=None,
+        query_records_path=None,
+        target_records_path=None,
+        pockets_path=None,
+        failed_entries_path=None,
         job_settings_path=None,
         log_path=None,
         fsdb_dir=None,
@@ -155,6 +159,14 @@ class PocketMapper:
                 Defaults to <results_dir>/alignment.tsv.
             pocket_comparison_path (str, optional): Where the pocket comparison table is written.
                 Defaults to <results_dir>/pocket_comparison.tsv.
+            query_records_path (str, optional): Where the query records are written.
+                Defaults to <results_dir>/query_records.json.
+            target_records_path (str, optional): Where the target records are written.
+                Defaults to <results_dir>/target_records.json.
+            pockets_path (str, optional): Where the pockets are written.
+                Defaults to <results_dir>/pockets.json.
+            failed_entries_path (str, optional): Where the entries dropped along the way are written.
+                Defaults to <results_dir>/failed_entries.json.
             job_settings_path (str, optional): Where this run's resolved settings are dumped.
                 Defaults to <results_dir>/job_settings.json.
             log_path (str, optional): Where the run log is written.
@@ -194,6 +206,10 @@ class PocketMapper:
             "aligned_structure_dir": aligned_structure_dir,
             "alignment_path": alignment_path,
             "pocket_comparison_path": pocket_comparison_path,
+            "query_records_path": query_records_path,
+            "target_records_path": target_records_path,
+            "pockets_path": pockets_path,
+            "failed_entries_path": failed_entries_path,
             "job_settings_path": job_settings_path,
             "log_path": log_path,
             "fsdb_dir": fsdb_dir,
@@ -207,11 +223,6 @@ class PocketMapper:
         with log_to_file(values["log_path"], values["verbosity"]):
             settings = self.resolve_settings(values)
             cache_dirs = {key: getattr(settings, key) for key in CACHE_MANIFEST_KEYS}
-            query_records = os.path.join(settings.results_dir, "query_records.json")
-            target_records = os.path.join(settings.results_dir, "target_records.json")
-            pockets = os.path.join(settings.results_dir, "pockets.json")
-            failed_entries = os.path.join(settings.results_dir, "failed_entries.json")
-
             parse_inputs(
                 settings.query,
                 settings.target,
@@ -219,35 +230,35 @@ class PocketMapper:
                 settings.target_pocket_method,
                 cache_dirs,
                 settings.results_dir,
-                query_records,
-                target_records,
-                failed_entries,
+                settings.query_records_path,
+                settings.target_records_path,
+                settings.failed_entries_path,
             )
             # Checked before the database is downloaded
-            if fsdb_record(read_records(target_records)) is not None:
+            if fsdb_record(read_records(settings.target_records_path)) is not None:
                 check_fsdb_aligner(settings.aligner)
                 check_fsdb_align_struct_method(settings.align_struct_method)
             # The manifest is the parse step's absolute copy of cache_dirs
             cache_dirs = read_cache_manifest(settings.results_dir)
 
             fetch_inputs(
-                query_records,
-                target_records,
-                query_records,
-                target_records,
-                failed_entries,
+                settings.query_records_path,
+                settings.target_records_path,
+                settings.query_records_path,
+                settings.target_records_path,
+                settings.failed_entries_path,
                 cache_dirs["pocket_dir"],
                 settings.pisa_source,
                 settings.threads,
                 settings.temp_dir,
             )
             align_chains(
-                query_records,
-                target_records,
-                query_records,
-                target_records,
+                settings.query_records_path,
+                settings.target_records_path,
+                settings.query_records_path,
+                settings.target_records_path,
                 settings.alignment_path,
-                failed_entries,
+                settings.failed_entries_path,
                 settings.aligner,
                 settings.threads,
                 settings.verbosity,
@@ -257,24 +268,24 @@ class PocketMapper:
             )
             # The fetch step already tried every PISA entry, and only successes are cached
             build_pockets(
-                [query_records, target_records],
-                pockets,
-                failed_entries,
+                [settings.query_records_path, settings.target_records_path],
+                settings.pockets_path,
+                settings.failed_entries_path,
                 cache_dirs["pocket_dir"],
                 settings.pisa_source,
                 download_pisa=False,
             )
             compare_aligned_pockets(
-                query_records,
-                target_records,
+                settings.query_records_path,
+                settings.target_records_path,
                 settings.alignment_path,
-                pockets,
+                settings.pockets_path,
                 settings.pocket_comparison_path,
                 settings.results_dir,
             )
             superpose_top_targets(
-                query_records,
-                target_records,
+                settings.query_records_path,
+                settings.target_records_path,
                 settings.pocket_comparison_path,
                 settings.alignment_path,
                 settings.aligned_structure_dir,

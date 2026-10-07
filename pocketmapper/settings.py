@@ -60,6 +60,10 @@ class Settings:
     aligned_structure_dir: str
     alignment_path: str
     pocket_comparison_path: str
+    query_records_path: str
+    target_records_path: str
+    pockets_path: str
+    failed_entries_path: str
     job_settings_path: str
     log_path: str
     fsdb_dir: str
@@ -80,6 +84,10 @@ RESULTS_PATH_DEFAULTS = {
     "aligned_structure_dir": "aligned_structures",
     "alignment_path": "alignment.tsv",
     "pocket_comparison_path": "pocket_comparison.tsv",
+    "query_records_path": "query_records.json",
+    "target_records_path": "target_records.json",
+    "pockets_path": "pockets.json",
+    "failed_entries_path": "failed_entries.json",
     "job_settings_path": "job_settings.json",
     "log_path": "info.log",
 }
@@ -109,11 +117,41 @@ def resolve_paths(values):
     values = dict(values)
     if values["results_dir"] is None:
         values["results_dir"] = default_results_dir()
-    for root, defaults in ((values["cache_dir"], CACHE_PATH_DEFAULTS), (values["results_dir"], RESULTS_PATH_DEFAULTS)):
-        for key, name in defaults.items():
-            if values[key] is None:
-                values[key] = os.path.join(root, name)
+    for key in CACHE_PATH_DEFAULTS:
+        values[key] = cache_path(values["cache_dir"], key, values[key])
+    for key in RESULTS_PATH_DEFAULTS:
+        values[key] = results_path(values["results_dir"], key, values[key])
     return values
+
+
+def cache_path(cache_dir, key, path=None):
+    """
+    A cache path setting, or its default under `cache_dir` when unset.
+
+    Args:
+        cache_dir (str): The cache root.
+        key (str): A key of CACHE_PATH_DEFAULTS, e.g. "pdb_dir".
+        path (str, optional): The value given. Defaults to None, for unset.
+
+    Returns:
+        str: `path`, or the default.
+    """
+    return path if path is not None else os.path.join(cache_dir, CACHE_PATH_DEFAULTS[key])
+
+
+def results_path(results_dir, key, path=None):
+    """
+    A results path setting, or its default under `results_dir` when unset.
+
+    Args:
+        results_dir (str): The results root.
+        key (str): A key of RESULTS_PATH_DEFAULTS, e.g. "alignment_path".
+        path (str, optional): The value given. Defaults to None, for unset.
+
+    Returns:
+        str: `path`, or the default.
+    """
+    return path if path is not None else os.path.join(results_dir, RESULTS_PATH_DEFAULTS[key])
 
 
 def resolve_aligner(aligner):
