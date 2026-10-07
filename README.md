@@ -157,7 +157,7 @@ pocketmapper superpose --job_file ./out/parse_settings.json
 
 | Command | Does | Reads | Writes |
 | --- | --- | --- | --- |
-| `parse` | Checks how each query and target entry parses, against its pocket method. No network. | `QUERY`, `TARGET` | starts `failed_entries.json` afresh |
+| `parse` | Checks how each query and target entry parses, against its pocket method, and prints a table of them: side, entry, struct type, pocket method, path, and why one was rejected. No network. | `QUERY`, `TARGET` | the table on stdout, after the log (`--entries_path` also writes it); starts `failed_entries.json` afresh |
 | `fetch_structures` | Downloads the structures and a bundled Foldseek database the entries need. Also works on its own: `fetch_structures 4Q5J P24941 --out_dir ./structures`. | `ENTRY ...`, else the entries | the cache, or `--out_dir`; optionally `--structures_tsv_path` |
 | `align` | Aligns the query chains against the target chains. | the entries, the cache | `alignment.tsv` |
 | `pockets` | Downloads the PISA interfaces the entries need, then builds the pocket of every entry. Also works on its own: `pockets 4Q5J:B_F --results_dir ./out`. Against the `pdb` database, also downloads each hit's PISA interfaces and structure and builds a pocket per interface. | the entries, the cache, `alignment.tsv` (database target only) | `pockets.json` |
@@ -205,7 +205,7 @@ they mean what they do for `search`.
 
 | Command | Options |
 | --- | --- |
-| `parse` | `QUERY`, `TARGET` (or from the job file), `--query_pocket_method`, `--target_pocket_method`, the [cache options](#cache-options) |
+| `parse` | `QUERY`, `TARGET` (or from the job file), `--query_pocket_method`, `--target_pocket_method`, the [cache options](#cache-options), `--entries_path` |
 | `fetch_structures` | `ENTRY ...` (entries or bare ids such as `4Q5J`, `P12345`, `pdb`, or files of them; default the job file's query and target), `--struct_type` (`auto`, `pdb`, `alphafold` or `foldseek_db`), `--out_dir` (every file into one directory instead of the cache), `--structures_tsv_path` (a table of `id`, `struct_type`, `path`, `ok`), `--threads`, the [temp options](#temp-options) |
 | `align` | `--threads`, the [temp options](#temp-options), `--aligner`, `--alignment_path` and `--fetch_missing` |
 | `pockets` | `ENTRY ...` (entries or files of them, every one with `--pocket_method`, default `auto`; no Foldseek hit is expanded; default the job file's query and target), `--alignment`, `--pockets_path`, `--pockets_tsv_path` (a table of `pocket_id`, `chain`, `res_auth_ids`, `method`), `--pisa_source`, `--fetch_missing` |

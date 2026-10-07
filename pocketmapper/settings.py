@@ -97,11 +97,12 @@ STEP_ONLY_KEYS = (
     "structures_tsv_path",
     "pocket_method",
     "pockets_tsv_path",
+    "entries_path",
     "fetch_missing",
 )
 
 # Step-only paths, resolved against work_dir like every path setting
-STEP_ONLY_PATH_KEYS = ("out_dir", "structures_tsv_path", "pockets_tsv_path")
+STEP_ONLY_PATH_KEYS = ("out_dir", "structures_tsv_path", "pockets_tsv_path", "entries_path")
 JOB_KEYS = tuple(field.name for field in fields(Settings)) + STEP_ONLY_KEYS
 
 # Job keys no longer accepted -> what replaced them, for the error a stale job file gets

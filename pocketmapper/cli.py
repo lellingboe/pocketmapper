@@ -336,6 +336,7 @@ OPTIONS = {
             f"whole_chain. (default: {DEFAULT_POCKET_METHOD})",
         ),
     ),
+    "entries_path": output_file("--entries_path", "table of how each entry resolved, also printed", "none"),
     "pockets_tsv_path": output_file(
         "--pockets_tsv_path", "table of every pocket: pocket_id, chain, res_auth_ids, method", "none"
     ),
@@ -386,7 +387,8 @@ OPTIONS = {
 # temp, advanced. argparse prints groups after the main options, in the order declared.
 COMMANDS = {
     "parse": (
-        "Check how each query and target entry parses, before anything is fetched. No network.",
+        "Check how each query and target entry parses, before anything is fetched, and print a table of "
+        "them. No network.",
         [
             (
                 None,
@@ -411,7 +413,10 @@ COMMANDS = {
                     "fsdb_dir",
                 ],
             ),
-            ("out options", ["results_dir_optional", "failed_entries_path", "job_settings_path_step", "log_path"]),
+            (
+                "out options",
+                ["results_dir_optional", "entries_path", "failed_entries_path", "job_settings_path_step", "log_path"],
+            ),
         ],
     ),
     "fetch_structures": (
@@ -643,8 +648,8 @@ def cli(argv=None):
     """
     Console-script entry point.
 
-    Adds a stdout handler to the `pocketmapper` logger for the length of the call. Calls `sys.exit(1)`
-    on a `PocketMapperError`.
+    Adds a stdout handler to the `pocketmapper` logger for the length of the call. Prints the table
+    `parse` returns once it has run. Calls `sys.exit(1)` on a `PocketMapperError`.
 
     Args:
         argv (list, optional): Argument list to parse. Defaults to sys.argv[1:].
@@ -676,7 +681,10 @@ def cli(argv=None):
     handler = format_handler(logging.StreamHandler(sys.stdout))
     package_logger.addHandler(handler)
     try:
-        dispatch[args.command](**kwargs)
+        result = dispatch[args.command](**kwargs)
+        # After the run, so it does not interleave with the log, which goes to stdout too
+        if args.command == "parse":
+            result.to_csv(sys.stdout, sep="\t", index=False)
     except PocketMapperError:
         # Already logged at the raise site
         sys.exit(1)

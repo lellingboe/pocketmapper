@@ -214,7 +214,10 @@ class PocketMapper:
             # inside these, so the log is written once and temp_dir lives for the whole run
             job = asdict(settings)
             with temp_dir_scope(settings.temp_dir, settings.delete_tmp, [settings.cache_dir, settings.results_dir]):
-                parse(job_file=job)
+                table = parse(job_file=job)
+                logger.info(
+                    f"Entries:\n{table.to_string(index=False)}", extra={"stage": "Determine Query/Target Types"}
+                )
                 # Checked before the database is downloaded
                 if fsdb_record(parse_job_entries(job, "search")["target"]) is not None:
                     check_fsdb_aligner(settings.aligner)

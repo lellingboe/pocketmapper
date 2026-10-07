@@ -71,6 +71,9 @@ dump) as `--job_file`; nothing in `results_dir` supplies entries or cache dirs.
   from positional `entries` or else the job's query and target; a side whose pocket method is
   `foldseek_db` is forced to struct type `foldseek_db`, and an FSDB query entry is rejected as parse
   rejects it. `--out_dir` is a `QTProcessor` with all three cache dirs set to it.
+- **`parse` is a dry run**: it returns `steps.parse.entries_table` (a DataFrame) and `cli()` prints it
+  after dispatch, since the log goes to stdout too; search logs it. `parse_entries` returns failures
+  keyed by side, like `sides`, for that table. Nothing downstream reads it.
 - **`pockets ENTRY...`** parses the entries as one side (`steps.parse.parse_listed_entries`) with
   `pocket_method`, and passes `build_pockets` no alignment, so it expands no FSDB hit; an FSDB entry
   is skipped. `entries` is shared with fetch_structures, so either's dump replays into the other.
