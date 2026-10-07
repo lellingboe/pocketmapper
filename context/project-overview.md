@@ -268,7 +268,8 @@ classifiers, `[tool.black] target-version`, README Installation; CI `compat` mat
   `build/lib/`, so `pip install .` ships dead modules (`align.py`, `local_aligner.py`, a 3.12-only
   `pisa.py`, top-level `structure_fetcher.py`/`pisa_downloader.py` shadowing `downloads/`). Never edit it.
 - Structure parsing is gemmi; biopython only for pairwise alignment and SVD superposition.
-- `StructurePreprocessor` caches on each record's `preprocess_path_gz` existing and writes its own `.part`;
+- `StructurePreprocessor` caches on `<foldseek_preprocessed_structure_dir>/<preprocess_name>.cif.gz`
+  existing and writes its own `.part`;
   `StructureDownloader` uses each record's `struct_path` and `lib_download`'s `.part`.
 - **`StructureDownloader` makes a destination's parent directory** just before downloading into it;
   one it cannot make surfaces as `structure_not_found`.

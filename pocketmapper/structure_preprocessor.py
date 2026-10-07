@@ -23,8 +23,7 @@ class StructurePreprocessor:
     """
     Splits reference structures into single-chain copies for Foldseek to index.
 
-    Each record names its own cached copy, in `preprocess_path_gz`, so there is no shared output
-    directory and no call order to observe.
+    Each record's cached copy is named by its `preprocess_name`, so there is no call order to observe.
     """
 
     def __init__(
@@ -36,15 +35,16 @@ class StructurePreprocessor:
         self.log_extra = {"stage": "Preprocessing Structures"}
         logger.debug("Initialized")
 
-    def preprocess_records(self, records, search_dir):
+    def preprocess_records(self, records, cache_dir, search_dir):
         """
         Split each record's reference structure down to its single alignment chain.
 
-        Writes each single-chain copy to its `preprocess_path_gz`, creating the directory, unless a file
-        is already there, and copies it into `search_dir` as `<preprocess_name>.cif.gz`.
+        Writes each single-chain copy to `<cache_dir>/<preprocess_name>.cif.gz`, creating the directory,
+        unless a file is already there, and copies it into `search_dir` under the same name.
 
         Args:
-            records (list): QTRecord dicts carrying `struct_path` and the `preprocess_*` paths.
+            records (list): QTRecord dicts carrying `struct_path` and `preprocess_name`.
+            cache_dir (str): Directory the single-chain copies are cached in.
             search_dir (str): Directory Foldseek will read the single-chain structures from.
 
         Returns:
@@ -62,8 +62,8 @@ class StructurePreprocessor:
             chain_info = record["chain_info"]  # e.g., A_B or A
             chain, _ = split_chain_info(chain_info)
             # Ensuring divided structure is in the cache directory, e.g. <cache>/P12345_A_<md5>.cif.gz
-            out_path = record["preprocess_path"]
-            out_path_gz = record["preprocess_path_gz"]
+            out_path_gz = os.path.join(cache_dir, f"{record['preprocess_name']}.cif.gz")
+            out_path = out_path_gz.removesuffix(".gz")  # scratch copy, deleted once gzipped
 
             if not os.path.exists(out_path_gz):
                 ref_path = record["struct_path"]  # e.g., /path/to/alphafold_dir/P12345.cif.gz
@@ -91,7 +91,7 @@ class StructurePreprocessor:
                         del model[chain_id]
 
                 # Output the domain and motif pdb file
-                os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                os.makedirs(cache_dir, exist_ok=True)
                 groups = gemmi.MmcifOutputGroups(False, atoms=True, group_pdb=True)
                 st.make_mmcif_document(groups).write_file(out_path)
                 # Through a .part: the cache trusts any .cif.gz it finds, so a truncated one would stick
@@ -100,7 +100,7 @@ class StructurePreprocessor:
                 os.replace(part_path_gz, out_path_gz)
                 os.remove(out_path)
 
-            search_path = os.path.join(search_dir, f"{record['preprocess_name']}.cif.gz")
+            search_path = os.path.join(search_dir, os.path.basename(out_path_gz))
             shutil.copyfile(out_path_gz, search_path)
 
             status_dict[record["pocket_id"]] = True

@@ -37,7 +37,7 @@ class QTRecord:
     A single parsed query/target entry.
 
     Holds the raw input string as `pocket_id` plus everything derived from it -- structure location,
-    preprocessing paths and pocket method. Paths are as absolute as the directories they were
+    preprocessing name and pocket method. Paths are as absolute as the directories they were
     resolved against, and a local file's or user Foldseek database's is made absolute.
     """
 
@@ -48,8 +48,6 @@ class QTRecord:
     struct_type: str | None = None
     struct_path: str | None = None
     preprocess_name: str | None = None
-    preprocess_path: str | None = None
-    preprocess_path_gz: str | None = None
     pocket_method: str | None = None
     # How a Foldseek-database target's pockets are resolved, once its hits are known: "pisa" for a
     # PDB-named database, "whole_chain" for any other. None on every other record.
@@ -64,7 +62,7 @@ class QTProcessor:
     per side.
     """
 
-    def __init__(self, pdb_dir, alphafold_dir, foldseek_preprocessed_structure_dir, fsdb_dir):
+    def __init__(self, pdb_dir, alphafold_dir, fsdb_dir):
         """
         Store the directories that record paths are resolved against, and compile the input regexes.
 
@@ -76,8 +74,6 @@ class QTProcessor:
                 their `struct_path`.
             alphafold_dir (str): Directory fetched AlphaFold structures are written to; where
                 `alphafold` records get their `struct_path`.
-            foldseek_preprocessed_structure_dir (str): Directory the Foldseek preprocessing step
-                writes to; where records get their `preprocess_path`.
             fsdb_dir (str): Directory holding downloaded Foldseek databases, used to locate the
                 bundled `pdb` database.
         """
@@ -87,7 +83,6 @@ class QTProcessor:
 
         self.pdb_dir = pdb_dir
         self.alphafold_dir = alphafold_dir
-        self.foldseek_preprocessed_structure_dir = foldseek_preprocessed_structure_dir
 
         # Structure type regex patterns
         self.pdb_regex = r"^[a-zA-Z0-9]{4}$"
@@ -260,8 +255,6 @@ class QTProcessor:
             with open(struct_path, "rb") as f:
                 hash_input += "_" + hashlib.md5(f.read()).hexdigest()
         preprocess_name = name + "_" + hashlib.md5(hash_input.encode()).hexdigest()
-        preprocess_path = os.path.join(self.foldseek_preprocessed_structure_dir, preprocess_name + ".cif")
-        preprocess_path_gz = preprocess_path + ".gz"
 
         resolved_pocket_method = (
             pocket_method if pocket_method != "auto" else self.determine_pocket_method(qt, struct_type)
@@ -288,8 +281,6 @@ class QTProcessor:
             struct_type=struct_type,
             struct_path=struct_path,
             preprocess_name=preprocess_name,
-            preprocess_path=preprocess_path,
-            preprocess_path_gz=preprocess_path_gz,
             pocket_method=resolved_pocket_method,
         )
         logger.debug(

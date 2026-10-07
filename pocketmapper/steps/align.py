@@ -111,7 +111,9 @@ def align_chains(
     if aligner == "foldseek":
         logger.info("Preprocessing structures for Foldseek...", extra=log_extra)
         for name in ("query",) if database is not None else ("query", "target"):
-            sides[name], preprocess_failures = foldseek_preprocessing(sides[name], tmp_dirs[name], sources[name])
+            sides[name], preprocess_failures = foldseek_preprocessing(
+                sides[name], cache_dirs["foldseek_preprocessed_structure_dir"], tmp_dirs[name], sources[name]
+            )
             failures += preprocess_failures
         logger.info("Finished preprocessing structures", extra={"stage": "Preprocessing Structures"})
     append_failed_entries(failed_entries_path, failures)
@@ -147,15 +149,16 @@ def align_chains(
     write_records(sides["target"], target_records_path)
 
 
-def foldseek_preprocessing(records, search_dir, source):
+def foldseek_preprocessing(records, cache_dir, search_dir, source):
     """
     Write each record's alignment chain as a single-chain structure for Foldseek to index.
 
-    Caches each copy at its record's `preprocess_path_gz` and copies it into `search_dir`, creating it.
-    Records sharing a chain are preprocessed once.
+    Caches each copy as `<cache_dir>/<preprocess_name>.cif.gz` and copies it into `search_dir`,
+    creating it. Records sharing a chain are preprocessed once.
 
     Args:
         records (list): One side's QTRecord dicts. Foldseek-database records are passed through.
+        cache_dir (str): Directory the single-chain copies are cached in.
         search_dir (str): The side's scratch directory for Foldseek's input.
         source (str): The records file they came from, for the failure entries.
 
@@ -172,7 +175,9 @@ def foldseek_preprocessing(records, search_dir, source):
     logger.debug(f"Records to preprocess: {unique_records}", extra=log_extra)
     make_dir(search_dir, log_extra)
 
-    results = StructurePreprocessor().preprocess_records(records=unique_records, search_dir=search_dir)
+    results = StructurePreprocessor().preprocess_records(
+        records=unique_records, cache_dir=cache_dir, search_dir=search_dir
+    )
     logger.debug(f"Preprocessing results: {results}", extra=log_extra)
 
     # The preprocessor reports only the record it processed for each chain
@@ -327,7 +332,6 @@ def expand_fsdb_pdb_targets(alignment_path, cache_dirs, pisa_source, source):
     qtprocessor = QTProcessor(
         pdb_dir=cache_dirs["pdb_dir"],
         alphafold_dir=cache_dirs["alphafold_dir"],
-        foldseek_preprocessed_structure_dir=cache_dirs["foldseek_preprocessed_structure_dir"],
         fsdb_dir=cache_dirs["fsdb_dir"],
     )
     # PISA stores chain pairs the input grammar cannot spell (multi-character chain ids); those are
@@ -343,11 +347,8 @@ def expand_fsdb_pdb_targets(alignment_path, cache_dirs, pisa_source, source):
             record, _ = qtprocessor.parse_individual_qt(f"{pdb_id}:{chain_id}_{partner}", pocket_method="pisa")
             if record is None:
                 continue  # the reason is logged
-            # The alignment is keyed by the Foldseek entry name. Nothing preprocesses these
-            # structures, so they have no preprocessing paths.
+            # The alignment is keyed by the Foldseek entry name
             record.preprocess_name = hit_name
-            record.preprocess_path = None
-            record.preprocess_path_gz = None
             records.append(asdict(record))
     if unspellable:
         logger.info(

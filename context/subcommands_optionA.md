@@ -86,7 +86,7 @@ It is not the hand-off file.
   `aligned_structure_dir`, as today.
 - **Directories:** each is made by its first writer (unchanged rule).
 - **Absolute paths:** commands pass `os.path.abspath` of every cache directory to `QTProcessor`, so
-  `struct_path`, `preprocess_path` and `preprocess_path_gz` are stored absolute and a chain can run
+  `struct_path` is stored absolute and a chain can run
   from another cwd. Two `struct_path`s are taken from the input as typed and need their own
   `os.path.abspath`: a local file's (`determine_ref_struct_path`) and a non-bundled Foldseek
   database's (the `foldseek_db` branch of `parse_individual_qt`). `pocket_id` and `struct_info` stay
@@ -253,7 +253,8 @@ Align query chains against target chains. Owns preprocessing, its scratch, and F
 - **Notes:**
   - Sets the `foldseek_db` record's `fsdb_pockets`: `"pisa"` and expansion for a PDB-named
     database, `"whole_chain"` (INFO log) for any other.
-  - Preprocessing cache: a record is preprocessed unless its `preprocess_path_gz` exists. This
+  - Preprocessing cache: a record is preprocessed unless
+    `<foldseek_preprocessed_structure_dir>/<preprocess_name>.cif.gz` exists. This
     replaces `StructurePreprocessor`'s `set_output_directory` → `update_cache` sequence and its
     unenforced call order.
   - Rerunnable on its own output. Given a target file already holding expanded records, `align`

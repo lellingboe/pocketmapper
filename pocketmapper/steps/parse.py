@@ -62,7 +62,6 @@ def parse_inputs(
     qtprocessor = QTProcessor(
         pdb_dir=cache_dirs["pdb_dir"],
         alphafold_dir=cache_dirs["alphafold_dir"],
-        foldseek_preprocessed_structure_dir=cache_dirs["foldseek_preprocessed_structure_dir"],
         fsdb_dir=cache_dirs["fsdb_dir"],
     )
 
