@@ -17,7 +17,7 @@ again. Both write through a `.part` file and share one retry test.
 
 Four consequences no single file states:
 
-- **The download pool ignores `--threads`, on purpose.** `fetch_missing_structures` builds
+- **The download pool ignores `--threads`, on purpose.** `steps.fetch.fetch_missing_structures` builds
   `StructureDownloader` with its default width, `DOWNLOAD_WORKERS` (8), so `--threads` governs Foldseek
   alone. A worker here waits on a socket rather than on a core, so a thread count says nothing useful
   about how wide the pool should be. A library caller can still pass its own `max_workers`.
@@ -26,7 +26,8 @@ Four consequences no single file states:
   host. It is also why `download_missing_summaries` and `download_missing_assemblies` no longer sleep
   themselves — the helper owns pacing, and a caller-side sleep would double it.
 - **The delay registry is module-level and never decays**, so it outlives any one `PisaDownloader` —
-  which matters, because `pisa_pockets` and `expand_fsdb_pdb_targets` each build a fresh one per run.
+  which matters, because the fetch step, `pisa_pockets` and `expand_fsdb_pdb_targets` each build a fresh
+  one per run.
   It equally outlives a whole `search()`, so a library caller running several in one process carries an
   elevated delay across all of them; `reset_host_delays` is the escape hatch.
 - **Only 5xx and 408/425/429 are retried.** A whitelist among 4xx rather than a blacklist of 404, so an
@@ -65,8 +66,9 @@ takes one assembly per call and has no batched form. Three behaviours of the API
 
 **The PISA failure report is the caller's file, not the downloader's.** `download_missing_interfaces`
 returns what each stage could not handle and writes `error_path` only when there is something to write;
-`pisa_pockets` and `expand_fsdb_pdb_targets` both reach it through `download_pisa_interfaces`, so
-both use the same `pocket_dir/pisa/errors.json`. A second call with failures replaces the first call's
+the fetch step, `pisa_pockets` (unless given `download=False`) and `expand_fsdb_pdb_targets` all reach
+it through `download_pisa_interfaces`, so all use the same `pocket_dir/pisa/errors.json`. In `search`,
+fetch writes it, then `expand_fsdb_pdb_targets` against a PDB database. A second call with failures replaces the first call's
 report, and a clean second call leaves the first's file in place. Date it by its mtime, not by its
 existence.
 
