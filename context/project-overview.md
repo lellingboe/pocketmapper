@@ -55,7 +55,8 @@ parse to None or it would hide the job file's value.
   Tightening is inference-neutral (`whole_chain` claims bare chains first) — verified by replaying the old
   per-struct_type ladder against the loop over 400 generated entries.
 - **A rejected entry is skipped, not fatal**: `parse_individual_qt` returns `(None, reason)` and parse
-  lists it in `failed_entries.json` as `invalid_entry`. `steps.parse.parse_inputs` raises only when a
+  lists it in `failed_entries.json` as `invalid_entry`. `steps.parse.parse_entries` (both sides, on the
+  one-side `parse_side`, which takes an entry, a file or a list) raises only when a
   side ends up empty or a `foldseek_db` target is not the only target entry; a `foldseek_db` query entry
   is itself an `invalid_entry`. An unrecognised method *name* raises up front in
   `process_qt_cmdline_input`.

@@ -5,7 +5,6 @@ No network. Writes the cache manifest, so later steps resolve every cache path t
 """
 
 import logging
-import os
 
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.lib import log_to_file
@@ -22,6 +21,7 @@ from pocketmapper.settings import dump_settings
 from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_setting
 from pocketmapper.settings import resolve_paths
+from pocketmapper.settings import work_path
 
 logger = logging.getLogger(__name__)
 
@@ -154,10 +154,10 @@ def parse_inputs(
         target (str): Target entry, a file of them, or a Foldseek database.
         query_pocket_method (str): Pocket method to force on every query entry, or "auto".
         target_pocket_method (str): As `query_pocket_method`, for the target side.
-        cache_dirs (dict): Each of `records.CACHE_MANIFEST_KEYS` -> its directory. Made absolute for
-            the record paths and the manifest.
-        work_dir (str): Directory that entries files, local structure files and a user Foldseek
-            database resolve against.
+        cache_dirs (dict): Each of `records.CACHE_MANIFEST_KEYS` -> its directory. Resolved against
+            `work_dir` for the record paths and the manifest.
+        work_dir (str): Directory that entries files, local structure files, a user Foldseek
+            database and relative cache directories resolve against.
         results_dir (str): Where the manifest is written.
         query_records_path (str): Where the query records are written.
         target_records_path (str): Where the target records are written.
@@ -173,35 +173,82 @@ def parse_inputs(
     log_extra = {"stage": "Determine Query/Target Types"}
 
     start_failed_entries(failed_entries_path)
-    cache_dirs = {key: os.path.abspath(path) for key, path in cache_dirs.items()}
-    qtprocessor = QTProcessor(
-        pdb_dir=cache_dirs["pdb_dir"],
-        alphafold_dir=cache_dirs["alphafold_dir"],
-        fsdb_dir=cache_dirs["fsdb_dir"],
-        work_dir=work_dir,
+    sides, _ = parse_entries(
+        query,
+        target,
+        query_pocket_method,
+        target_pocket_method,
+        cache_dirs,
+        work_dir,
+        failed_entries_path=failed_entries_path,
     )
+
+    write_records(sides["query"], query_records_path)
+    write_records(sides["target"], target_records_path)
+    write_cache_manifest(results_dir, {key: work_path(work_dir, path) for key, path in cache_dirs.items()})
+    logger.info(f"Parsed {len(sides['query'])} query and {len(sides['target'])} target entries", extra=log_extra)
+
+
+def parse_entries(
+    query,
+    target,
+    query_pocket_method,
+    target_pocket_method,
+    cache_dirs,
+    work_dir,
+    step="parse",
+    failed_entries_path=None,
+):
+    """
+    Parse both sides' entries into records, and check that the two sides make a search.
+
+    Every entry that could not be parsed, and every Foldseek-database query entry, is a failure,
+    `invalid_entry`. Failures are added to `failed_entries_path` before the sides are checked, so they
+    are listed even when the check fails.
+
+    Args:
+        query (str or list): Query entry, a file of one entry per line, or a list of either.
+        target (str or list): Target entry, a file of them, a Foldseek database, or a list of these.
+        query_pocket_method (str): Pocket method to force on every query entry, or "auto".
+        target_pocket_method (str): As `query_pocket_method`, for the target side.
+        cache_dirs (dict): Holds "pdb_dir", "alphafold_dir" and "fsdb_dir", which give the
+            records' structure paths.
+        work_dir (str): Directory that entries files, local structure files, a user Foldseek
+            database and relative cache directories resolve against.
+        step (str, optional): The step parsing them, named in the failure entries. Defaults to
+            "parse".
+        failed_entries_path (str, optional): The failed-entries file, appended to. Defaults to None,
+            which writes none.
+
+    Returns:
+        tuple: (sides, failures). `sides` is "query" and "target" -> that side's QTRecord dicts, in
+            input order; `failures` the failed-entries entries for the entries left out.
+
+    Raises:
+        PocketMapperError: If a pocket method is unknown, an entries file cannot be read, either side
+            has no valid entries, or a Foldseek-database target is not the only target entry.
+    """
+    log_extra = {"stage": "Determine Query/Target Types"}
 
     sides = {}
     failures = []
-    for name, qt_input, pocket_method in (
+    for name, entries, pocket_method in (
         ("query", query, query_pocket_method),
         ("target", target, target_pocket_method),
     ):
-        records, rejected = qtprocessor.process_qt_cmdline_input(
-            qt_input=qt_input, name=name, pocket_method=pocket_method
-        )
+        sides[name], rejected = parse_side(entries, name, pocket_method, cache_dirs, work_dir)
         failures += [
-            failed_entry(entry, "parse", "invalid_entry", qt_input, detail=reason) for entry, reason in rejected
+            failed_entry(entry, step, "invalid_entry", source, detail=reason) for entry, reason, source in rejected
         ]
-        sides[name] = records
 
     # A database can only be searched, not searched with
     for record in [record for record in sides["query"] if record["struct_type"] == "foldseek_db"]:
         reason = f"A Foldseek database cannot be a query entry: {record['pocket_id']}"
         logger.warning(f"{reason}; skipping this entry", extra=log_extra)
-        failures.append(failed_entry(record["pocket_id"], "parse", "invalid_entry", query, record, reason))
+        failures.append(failed_entry(record["pocket_id"], step, "invalid_entry", query, record, reason))
         sides["query"].remove(record)
-    append_failed_entries(failed_entries_path, failures)
+    if failed_entries_path is not None:
+        append_failed_entries(failed_entries_path, failures)
 
     errors = []
     for name, records in sides.items():
@@ -218,8 +265,40 @@ def parse_inputs(
         )
         logger.critical(msg, extra=log_extra)
         raise PocketMapperError(msg)
+    return sides, failures
 
-    write_records(sides["query"], query_records_path)
-    write_records(sides["target"], target_records_path)
-    write_cache_manifest(results_dir, cache_dirs)
-    logger.info(f"Parsed {len(sides['query'])} query and {len(sides['target'])} target entries", extra=log_extra)
+
+def parse_side(entries, name, pocket_method, cache_dirs, work_dir):
+    """
+    Parse one side's entries into records.
+
+    Args:
+        entries (str or list): An entry, a file of one entry per line, or a list of either.
+        name (str): Which side this is, e.g. "query", for the log and error messages.
+        pocket_method (str): Pocket method to force on every entry, or "auto".
+        cache_dirs (dict): Holds "pdb_dir", "alphafold_dir" and "fsdb_dir", which give the
+            records' structure paths.
+        work_dir (str): Directory that entries files, local structure files, a user Foldseek
+            database and relative cache directories resolve against.
+
+    Returns:
+        tuple: (records, rejected). `records` holds the QTRecord dicts parsed, in input order;
+            `rejected` an (entry, reason, source) triple for each entry that could not be, `source`
+            being the entry or file it came from.
+
+    Raises:
+        PocketMapperError: If `pocket_method` is unknown or an entries file cannot be read.
+    """
+    qtprocessor = QTProcessor(
+        pdb_dir=cache_dirs["pdb_dir"],
+        alphafold_dir=cache_dirs["alphafold_dir"],
+        fsdb_dir=cache_dirs["fsdb_dir"],
+        work_dir=work_dir,
+    )
+    records = []
+    rejected = []
+    for source in [entries] if isinstance(entries, str) else entries:
+        parsed, failed = qtprocessor.process_qt_cmdline_input(qt_input=source, name=name, pocket_method=pocket_method)
+        records += parsed
+        rejected += [(entry, reason, source) for entry, reason in failed]
+    return records, rejected

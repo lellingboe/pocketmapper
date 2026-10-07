@@ -64,8 +64,7 @@ class QTProcessor:
         """
         Store the directories that record paths are resolved against, and compile the input regexes.
 
-        Record paths are joined onto the cache directories as given, so pass them absolute for absolute
-        record paths.
+        Every directory and path is resolved against `work_dir`, so record paths are absolute.
 
         Args:
             pdb_dir (str): Directory fetched PDB structures are written to; where `pdb` records get
@@ -74,16 +73,17 @@ class QTProcessor:
                 `alphafold` records get their `struct_path`.
             fsdb_dir (str): Directory holding downloaded Foldseek databases, used to locate the
                 bundled `pdb` database.
-            work_dir (str, optional): Directory that an entries file, a local structure file and a
-                user Foldseek database are resolved against. Defaults to None, the working directory.
+            work_dir (str, optional): Directory that the cache directories, an entries file, a local
+                structure file and a user Foldseek database are resolved against. Defaults to None,
+                the working directory.
         """
         # On the instance so every helper logs under the side process_qt_cmdline_input names
         self.log_extra = {"stage": "Processing Inputs"}
         logger.debug("Started")
 
-        self.pdb_dir = pdb_dir
-        self.alphafold_dir = alphafold_dir
         self.work_dir = os.path.abspath(work_dir if work_dir is not None else os.getcwd())
+        self.pdb_dir = self.work_path(pdb_dir)
+        self.alphafold_dir = self.work_path(alphafold_dir)
 
         # Structure type regex patterns
         self.pdb_regex = r"^[a-zA-Z0-9]{4}$"
@@ -111,7 +111,7 @@ class QTProcessor:
             "local_file": ("whole_chain", "passthrough", "vdw"),
         }
 
-        self.bundled_foldseek_dbs = bundled_foldseek_dbs(fsdb_dir)
+        self.bundled_foldseek_dbs = bundled_foldseek_dbs(self.work_path(fsdb_dir))
 
     def accepted_pocket_methods(self):
         """
