@@ -438,6 +438,22 @@ def parse_foldseek_pdb_entry_name(name):
     return match.group("pdb").upper(), match.group("chain").split("-")[0]
 
 
+def fsdb_pocket_mode(hit_names):
+    """
+    How the target pockets of a Foldseek-database search are resolved, decided by its hits.
+
+    Args:
+        hit_names (iterable): The database entry names the search hit, e.g. an alignment's `target`
+            column.
+
+    Returns:
+        str: "pisa" when any hit name is PDB-style, so its pockets come from PISA interfaces;
+            "whole_chain" otherwise, including for no hits, so each hit's pocket is synthesised from
+            the alignment.
+    """
+    return "pisa" if any(parse_foldseek_pdb_entry_name(name) is not None for name in hit_names) else "whole_chain"
+
+
 def split_chain_info(chain_info):
     """
     Split a chain_info field into its domain chain and its motif chain.

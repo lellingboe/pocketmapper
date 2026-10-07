@@ -22,22 +22,23 @@ parse to None or it would hide the job file's value.
   written by parse and search, read by fetch_structures, align, pockets, which take no cache options),
   `failed_entries.json` (truncated by parse/search, appended by fetch_structures/align/pockets),
   `alignment.tsv`,
-  `pockets.json` (`dump_pockets`/`load_pockets`), `pocket_comparison.tsv` (compare's
+  `pockets.json` (`write_pockets_file`/`read_pockets_file`: `version` 2, `pockets` with `null` for a record
+  given and not built, `chains` = `preprocess_name` -> pocket_ids; per-method cache files keep the plain
+  `dump_pockets` mapping), `pocket_comparison.tsv` (compare's
   `unknown_ids.json`/`incorrect_mapping.json` go beside it).
 - **A records file holds only usable records.** fetch_structures, align and pockets drop the records they fail
   into `failed_entries.json` (reasons in the `records.failed_entry` callers). No step filters on a
   `success` flag; `QTRecord` has none.
 - **The target side's shape replaces the old `self.` flags.** A `foldseek_db` record, always the only
-  target entry from parse, means an FSDB target; its `fsdb_pockets` (set only by align) is `"pisa"`
-  for a PDB-named DB (expanded pisa records appended after it) or `"whole_chain"`.
-  `records.synthesise_target_pockets` derives the rest and rejects an unset `fsdb_pockets` (align never
-  ran on that file), rather than guessing. Align keeps only the `foldseek_db` record on
-  entry, so it reruns on its own output.
+  target entry from parse, means an FSDB target. Its pocket mode comes from the alignment, not from
+  any record: `lib.fsdb_pocket_mode` gives `"pisa"` when any hit name is PDB-style, else
+  `"whole_chain"` (pockets, compare and superpose each call it). No step appends hit records to a
+  records file; the hits' pockets and names live only in `pockets.json`.
 - **Record paths are absolute**: parse passes absolute cache dirs to `QTProcessor`, which also
   `abspath`s a local file and a user FSDB. `pocket_id`/`struct_info` stay as typed.
-- `--pisa_source` is not in the manifest; it is per command (align, pockets). fetch_structures fetches
-  no PISA: the pockets step downloads it, so a pisa record whose PISA fails is aligned, then dropped
-  as `pocket_not_built`. align fetches PISA only for a PDB-named DB's hits.
+- `--pisa_source` is not in the manifest; only pockets takes it. fetch_structures and align fetch no
+  PISA: the pockets step downloads it, so a pisa record whose PISA fails is aligned, then dropped as
+  `pocket_not_built`.
 
 ### Input grammar
 
@@ -82,9 +83,12 @@ rebuilds the superpose selection via `createsubdb` + `convert2pdb`.
 - **`createsubdb` rejects `--threads`** (exits non-zero); it is the only one of the five subcommands that
   does. Hence `run_foldseek` adds no flags; each caller builds its own list.
 - `align_structs` interprets target ids once per call: given target records → `pocket_id`s mapped through
-  `preprocess_name` (PDB DB); none → entry names (other DBs). So `fsdb_structures/` never mixes the two.
-- Target pocket: `steps.align.expand_fsdb_pdb_targets` (PDB DB) or `synthesise_target_pocket` (other).
-  **PDB hits with no usable PISA data are dropped.**
+  `preprocess_name` (PDB DB; `steps.superpose` builds them from `pockets.json` `chains`, hit names in
+  alignment order); none → entry names (other DBs). So `fsdb_structures/` never mixes the two.
+- Target pocket: `steps.pockets.expand_fsdb_pdb_targets` (PDB DB; needs `--alignment`, an FSDB target
+  without one is an error) or `synthesise_target_pocket` (other). **Every hit of a PDB DB is a
+  `chains` key**: `[]` for a non-PDB name, no interface or only unspellable pairs; a hit whose
+  structure download failed lists its pocket_ids with `null` pockets.
 - **One `pocket_id` can sit behind two `preprocess_name`s** (`4q5j-assembly1_B`, `-assembly2_B` →
   `4Q5J:B_F`). `existing_calcs` scores only the first; the transform is whichever assembly Foldseek listed first.
 - **Pockets come from the AU, Foldseek's `tseq` from the assembly.** Verified to agree normally (4Q5J
@@ -124,7 +128,7 @@ None in the merged dict (checked after the merge: a later method can overwrite a
   through `fetch_pockets(builder_options=...)` (pisa's `pisa_source` today). A new method =
   one row + one builder.
 - Records are dicts, not DataFrames. The fetcher builds every record it is given.
-- **`expand_fsdb_pdb_targets` lives in `steps/align.py`, not in `pockets/`** (it builds records and
+- **`expand_fsdb_pdb_targets` lives in `steps/pockets.py`, not in `pockets/`** (it builds records and
   downloads). It shares `pocket_dir/pisa/` with `pisa_pockets`; both go through
   `pockets.pisa.pisa_cache_layout`, the one place the cache layout is spelled out.
 

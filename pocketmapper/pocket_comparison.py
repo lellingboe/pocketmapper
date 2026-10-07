@@ -510,14 +510,16 @@ def resolve_pockets(domain, pocket_dict, preproc_to_ids):
 
     Args:
         domain (str): The chain's `preprocess_name`.
-        pocket_dict (dict): pocket_id -> Pocket, for every pocket in the run.
+        pocket_dict (dict): pocket_id -> Pocket, or None for one not built, for every pocket in the run.
         preproc_to_ids (dict): preprocess_name -> the pocket_ids on that chain.
 
     Returns:
-        dict: pocket_id -> Pocket, for this chain only.
+        dict: pocket_id -> Pocket, for this chain's built pockets only.
     """
     return {
-        pocket_id: pocket_dict[pocket_id] for pocket_id in preproc_to_ids.get(domain) or [] if pocket_id in pocket_dict
+        pocket_id: pocket_dict[pocket_id]
+        for pocket_id in preproc_to_ids.get(domain) or []
+        if pocket_dict.get(pocket_id) is not None
     }
 
 
@@ -534,7 +536,7 @@ def compare_pockets(
 
     Args:
         alignment_df (pandas.DataFrame): The alignment table, columns in `ALIGNMENT_COLUMNS` order.
-        pocket_dict (dict): pocket_id -> Pocket.
+        pocket_dict (dict): pocket_id -> Pocket, or None for one not built.
         preproc_to_ids (dict): preprocess_name -> the pocket_ids sitting on that chain; bridges the
             alignment's keys to the pockets'.
         blosum_path (str): Path to a BLAST-format similarity matrix. The packaged one is

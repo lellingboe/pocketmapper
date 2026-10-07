@@ -10,16 +10,15 @@ import pandas as pd
 
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import bundled_offset_table
+from pocketmapper.lib import fsdb_pocket_mode
 from pocketmapper.lib import jsonify_dict
 from pocketmapper.lib import log_to_file
 from pocketmapper.lib import make_dir
 from pocketmapper.pocket_comparison import compare_pockets
-from pocketmapper.pockets.pocket_fetcher import load_pockets
+from pocketmapper.pockets.pocket_fetcher import read_pockets_file
 from pocketmapper.records import fsdb_record
-from pocketmapper.records import preproc_to_ids
 from pocketmapper.records import read_records
 from pocketmapper.records import require_file
-from pocketmapper.records import synthesise_target_pockets
 from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_setting
 from pocketmapper.settings import resolve_paths
@@ -66,8 +65,7 @@ def compare(
 
     Raises:
         PocketMapperError: If the job file cannot be read, no results_dir is given, an input is
-            missing or unreadable, a record has no pocket, or a Foldseek-database target has not been
-            through align.
+            missing or unreadable, or a record has no pocket.
     """
     values = layer_settings(
         job_file,
@@ -101,16 +99,17 @@ def compare_aligned_pockets(query_records, target_records, alignment, pockets, p
         query_records (str): The query records file.
         target_records (str): The target records file.
         alignment (str): The alignment table.
-        pockets (str): The pockets file. Must hold a pocket for every record but a Foldseek database.
+        pockets (str): The pockets file. Must hold a pocket for every record but a Foldseek database,
+            and its `chains` map every aligned name to the pockets on it.
         pocket_comparison_path (str): Where the comparison table is written.
 
     Returns:
         None
 
     Raises:
-        PocketMapperError: If an input is missing or unreadable, a record has no pocket, a
-            Foldseek-database target has not been through align, the bundled database's offset table
-            is missing from the installation, or an output directory cannot be created.
+        PocketMapperError: If an input is missing or unreadable, a record has no pocket, the bundled
+            database's offset table is missing from the installation, or an output directory cannot
+            be created.
     """
     log_extra = {"stage": "Comparing Pockets Based on Alignment"}
 
@@ -124,13 +123,7 @@ def compare_aligned_pockets(query_records, target_records, alignment, pockets, p
     query = read_records(query_records)
     target = read_records(target_records)
     require_file(pockets, "pockets")
-    try:
-        pocket_dict = load_pockets(pockets)
-    except (ValueError, TypeError, AttributeError, KeyError) as e:
-        # Not JSON, or JSON that is not a pockets file
-        msg = f"Could not read the pockets file {pockets}: {e}"
-        logger.critical(msg, extra=log_extra)
-        raise PocketMapperError(msg) from e
+    pocket_dict, chain_pockets = read_pockets_file(pockets)
     require_file(alignment, "alignment")
 
     # A record with no pocket would silently give no rows
@@ -152,15 +145,15 @@ def compare_aligned_pockets(query_records, target_records, alignment, pockets, p
     logger.info(f"{len(alignment_df)} alignment pairs to compare", extra=log_extra)
     logger.debug(f"Alignment pairs: \n{alignment_df.head()}", extra=log_extra)
 
-    chain_pockets = preproc_to_ids(query + target)
     logger.debug(f"Preprocessed name to pocket ID mapping: {chain_pockets}", extra=log_extra)
 
-    # A PDB Foldseek database's hits have PISA pockets; any other database has no target records,
-    # so its pockets must be synthesised
-    synthesise = synthesise_target_pockets(target)
+    # A PDB Foldseek database's hits have PISA pockets; any other database's hits have none, so
+    # their pockets must be synthesised
+    database = fsdb_record(target)
+    synthesise = database is not None and fsdb_pocket_mode(alignment_df["target"].unique()) == "whole_chain"
     offset_table_path = None
     if synthesise:
-        offset_table_path = bundled_offset_table(fsdb_record(target)["struct_path"])
+        offset_table_path = bundled_offset_table(database["struct_path"])
         if offset_table_path is None:
             logger.info(
                 "Foldseek database ships no offset table; target residue ids will be positions "

@@ -6,11 +6,12 @@ import logging
 
 import pandas as pd
 
+from pocketmapper.lib import fsdb_pocket_mode
 from pocketmapper.lib import log_to_file
+from pocketmapper.pockets.pocket_fetcher import read_pockets_file
 from pocketmapper.records import fsdb_record
 from pocketmapper.records import read_records
 from pocketmapper.records import require_file
-from pocketmapper.records import synthesise_target_pockets
 from pocketmapper.settings import check_fsdb_align_struct_method
 from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_foldseek
@@ -32,6 +33,7 @@ def superpose(
     target_records=None,
     pocket_comparison=None,
     alignment=None,
+    pockets=None,
     aligned_structure_dir=None,
     align_struct_method=None,
     align_count=None,
@@ -55,6 +57,8 @@ def superpose(
         target_records (str, optional): As `query_records`, from target_records_path.
         pocket_comparison (str, optional): As `query_records`, from pocket_comparison_path.
         alignment (str, optional): As `query_records`, from alignment_path.
+        pockets (str, optional): As `query_records`, from pockets_path. Read only against a PDB-named
+            Foldseek database, for its hits' pockets.
         aligned_structure_dir (str, optional): Defaults to <results_dir>/aligned_structures.
         align_struct_method (str, optional): "pocket", "foldseek" or "auto", which picks "foldseek"
             for a Foldseek alignment and "pocket" for a seq one. Defaults to
@@ -91,6 +95,7 @@ def superpose(
     target_records = target_records if target_records is not None else values["target_records_path"]
     pocket_comparison = pocket_comparison if pocket_comparison is not None else values["pocket_comparison_path"]
     alignment = alignment if alignment is not None else values["alignment_path"]
+    pockets = pockets if pockets is not None else values["pockets_path"]
     with log_to_file(values["log_path"], values["verbosity"]):
         require_file(alignment, "alignment")
         require_file(pocket_comparison, "pocket comparison")
@@ -110,6 +115,7 @@ def superpose(
             target_records,
             pocket_comparison,
             alignment,
+            pockets,
             values["aligned_structure_dir"],
             align_struct_method,
             values["align_count"],
@@ -122,6 +128,7 @@ def superpose_top_targets(
     target_records,
     pocket_comparison,
     alignment,
+    pockets,
     aligned_structure_dir,
     align_struct_method,
     align_count,
@@ -138,6 +145,8 @@ def superpose_top_targets(
         target_records (str): The target records file.
         pocket_comparison (str): The pocket comparison table.
         alignment (str): The alignment table; its transforms are read with the "foldseek" method.
+        pockets (str): The pockets file; read only against a PDB-named Foldseek database, whose
+            `chains` name the pockets on each hit.
         aligned_structure_dir (str): Where the superposed structures are written.
         align_struct_method (str): "pocket" or "foldseek", already resolved.
         align_count (int): Most targets to superpose onto each query; 0 writes nothing.
@@ -147,18 +156,30 @@ def superpose_top_targets(
         None
 
     Raises:
-        PocketMapperError: If a records file cannot be read, or Foldseek fails rebuilding structures.
+        PocketMapperError: If a records file or the pockets file cannot be read, or Foldseek fails
+            rebuilding structures.
     """
     query = read_records(query_records)
     target = read_records(target_records)
 
     # With a Foldseek database, a hit's transform fits the database's own structure, so that is
     # what is superposed. Given no target records, the aligner reads target ids as entry names: only
-    # a PDB database's hits have records of their own.
+    # a PDB database's hits have pockets of their own, each found on its hit by `chains`.
     database = fsdb_record(target)
     fsdb_path = database["struct_path"] if database is not None else None
-    if synthesise_target_pockets(target):
+    if database is not None:
+        hit_names = pd.read_csv(alignment, sep="\t", usecols=["target"], dtype=str)["target"].unique()
         target = []
+        if fsdb_pocket_mode(hit_names) == "pisa":
+            require_file(pockets, "pockets")
+            _, chains = read_pockets_file(pockets)
+            hit_names = set(hit_names)
+            target = [
+                {"pocket_id": pocket_id, "preprocess_name": name}
+                for name, pocket_ids in chains.items()
+                if name in hit_names
+                for pocket_id in pocket_ids
+            ]
 
     StructureAligner().align_structs(
         query_records=query,

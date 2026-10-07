@@ -49,9 +49,6 @@ class QTRecord:
     struct_path: str | None = None
     preprocess_name: str | None = None
     pocket_method: str | None = None
-    # How a Foldseek-database target's pockets are resolved, once its hits are known: "pisa" for a
-    # PDB-named database, "whole_chain" for any other. None on every other record.
-    fsdb_pockets: str | None = None
 
 
 class QTProcessor:

@@ -378,13 +378,13 @@ COMMANDS = {
                 ],
             ),
             ("temp options", ["temp_dir", "delete_tmp"]),
-            ("advanced options", ["pisa_source"]),
         ],
     ),
     "pockets": (
         "Build the pocket of every record in the records files, by default the query and target ones.",
         [
             (None, ["records", "job_file", "verbosity"]),
+            ("in options", ["alignment"]),
             ("out options", ["results_dir_required", "pockets_path", "failed_entries_path", "log_path"]),
             ("advanced options", ["pisa_source"]),
         ],
@@ -401,7 +401,7 @@ COMMANDS = {
         "Superpose the top targets of each query onto it.",
         [
             (None, ["job_file", "verbosity", "threads"]),
-            ("in options", ["query_records", "target_records", "pocket_comparison", "alignment"]),
+            ("in options", ["query_records", "target_records", "pocket_comparison", "alignment", "pockets"]),
             ("aligned structure options", ["align_count", "align_struct_method"]),
             ("out options", ["results_dir_required", "aligned_structure_dir", "log_path"]),
         ],

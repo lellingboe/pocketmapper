@@ -8,10 +8,10 @@ PocketMapper: map and compare binding pockets across protein structures.
 2. `steps.parse` -> query_records.json, target_records.json, cache_dirs.json; failed_entries.json
    started afresh.
 3. `steps.fetch_structures` -> structures and a bundled Foldseek database into the cache.
-4. `steps.align` -> foldseek or the local sequence aligner, per `aligner` -> alignment.tsv. Against
-   a PDB Foldseek database, its hits are appended to the target records as pisa records.
-5. `steps.pockets` -> PISA interfaces into the cache, then pockets.json. The Pocket shape itself is
-   declared in `pockets/pocket.py`.
+4. `steps.align` -> foldseek or the local sequence aligner, per `aligner` -> alignment.tsv.
+5. `steps.pockets` -> PISA interfaces into the cache, then pockets.json. Against a PDB Foldseek
+   database, also a pisa pocket per interface of each hit. The Pocket shape itself is declared in
+   `pockets/pocket.py`.
 6. `steps.compare` -> pocket_comparison.tsv.
 7. `steps.superpose` -> the top align_count targets per query, superposed into aligned_structures/.
 

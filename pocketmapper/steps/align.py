@@ -1,28 +1,19 @@
 """
 Step 3: align the query chains against the target chains into an alignment table.
 
-With the foldseek aligner each chain is first cut out of its structure and cached. Against a
-Foldseek database, the hits then decide how target pockets are resolved: a PDB-named database's
-hits become pisa target records, any other database's pockets are synthesised from the alignment.
+With the foldseek aligner each chain is first cut out of its structure and cached. A Foldseek
+database target is searched as it is; its hits' pockets are the pockets step's business.
 """
 
 import logging
 import os
-import re
-from dataclasses import asdict
-
-import pandas as pd
 
 from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import run_foldseek
 from pocketmapper.lib import log_to_file
 from pocketmapper.lib import make_dir
-from pocketmapper.lib import parse_foldseek_pdb_entry_name
 from pocketmapper.lib import temp_dir_scope
-from pocketmapper.pockets.pisa import PisaParser
-from pocketmapper.pockets.pisa import download_pisa_interfaces
-from pocketmapper.qt_processor import QTProcessor
 from pocketmapper.records import append_failed_entries
 from pocketmapper.records import failed_entry
 from pocketmapper.records import fsdb_record
@@ -38,9 +29,7 @@ from pocketmapper.settings import require_setting
 from pocketmapper.settings import resolve_aligner
 from pocketmapper.settings import resolve_delete_tmp
 from pocketmapper.settings import resolve_paths
-from pocketmapper.settings import resolve_pisa_source
 from pocketmapper.settings import resolve_threads
-from pocketmapper.steps.fetch_structures import fetch_missing_structures
 from pocketmapper.structure_preprocessor import StructurePreprocessor
 
 logger = logging.getLogger(__name__)
@@ -59,7 +48,6 @@ def align(
     alignment_path=None,
     aligner=None,
     threads=None,
-    pisa_source=None,
     temp_dir=None,
     delete_tmp=None,
 ):
@@ -67,10 +55,9 @@ def align(
     Align the query chains against the target chains into an alignment table.
 
     Reads the cache directories from `results_dir`'s cache manifest. Drops the records whose
-    structure is missing or cannot be preprocessed, adding them to `failed_entries_path`. Against a
-    PDB Foldseek database, appends a pisa target record per interface of each hit, downloading what
-    they need. Empties `temp_dir` on the way in and, unless `delete_tmp` is 0, deletes it on the way
-    out, unless an enclosing call holds it.
+    structure is missing or cannot be preprocessed, adding them to `failed_entries_path`. Empties
+    `temp_dir` on the way in and, unless `delete_tmp` is 0, deletes it on the way out, unless an
+    enclosing call holds it.
 
     Args:
         job_file (str or dict, optional): JSON job file of Settings field name -> value, or the same
@@ -89,8 +76,6 @@ def align(
         alignment_path (str, optional): Defaults to <results_dir>/alignment.tsv.
         aligner (str, optional): "foldseek" or "seq". Defaults to DEFAULT_ALIGNER.
         threads (int, optional): Defaults to one per available core.
-        pisa_source (str, optional): "ftp" or "api", for a PDB Foldseek database's hits. Defaults to
-            DEFAULT_PISA_SOURCE.
         temp_dir (str, optional): Defaults to <results_dir>/tmp.
         delete_tmp (int, optional): 1 deletes `temp_dir` at the end; 0 keeps it. Defaults to
             DEFAULT_DELETE_TMP.
@@ -116,7 +101,6 @@ def align(
             "alignment_path": alignment_path,
             "aligner": aligner,
             "threads": threads,
-            "pisa_source": pisa_source,
             "temp_dir": temp_dir,
             "delete_tmp": delete_tmp,
         },
@@ -136,7 +120,6 @@ def align(
                 "Or pass --aligner seq to use the built-in BLOSUM62 sequence aligner.",
             )
         threads = resolve_threads(values["threads"])
-        pisa_source = resolve_pisa_source(values["pisa_source"])
         delete_tmp = resolve_delete_tmp(values["delete_tmp"])
 
         roots = [cache_dirs["cache_dir"], values["results_dir"]]
@@ -152,8 +135,7 @@ def align(
                 threads,
                 values["verbosity"],
                 values["temp_dir"],
-                cache_dirs,
-                pisa_source,
+                cache_dirs["foldseek_preprocessed_structure_dir"],
             )
 
 
@@ -168,17 +150,13 @@ def align_chains(
     threads,
     verbosity,
     temp_dir,
-    cache_dirs,
-    pisa_source,
+    preprocessed_dir,
 ):
     """
     Align every query chain against every target chain and write the table to `alignment_path`.
 
     Drops, and adds to `failed_entries_path`, each record whose structure is missing
     (`structure_not_found`) or cannot be cut down to its chain (`structure_preprocessing_failed`).
-    Against a Foldseek database, sets its record's `fsdb_pockets` and, for a PDB-named database,
-    appends a pisa record per PISA interface of each hit, downloading their PISA data and structures.
-    Records a previous expansion appended are replaced, so the step can rerun on its own output.
 
     Args:
         query_records (str): The query records file.
@@ -191,27 +169,21 @@ def align_chains(
         threads (int): Thread count for Foldseek.
         verbosity (int): The run's verbosity; Foldseek's own is capped at 3.
         temp_dir (str): Scratch directory; Foldseek's inputs and databases are built under it.
-        cache_dirs (dict): Each of `records.CACHE_MANIFEST_KEYS` -> its absolute directory. Expanded
-            records' paths are resolved against them, and their PISA data cached in `pocket_dir`.
-        pisa_source (str): Where expanded records' PISA interfaces are fetched from: "ftp" or "api".
+        preprocessed_dir (str): Cache of the single-chain structures Foldseek is given.
 
     Returns:
         None
 
     Raises:
-        PocketMapperError: If a records file cannot be read, a side has no usable records, a
-            Foldseek invocation fails, or every expanded hit's structure fails to download.
+        PocketMapperError: If a records file cannot be read, a side has no usable records, or a
+            Foldseek invocation fails.
     """
     log_extra = {"stage": "Alignment"}
 
     sides = {"query": read_records(query_records), "target": read_records(target_records)}
     sources = {"query": query_records, "target": target_records}
 
-    # Only the database record survives a previous expansion
     database = fsdb_record(sides["target"])
-    if database is not None:
-        database = dict(database, fsdb_pockets=None)
-        sides["target"] = [database]
 
     # A structure fetch never produced, or one removed since
     failures = []
@@ -235,7 +207,7 @@ def align_chains(
         logger.info("Preprocessing structures for Foldseek...", extra=log_extra)
         for name in ("query",) if database is not None else ("query", "target"):
             sides[name], preprocess_failures = foldseek_preprocessing(
-                sides[name], cache_dirs["foldseek_preprocessed_structure_dir"], tmp_dirs[name], sources[name]
+                sides[name], preprocessed_dir, tmp_dirs[name], sources[name]
             )
             failures += preprocess_failures
         logger.info("Finished preprocessing structures", extra={"stage": "Preprocessing Structures"})
@@ -258,15 +230,6 @@ def align_chains(
     else:
         logger.info("Running local pairwise aligner...", extra=log_extra)
         local_alignment(sides["query"], sides["target"], alignment_path)
-
-    if database is not None:
-        expanded, failures = expand_fsdb_pdb_targets(alignment_path, cache_dirs, pisa_source, target_records)
-        append_failed_entries(failed_entries_path, failures)
-        if expanded is None:
-            database["fsdb_pockets"] = "whole_chain"
-        else:
-            database["fsdb_pockets"] = "pisa"
-            sides["target"] += expanded
 
     write_records(sides["query"], query_records_path)
     write_records(sides["target"], target_records_path)
@@ -404,100 +367,3 @@ def local_alignment(query_records, target_records, alignment_path):
     )
     make_dir(os.path.dirname(alignment_path), log_extra)
     alignment.to_csv(alignment_path, index=False, sep="\t")
-
-
-def expand_fsdb_pdb_targets(alignment_path, cache_dirs, pisa_source, source):
-    """
-    Turn the hits of a PDB Foldseek-database search into pisa target records.
-
-    Builds one record per PISA interface of each hit chain, downloading the PISA data and the
-    structures those records need. Each record's `preprocess_name` is the Foldseek entry name rather
-    than the one `QTProcessor` derives, and its preprocess paths are None.
-
-    Args:
-        alignment_path (str): The alignment table, whose `target` column names the hits.
-        cache_dirs (dict): Each of `records.CACHE_MANIFEST_KEYS` -> its absolute directory.
-        pisa_source (str): Where PISA interfaces are fetched from: "ftp" or "api".
-        source (str): The target records file, for the failure entries.
-
-    Returns:
-        tuple: (records, failure entries). `records` is None when no hit is PDB-named, so the database
-            is not a PDB database, and may be empty when no hit has a usable interface. Records whose
-            structure cannot be fetched are left out, as `structure_not_found` failures.
-
-    Raises:
-        PocketMapperError: If interfaces were found but none of their structures could be fetched.
-    """
-    log_extra = {"stage": "Expanding Foldseek DB Targets"}
-
-    alignment_df = pd.read_csv(alignment_path, sep="\t", engine="c")
-    hits = {}  # foldseek entry name -> (pdb_id, chain_id)
-    for hit_name in alignment_df["target"].unique().tolist():
-        resolved = parse_foldseek_pdb_entry_name(hit_name)
-        if resolved is not None:
-            hits[hit_name] = resolved
-    if not hits:
-        logger.info(
-            "Foldseek database target is not a PDB database; keeping whole-chain target pockets",
-            extra=log_extra,
-        )
-        return None, []
-
-    pdb_list = sorted({pdb_id for pdb_id, _ in hits.values()})
-    logger.info(
-        f"Retrieving PISA interfaces for {len(pdb_list)} PDB entries behind {len(hits)} Foldseek hits",
-        extra=log_extra,
-    )
-    interface_dir = download_pisa_interfaces(pdb_list, cache_dirs["pocket_dir"], pisa_source)
-
-    # Building one record per interface the hit chain takes part in
-    parser = PisaParser()
-    qtprocessor = QTProcessor(
-        pdb_dir=cache_dirs["pdb_dir"],
-        alphafold_dir=cache_dirs["alphafold_dir"],
-        fsdb_dir=cache_dirs["fsdb_dir"],
-    )
-    # PISA stores chain pairs the input grammar cannot spell (multi-character chain ids); those are
-    # counted and skipped here rather than each rejected with a warning.
-    pisa_pattern = qtprocessor.pocket_methods["pisa"][0]
-    unspellable = 0
-    records = []
-    for hit_name, (pdb_id, chain_id) in hits.items():
-        for partner in parser.get_interface_partners(pdb_id, chain_id, interface_dir):
-            if not re.match(pisa_pattern, f"{chain_id}_{partner}"):
-                unspellable += 1
-                continue
-            record, _ = qtprocessor.parse_individual_qt(f"{pdb_id}:{chain_id}_{partner}", pocket_method="pisa")
-            if record is None:
-                continue  # the reason is logged
-            # The alignment is keyed by the Foldseek entry name
-            record.preprocess_name = hit_name
-            records.append(asdict(record))
-    if unspellable:
-        logger.info(
-            f"Skipped {unspellable} PISA interfaces whose chain ids the pisa pocket method cannot express",
-            extra=log_extra,
-        )
-    if not records:
-        logger.warning("No PISA interfaces found for any Foldseek hit", extra=log_extra)
-        return [], []
-
-    # Fetched last, so only entries with an interface are downloaded. Failed fetches are dropped.
-    found = fetch_missing_structures("foldseek hit", records)
-    if not any(found.values()):
-        logger.critical("Insufficient foldseek hit structures after fetching", extra=log_extra)
-        raise PocketMapperError(
-            "Insufficient foldseek hit structures after fetching. No valid foldseek hit entries remain."
-        )
-    failures = [
-        failed_entry(record["pocket_id"], "align", "structure_not_found", source, record)
-        for record in records
-        if not found[record["struct_info"]]
-    ]
-    records = [record for record in records if found[record["struct_info"]]]
-
-    logger.info(
-        f"Added {len(records)} PISA target pockets from {len({r['preprocess_name'] for r in records})} Foldseek hits",
-        extra=log_extra,
-    )
-    return records, failures

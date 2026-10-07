@@ -6,7 +6,7 @@ results directory, names the cache directories a chain of steps shares. `failed_
 collects every record a step dropped, with the reason.
 
 Also derives what a target records file says about the run: whether the target is a Foldseek
-database and, if so, how its pockets are resolved.
+database.
 """
 
 import json
@@ -258,33 +258,6 @@ def fsdb_record(target_records):
         dict: The `foldseek_db` record, or None when the targets are structures.
     """
     return next((record for record in target_records if record["struct_type"] == "foldseek_db"), None)
-
-
-def synthesise_target_pockets(target_records):
-    """
-    Whether target pockets must be synthesised from the alignment rather than looked up.
-
-    Args:
-        target_records (list): Target QTRecord dicts.
-
-    Returns:
-        bool: True for a Foldseek-database target that was not expanded into PISA records.
-
-    Raises:
-        PocketMapperError: If the Foldseek-database record has not been through align, which is what
-            decides between the two.
-    """
-    record = fsdb_record(target_records)
-    if record is None:
-        return False
-    if record["fsdb_pockets"] is None:
-        msg = (
-            "The Foldseek database target record has not been through align (fsdb_pockets is unset); "
-            "run align on it, or point --target_records at the file align wrote"
-        )
-        logger.critical(msg)
-        raise PocketMapperError(msg)
-    return record["fsdb_pockets"] != "pisa"
 
 
 def preproc_to_ids(records):
