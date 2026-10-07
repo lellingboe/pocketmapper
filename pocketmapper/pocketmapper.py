@@ -28,17 +28,18 @@ Author: Lachlan Ellingboe
 
 import json
 import logging
-import os
 from dataclasses import asdict
 from dataclasses import fields
 
 from pocketmapper.lib import log_to_file
+from pocketmapper.lib import run_scope
 from pocketmapper.lib import temp_dir_scope
 from pocketmapper.records import fsdb_record
 from pocketmapper.records import read_records
 from pocketmapper.settings import Settings
 from pocketmapper.settings import check_fsdb_align_struct_method
 from pocketmapper.settings import check_fsdb_aligner
+from pocketmapper.settings import dump_settings
 from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_foldseek
 from pocketmapper.settings import require_setting
@@ -162,8 +163,8 @@ class PocketMapper:
                 Defaults to <results_dir>/pockets.json.
             failed_entries_path (str, optional): Where the entries dropped along the way are written.
                 Defaults to <results_dir>/failed_entries.json.
-            job_settings_path (str, optional): Where this run's resolved settings are dumped.
-                Defaults to <results_dir>/job_settings.json.
+            job_settings_path (str, optional): Where this run's resolved settings are dumped. Never
+                read from a job file. Defaults to <results_dir>/job_settings.json.
             log_path (str, optional): Where the run log is written.
                 Defaults to <results_dir>/info.log.
             fsdb_dir (str, optional): Cache of bundled Foldseek databases.
@@ -213,7 +214,8 @@ class PocketMapper:
 
         values = self.configure_workflow(job_file, arguments)
 
-        with log_to_file(values["log_path"], values["verbosity"]):
+        # The steps' own scopes are no-ops inside this one, so only job_settings.json is written
+        with run_scope("search"), log_to_file(values["log_path"], values["verbosity"]):
             settings = self.resolve_settings(values)
             # Every step gets the whole run's settings; their own log and temp scopes are no-ops
             # inside these, so the log is written once and temp_dir lives for the whole run
@@ -253,7 +255,7 @@ class PocketMapper:
         values = layer_settings(job_file, arguments)
         for key in ("query", "target"):
             require_setting(values, key)
-        return resolve_paths(values)
+        return resolve_paths(values, "search")
 
     def resolve_settings(self, values):
         """
@@ -267,10 +269,12 @@ class PocketMapper:
                 only some steps take, are dropped.
 
         Returns:
-            Settings: The resolved configuration. Also written to `job_settings_path`.
+            Settings: The resolved configuration. Also written to `job_settings_path`, without that
+                field, as a job file any step can take.
 
         Raises:
-            PocketMapperError: If a setting has an unknown value, or foldseek is selected but cannot run.
+            PocketMapperError: If a setting has an unknown value, foldseek is selected but cannot run, or
+                the settings cannot be written.
         """
         log_extra = {"stage": "Configuring Settings"}
 
@@ -302,11 +306,5 @@ class PocketMapper:
         logger.info(f"Settings: {json.dumps(asdict(settings), indent=4)}", extra=log_extra)
 
         # 5. Output dump
-        try:
-            os.makedirs(os.path.dirname(settings.job_settings_path), exist_ok=True)
-            with open(settings.job_settings_path, "w") as f:
-                json.dump(asdict(settings), f, indent=4)
-            logger.info(f"Settings successfully dumped to {settings.job_settings_path}", extra=log_extra)
-        except Exception as e:
-            logger.error(f"Failed to dump settings to {settings.job_settings_path}: {e}", extra=log_extra)
+        dump_settings(asdict(settings))
         return settings

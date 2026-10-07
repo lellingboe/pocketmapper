@@ -8,11 +8,13 @@ import pandas as pd
 
 from pocketmapper.lib import fsdb_pocket_mode
 from pocketmapper.lib import log_to_file
+from pocketmapper.lib import run_scope
 from pocketmapper.pockets.pocket_fetcher import read_pockets_file
 from pocketmapper.records import fsdb_record
 from pocketmapper.records import read_records
 from pocketmapper.records import require_file
 from pocketmapper.settings import check_fsdb_align_struct_method
+from pocketmapper.settings import dump_settings
 from pocketmapper.settings import input_path
 from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_foldseek
@@ -31,6 +33,7 @@ def superpose(
     work_dir=None,
     verbosity=None,
     log_path=None,
+    job_settings_path=None,
     query_records=None,
     target_records=None,
     pocket_comparison=None,
@@ -56,6 +59,8 @@ def superpose(
             Defaults to the working directory.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
         log_path (str, optional): Defaults to <results_dir>/info.log.
+        job_settings_path (str, optional): Where these settings are written, as a job file for later
+            steps. Defaults to <results_dir>/superpose_settings.json. Not written when run inside search.
         query_records (str, optional): Defaults to the job file's query_records_path, else
             <results_dir>/query_records.json.
         target_records (str, optional): As `query_records`, from target_records_path.
@@ -88,6 +93,7 @@ def superpose(
             "work_dir": work_dir,
             "verbosity": verbosity,
             "log_path": log_path,
+            "job_settings_path": job_settings_path,
             "aligned_structure_dir": aligned_structure_dir,
             "align_struct_method": align_struct_method,
             "align_count": align_count,
@@ -95,13 +101,15 @@ def superpose(
         },
     )
     require_setting(values, "results_dir")
-    values = resolve_paths(values)
+    values = resolve_paths(values, "superpose")
     query_records = input_path(values, query_records, "query_records_path")
     target_records = input_path(values, target_records, "target_records_path")
     pocket_comparison = input_path(values, pocket_comparison, "pocket_comparison_path")
     alignment = input_path(values, alignment, "alignment_path")
     pockets = input_path(values, pockets, "pockets_path")
-    with log_to_file(values["log_path"], values["verbosity"]):
+    with run_scope("superpose") as outermost, log_to_file(values["log_path"], values["verbosity"]):
+        if outermost:
+            dump_settings(values)
         require_file(alignment, "alignment")
         require_file(pocket_comparison, "pocket comparison")
         transforms = pd.read_csv(alignment, sep="\t", usecols=["u"], dtype=str)["u"]

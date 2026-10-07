@@ -286,6 +286,11 @@ OPTIONS = {
     "job_settings_path": output_file(
         "--job_settings_path", "run's resolved settings", "<results_dir>/job_settings.json"
     ),
+    "job_settings_path_step": output_file(
+        "--job_settings_path",
+        "settings, as a job file for later steps; never read from a job file",
+        "<results_dir>/<command>_settings.json",
+    ),
     "log_path": (
         ["--log_path"],
         dict(default=None, metavar="PATH", help="The run log, appended to. (default: <results_dir>/info.log)"),
@@ -350,7 +355,14 @@ COMMANDS = {
             ),
             (
                 "out options",
-                ["results_dir", "query_records_path", "target_records_path", "failed_entries_path", "log_path"],
+                [
+                    "results_dir",
+                    "query_records_path",
+                    "target_records_path",
+                    "failed_entries_path",
+                    "job_settings_path_step",
+                    "log_path",
+                ],
             ),
         ],
     ),
@@ -366,6 +378,7 @@ COMMANDS = {
                     "query_records_path_rewrite",
                     "target_records_path_rewrite",
                     "failed_entries_path",
+                    "job_settings_path_step",
                     "log_path",
                 ],
             ),
@@ -385,6 +398,7 @@ COMMANDS = {
                     "query_records_path_rewrite",
                     "target_records_path_rewrite",
                     "failed_entries_path",
+                    "job_settings_path_step",
                     "log_path",
                 ],
             ),
@@ -396,7 +410,10 @@ COMMANDS = {
         [
             (None, ["records", "job_file", "verbosity"]),
             ("in options", ["work_dir", "alignment"]),
-            ("out options", ["results_dir_required", "pockets_path", "failed_entries_path", "log_path"]),
+            (
+                "out options",
+                ["results_dir_required", "pockets_path", "failed_entries_path", "job_settings_path_step", "log_path"],
+            ),
             ("advanced options", ["pisa_source"]),
         ],
     ),
@@ -405,7 +422,7 @@ COMMANDS = {
         [
             (None, ["job_file", "verbosity"]),
             ("in options", ["work_dir", "target_records", "alignment", "pockets"]),
-            ("out options", ["results_dir_required", "pocket_comparison_path", "log_path"]),
+            ("out options", ["results_dir_required", "pocket_comparison_path", "job_settings_path_step", "log_path"]),
         ],
     ),
     "superpose": (
@@ -417,7 +434,7 @@ COMMANDS = {
                 ["work_dir", "query_records", "target_records", "pocket_comparison", "alignment", "pockets"],
             ),
             ("aligned structure options", ["align_count", "align_struct_method"]),
-            ("out options", ["results_dir_required", "aligned_structure_dir", "log_path"]),
+            ("out options", ["results_dir_required", "aligned_structure_dir", "job_settings_path_step", "log_path"]),
         ],
     ),
     "search": (

@@ -205,7 +205,8 @@ Every step takes `--job_file`, `--verbosity`, `--log_path` (appended to, so a ch
 | `compare` | `--target_records`, `--alignment`, `--pockets`, `--pocket_comparison_path` |
 | `superpose` | `--query_records`, `--target_records`, `--pocket_comparison`, `--alignment`, `--pockets`, the [aligned structure options](#aligned-structure-options), `--aligned_structure_dir`, `--threads` |
 
-Only `search` writes `job_settings.json`, but every step takes a job file, that one included; see
+Each step writes the settings it ran with to `<results_dir>/<command>_settings.json` (move it with
+`--job_settings_path`), a job file any later step takes; `search` writes only `job_settings.json`. See
 [Advanced options](#advanced-options).
 
 ### Input format
@@ -320,7 +321,7 @@ Everything is written under `--results_dir`:
 | `pocket_comparison.tsv` | The main result: one row per pocket pair. Columns below. |
 | `alignment.tsv` | The chain alignments the comparison is built on, from Foldseek or the local aligner. |
 | `aligned_structures/*.pdb` | The top `--align_count` targets superposed onto each query. Named after the query, so identify a file by its `MOLECULE` records rather than its filename. |
-| `job_settings.json` | The fully resolved settings for the run. |
+| `job_settings.json` | The fully resolved settings for the run. A step run on its own writes `<command>_settings.json` instead. |
 | `info.log` | The run log. |
 | `query_records.json`, `target_records.json` | Every query and target entry as parsed, with its structure path, chain and pocket method, minus the entries dropped along the way. |
 | `pockets.json` | Every record's pocket, keyed by pocket id (`null` where it could not be built), and `chains`: each aligned chain's name -> the pocket ids on it. Versioned; a file from an older version is rejected, so rerun `pockets`. |
@@ -442,7 +443,9 @@ each come from exactly one place: giving one both positionally and in the job fi
 ```
 
 A finished run's `job_settings.json` is itself a valid job file, and the way to rerun any step with
-that run's settings: `pocketmapper superpose --job_file out/job_settings.json --align_count 3`. It
+that run's settings: `pocketmapper superpose --job_file out/job_settings.json --align_count 3`. So is
+every step's own `<command>_settings.json`. None of them sets `job_settings_path`, and a job file that
+does has it ignored, so a step run from another command's settings never writes over them. A dump
 sets *every* option, paths included, so a command-line option changes only the setting it names:
 `--results_dir` beside it moves no path, and `--alignment_path` moves only the alignment. Two things do
 follow `--results_dir` all the same: where `fetch_structures`, `align` and `pockets` read

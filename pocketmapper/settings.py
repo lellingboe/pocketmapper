@@ -127,9 +127,11 @@ RESULTS_PATH_DEFAULTS = {
     "target_records_path": "target_records.json",
     "pockets_path": "pockets.json",
     "failed_entries_path": "failed_entries.json",
-    "job_settings_path": "job_settings.json",
     "log_path": "info.log",
 }
+
+# The settings dump search writes; each step writes <command>_settings.json
+SEARCH_SETTINGS_NAME = "job_settings.json"
 
 
 def default_results_dir():
@@ -201,7 +203,8 @@ def layer_settings(job_file, arguments):
 
     Returns:
         dict: Every job key -> its value: the argument if not None, else the job file's, else its
-            SETTING_DEFAULTS entry, else None. Nothing is checked or derived.
+            SETTING_DEFAULTS entry, else None. `job_settings_path` comes only from the arguments.
+            Nothing is checked or derived.
 
     Raises:
         PocketMapperError: If the job file cannot be read, or query or target is both an argument and
@@ -210,6 +213,8 @@ def layer_settings(job_file, arguments):
     log_extra = {"stage": "Configuring Settings"}
 
     job = read_job_file(job_file)
+    # Never read from a job file: a step run from another command's dump would overwrite it
+    job.pop("job_settings_path", None)
     # query and target must come from exactly one of the two: the one silently overridden would name
     # a search other than the one run
     for key in ("query", "target"):
@@ -245,12 +250,14 @@ def require_setting(values, key):
         raise PocketMapperError(msg)
 
 
-def resolve_paths(values):
+def resolve_paths(values, command):
     """
     Fill in `work_dir`, `results_dir` and any derived path left unset, and make every path absolute.
 
     Args:
         values (dict): Job key -> value, with `cache_dir` set.
+        command (str): The command these settings are for, which names its settings dump:
+            SEARCH_SETTINGS_NAME for "search", else <command>_settings.json.
 
     Returns:
         dict: A copy of `values` with every path set and absolute. `work_dir` defaults to the
@@ -268,7 +275,39 @@ def resolve_paths(values):
         values[key] = work_path(values["work_dir"], cache_path(values["cache_dir"], key, values[key]))
     for key in RESULTS_PATH_DEFAULTS:
         values[key] = work_path(values["work_dir"], results_path(values["results_dir"], key, values[key]))
+    if values["job_settings_path"] is None:
+        name = SEARCH_SETTINGS_NAME if command == "search" else f"{command}_settings.json"
+        values["job_settings_path"] = os.path.join(values["results_dir"], name)
+    values["job_settings_path"] = work_path(values["work_dir"], values["job_settings_path"])
     return values
+
+
+def dump_settings(values):
+    """
+    Write a command's settings to its `job_settings_path`, as a job file any later command can take.
+
+    Args:
+        values (dict): Job key -> value. Written without `job_settings_path`, which a job file never
+            sets.
+
+    Returns:
+        None
+
+    Raises:
+        PocketMapperError: If the file cannot be written.
+    """
+    log_extra = {"stage": "Configuring Settings"}
+
+    path = values["job_settings_path"]
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump({key: value for key, value in values.items() if key != "job_settings_path"}, f, indent=4)
+    except OSError as e:
+        msg = f"Could not write the settings to {path}: {e}"
+        logger.critical(msg, extra=log_extra)
+        raise PocketMapperError(msg) from e
+    logger.info(f"Settings written to {path}", extra=log_extra)
 
 
 def work_path(work_dir, path):

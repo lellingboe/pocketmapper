@@ -18,6 +18,7 @@ from pocketmapper.lib import fsdb_pocket_mode
 from pocketmapper.lib import log_to_file
 from pocketmapper.lib import make_dir
 from pocketmapper.lib import parse_foldseek_pdb_entry_name
+from pocketmapper.lib import run_scope
 from pocketmapper.pockets.pisa import PisaParser
 from pocketmapper.pockets.pisa import download_pisa_interfaces
 from pocketmapper.pockets.pocket_fetcher import PocketFetcher
@@ -31,6 +32,7 @@ from pocketmapper.records import read_cache_manifest
 from pocketmapper.records import read_records
 from pocketmapper.records import require_file
 from pocketmapper.records import write_records
+from pocketmapper.settings import dump_settings
 from pocketmapper.settings import input_path
 from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_setting
@@ -48,6 +50,7 @@ def pockets(
     work_dir=None,
     verbosity=None,
     log_path=None,
+    job_settings_path=None,
     failed_entries_path=None,
     alignment=None,
     pockets_path=None,
@@ -74,6 +77,8 @@ def pockets(
             Defaults to the working directory.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
         log_path (str, optional): Defaults to <results_dir>/info.log.
+        job_settings_path (str, optional): Where these settings are written, as a job file for later
+            steps. Defaults to <results_dir>/pockets_settings.json. Not written when run inside search.
         failed_entries_path (str, optional): Defaults to <results_dir>/failed_entries.json.
         alignment (str, optional): The alignment table, read only for a Foldseek-database target.
             Defaults to the job file's alignment_path, else <results_dir>/alignment.tsv.
@@ -95,17 +100,20 @@ def pockets(
             "work_dir": work_dir,
             "verbosity": verbosity,
             "log_path": log_path,
+            "job_settings_path": job_settings_path,
             "failed_entries_path": failed_entries_path,
             "pockets_path": pockets_path,
             "pisa_source": pisa_source,
         },
     )
     require_setting(values, "results_dir")
-    values = resolve_paths(values)
+    values = resolve_paths(values, "pockets")
     # The command line gives [] for none
     if not records:
         records = [values["query_records_path"], values["target_records_path"]]
-    with log_to_file(values["log_path"], values["verbosity"]):
+    with run_scope("pockets") as outermost, log_to_file(values["log_path"], values["verbosity"]):
+        if outermost:
+            dump_settings(values)
         cache_dirs = read_cache_manifest(values["results_dir"])
         pisa_source = resolve_pisa_source(values["pisa_source"])
         build_pockets(

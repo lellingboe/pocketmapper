@@ -229,6 +229,14 @@ lacks before building one.
 it; step input arguments (`--alignment`, ...) resolve against it through `settings.input_path`. So
 every resolved path is absolute, and a step run from a dump elsewhere resolves as the first did.
 
+**Settings dumps.** `settings.dump_settings` writes every command's values, minus `job_settings_path`,
+to `job_settings_path`: search's resolved `Settings` to `job_settings.json`, a step's layered values
+(paths resolved, before its validators) to `<results_dir>/<command>_settings.json` (the default comes
+from `resolve_paths(values, command)`, not `RESULTS_PATH_DEFAULTS`). `layer_settings` drops
+`job_settings_path` from a job file, so a step chained off another's dump never overwrites it. A step
+nested in search writes none: `lib.run_scope` records the outermost command and nested scopes yield
+False (`lib.outer_command()` reads it).
+
 **A reused `job_settings.json` names every path**, so an argument moves only the path it names.
 `results_dir` is not inert beside it all the same: it locates `cache_dirs.json` (fetch_structures, align,
 pockets) and is a `temp_dir` emptying root. In fetch_structures and align, explicit

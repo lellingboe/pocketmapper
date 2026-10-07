@@ -14,11 +14,13 @@ from pocketmapper.lib import fsdb_pocket_mode
 from pocketmapper.lib import jsonify_dict
 from pocketmapper.lib import log_to_file
 from pocketmapper.lib import make_dir
+from pocketmapper.lib import run_scope
 from pocketmapper.pocket_comparison import compare_pockets
 from pocketmapper.pockets.pocket_fetcher import read_pockets_file
 from pocketmapper.records import fsdb_record
 from pocketmapper.records import read_records
 from pocketmapper.records import require_file
+from pocketmapper.settings import dump_settings
 from pocketmapper.settings import input_path
 from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_setting
@@ -36,6 +38,7 @@ def compare(
     work_dir=None,
     verbosity=None,
     log_path=None,
+    job_settings_path=None,
     target_records=None,
     alignment=None,
     pockets=None,
@@ -56,6 +59,8 @@ def compare(
             Defaults to the working directory.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
         log_path (str, optional): Defaults to <results_dir>/info.log.
+        job_settings_path (str, optional): Where these settings are written, as a job file for later
+            steps. Defaults to <results_dir>/compare_settings.json. Not written when run inside search.
         target_records (str, optional): Defaults to the job file's target_records_path, else
             <results_dir>/target_records.json.
         alignment (str, optional): As `target_records`, from alignment_path.
@@ -76,12 +81,15 @@ def compare(
             "work_dir": work_dir,
             "verbosity": verbosity,
             "log_path": log_path,
+            "job_settings_path": job_settings_path,
             "pocket_comparison_path": pocket_comparison_path,
         },
     )
     require_setting(values, "results_dir")
-    values = resolve_paths(values)
-    with log_to_file(values["log_path"], values["verbosity"]):
+    values = resolve_paths(values, "compare")
+    with run_scope("compare") as outermost, log_to_file(values["log_path"], values["verbosity"]):
+        if outermost:
+            dump_settings(values)
         compare_aligned_pockets(
             input_path(values, target_records, "target_records_path"),
             input_path(values, alignment, "alignment_path"),

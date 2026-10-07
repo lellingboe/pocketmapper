@@ -5,7 +5,8 @@ Nothing here knows about the pipeline, Settings, or the Pocket shape -- each fun
 plain values and returns plain values, or does one thing to the filesystem or the package logger.
 Workflow logic belongs in the component modules rather than here.
 
-The one piece of state is `HELD_TEMP_DIRS`, the scratch directories an open `temp_dir_scope` holds.
+The only state is `HELD_TEMP_DIRS`, the scratch directories an open `temp_dir_scope` holds, and
+`OUTER_COMMAND`, the command an open `run_scope` names.
 """
 
 import gzip
@@ -27,6 +28,9 @@ UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]")
 
 # Absolute paths of the scratch directories an open temp_dir_scope holds
 HELD_TEMP_DIRS = set()
+
+# The command of the outermost open run_scope; empty when none is open
+OUTER_COMMAND = []
 
 
 class StageFilter(logging.Filter):
@@ -262,6 +266,40 @@ def temp_dir_scope(temp_dir, delete_tmp, roots):
         delete_temp_dir(temp_dir, delete_tmp, roots)
     finally:
         HELD_TEMP_DIRS.discard(key)
+
+
+@contextmanager
+def run_scope(command):
+    """
+    Mark a command as running for the length of a `with` block, unless an enclosing command is.
+
+    A scope opened inside another does nothing: the outer command owns the run.
+
+    Args:
+        command (str): The command, e.g. "search" or "align".
+
+    Yields:
+        bool: True for the outermost scope, False for one nested in another.
+    """
+    if OUTER_COMMAND:
+        yield False
+        return
+    OUTER_COMMAND.append(command)
+    # Released however the block ends, or a failed run would leave the next one in this process nested
+    try:
+        yield True
+    finally:
+        OUTER_COMMAND.clear()
+
+
+def outer_command():
+    """
+    The command the outermost open `run_scope` names.
+
+    Returns:
+        str: The command, or None when no scope is open.
+    """
+    return OUTER_COMMAND[0] if OUTER_COMMAND else None
 
 
 @contextmanager

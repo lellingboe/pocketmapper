@@ -130,7 +130,7 @@ test_settings_6|core settings|fail|Query given both positionally and in the job 
 test_settings_7|core settings|rows|Explicit auto pocket method infers as the default does|4Q5J:A_E 4Q5J:B_F --aligner seq --query_pocket_method auto --target_pocket_method auto
 test_settings_8|core settings|fail|delete_tmp other than 1 or 0 rejected|4Q5J:A_E 4Q5J:B_F --aligner seq --delete_tmp 2
 
-test_steps_1|core local|files=query_records.json,target_records.json,cache_dirs.json,failed_entries.json|parse writes the records files and the cache manifest|parse 4Q5J:A_E 4Q5J:B_F
+test_steps_1|core local|files=query_records.json,target_records.json,cache_dirs.json,failed_entries.json,parse_settings.json|parse writes the records files and the cache manifest|parse 4Q5J:A_E 4Q5J:B_F
 test_steps_2|core local|files=query_records.json,target_records.json|fetch_structures after parse|parse 4Q5J:A_E 4Q5J:B_F ; fetch_structures
 test_steps_3|core local|files=alignment.tsv|align after fetch_structures|parse 4Q5J:A_E 4Q5J:B_F ; fetch_structures ; align --aligner seq
 test_steps_4|core local|files=pockets.json|pockets after align|parse 4Q5J:A_E 4Q5J:B_F ; fetch_structures ; align --aligner seq ; pockets @OUT@/query_records.json @OUT@/target_records.json
@@ -143,7 +143,7 @@ test_steps_10|core local|fail|compare rejects an alignment naming chains pockets
 test_steps_11|core local|fail|parse rejects a Foldseek database beside a structure target|parse 4Q5J:A_E fsdb_mixed_target.txt
 test_steps_12|core local|fail failed=invalid_entry@human_domains|parse rejects a Foldseek database query|parse human_domains 4Q5J:B_F
 test_steps_14|core local|rows|parse takes query and target from a job file; pockets defaults to both records files|parse --job_file job_file_qt.json ; fetch_structures ; align --aligner seq ; pockets ; compare
-test_steps_15|core local|rows|A step reads its inputs from another run's job_settings.json; an argument overrides it|search 4Q5J:A_E 4Q5J:B_F --aligner seq --align_count 0 --results_dir @OUT@/search ; compare --job_file @OUT@/search/job_settings.json --pocket_comparison_path @OUT@/pocket_comparison.tsv
+test_steps_15|core local|rows files=compare_settings.json|A step reads its inputs from another run's job_settings.json; an argument overrides it|search 4Q5J:A_E 4Q5J:B_F --aligner seq --align_count 0 --results_dir @OUT@/search ; compare --job_file @OUT@/search/job_settings.json --pocket_comparison_path @OUT@/pocket_comparison.tsv
 EOF
 
 # ---------------------------------------------------------------------------
