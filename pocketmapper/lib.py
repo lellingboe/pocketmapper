@@ -309,10 +309,10 @@ def log_to_file(log_path, verbosity):
 
     Creates the file's directory, sets the `pocketmapper` logger's level and adds a file handler
     appending to `log_path`. Both are undone on exit, however the block ends. If the logger already
-    writes to `log_path`, as inside an enclosing call, only the level is set.
+    writes to `log_path`, as inside an enclosing call, or `log_path` is None, only the level is set.
 
     Args:
-        log_path (str): The log file.
+        log_path (str or None): The log file, or None for none.
         verbosity (int): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR.
 
     Yields:
@@ -321,7 +321,8 @@ def log_to_file(log_path, verbosity):
     Raises:
         PocketMapperError: If the log's directory cannot be created.
     """
-    make_dir(os.path.dirname(log_path), {"stage": "Configuring Settings"})
+    if log_path is not None:
+        make_dir(os.path.dirname(log_path), {"stage": "Configuring Settings"})
     if verbosity == 4:
         log_level = logging.DEBUG
     elif verbosity == 3:
@@ -336,9 +337,8 @@ def log_to_file(log_path, verbosity):
     package_logger.setLevel(log_level)
     # A second handler on the same file would write every line twice
     handler = None
-    log_path = os.path.abspath(log_path)
-    if not any(
-        isinstance(existing, logging.FileHandler) and existing.baseFilename == log_path
+    if log_path is not None and not any(
+        isinstance(existing, logging.FileHandler) and existing.baseFilename == os.path.abspath(log_path)
         for existing in package_logger.handlers
     ):
         handler = format_handler(logging.FileHandler(log_path))

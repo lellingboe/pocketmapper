@@ -262,25 +262,32 @@ def resolve_paths(values, command):
             SEARCH_SETTINGS_NAME for "search", else <command>_settings.json.
 
     Returns:
-        dict: A copy of `values` with every path set and absolute. `work_dir` defaults to the
-            working directory, and relative paths resolve against it. Paths already set are kept;
-            `results_dir` defaults to a timestamped name, the rest to locations under `cache_dir` or
-            `results_dir`.
+        dict: A copy of `values` with every path absolute. `work_dir` defaults to the working
+            directory, and relative paths resolve against it. Paths already set are kept. For
+            search, `results_dir` defaults to a timestamped name; for any other command it stays
+            unset, and so does every results path not given, but `temp_dir`, which then defaults to
+            <cache_dir>/tmp. The rest default to locations under `cache_dir` or `results_dir`.
     """
     values = dict(values)
-    values["work_dir"] = os.path.abspath(values["work_dir"] if values["work_dir"] is not None else os.getcwd())
-    if values["results_dir"] is None:
+    work_dir = values["work_dir"] = os.path.abspath(
+        values["work_dir"] if values["work_dir"] is not None else os.getcwd()
+    )
+    if values["results_dir"] is None and command == "search":
         values["results_dir"] = default_results_dir()
-    for key in ("cache_dir", "results_dir"):
-        values[key] = work_path(values["work_dir"], values[key])
+    results_dir = values["results_dir"] = work_path(work_dir, values["results_dir"])
+    values["cache_dir"] = work_path(work_dir, values["cache_dir"])
     for key in CACHE_PATH_DEFAULTS:
-        values[key] = work_path(values["work_dir"], cache_path(values["cache_dir"], key, values[key]))
+        values[key] = work_path(work_dir, cache_path(values["cache_dir"], key, values[key]))
     for key in RESULTS_PATH_DEFAULTS:
-        values[key] = work_path(values["work_dir"], results_path(values["results_dir"], key, values[key]))
-    if values["job_settings_path"] is None:
+        if values[key] is None and results_dir is not None:
+            values[key] = results_path(results_dir, key)
+        values[key] = work_path(work_dir, values[key])
+    if values["job_settings_path"] is None and results_dir is not None:
         name = SEARCH_SETTINGS_NAME if command == "search" else f"{command}_settings.json"
-        values["job_settings_path"] = os.path.join(values["results_dir"], name)
-    values["job_settings_path"] = work_path(values["work_dir"], values["job_settings_path"])
+        values["job_settings_path"] = os.path.join(results_dir, name)
+    values["job_settings_path"] = work_path(work_dir, values["job_settings_path"])
+    if values["temp_dir"] is None:
+        values["temp_dir"] = os.path.join(values["cache_dir"], "tmp")
     return values
 
 
@@ -290,7 +297,7 @@ def dump_settings(values):
 
     Args:
         values (dict): Job key -> value. Written without `job_settings_path`, which a job file never
-            sets.
+            sets. Nothing is written when `job_settings_path` is None.
 
     Returns:
         None
@@ -301,6 +308,8 @@ def dump_settings(values):
     log_extra = {"stage": "Configuring Settings"}
 
     path = values["job_settings_path"]
+    if path is None:
+        return
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
@@ -318,12 +327,12 @@ def work_path(work_dir, path):
 
     Args:
         work_dir (str): The run's absolute `work_dir`.
-        path (str): The path; an absolute one is kept.
+        path (str or None): The path; an absolute one is kept.
 
     Returns:
-        str: The absolute, normalised path.
+        str: The absolute, normalised path, or None for none.
     """
-    return os.path.normpath(os.path.join(work_dir, path))
+    return os.path.normpath(os.path.join(work_dir, path)) if path is not None else None
 
 
 def input_path(values, given, key):

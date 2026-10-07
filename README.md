@@ -168,8 +168,10 @@ pocketmapper superpose --job_file ./out/parse_settings.json
   file, and rejects what `parse` rejects. No step reads another's records. So every step after
   `parse` needs a job file naming the entries: `parse` writes one, `parse_settings.json`, and so does
   every step run on its own (`<command>_settings.json`), each a valid job file for any later step.
-- **Every step but `parse` requires `--results_dir`**, here or in a job file, since its inputs default
-  to files in it. An option without `_path` (`--alignment`, `--pockets`) names a file the step reads,
+- **Every step but `parse` and `fetch_structures` requires `--results_dir`**, here or in a job file,
+  since its inputs default to files in it. Without one, `parse` and `fetch_structures` write no log,
+  settings or `failed_entries.json`, only a file whose own path is given (and `fetch_structures` its
+  scratch under `<cache_dir>/tmp`). An option without `_path` (`--alignment`, `--pockets`) names a file the step reads,
   one ending in `_path` a file it writes; both default to the names above under `--results_dir`.
 - **The cache is just a setting.** Every step takes the [cache options](#cache-options); a chain
   shares a cache by taking them from the same job file. Entries, entries files and relative paths

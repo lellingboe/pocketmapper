@@ -255,6 +255,11 @@ from `resolve_paths(values, command)`, not `RESULTS_PATH_DEFAULTS`). `layer_sett
 nested in search writes none: `lib.run_scope` records the outermost command and nested scopes yield
 False (`lib.outer_command()` reads it).
 
+**`results_dir` is optional for parse and fetch_structures**: `resolve_paths` then leaves every
+results path not given None (`temp_dir` → `<cache_dir>/tmp`), and `log_to_file(None)`,
+`dump_settings` and the failed-entries writers do nothing for a None path. Only search defaults it
+to a timestamped name; the other steps `require_setting` it.
+
 **A reused dump names every path**, so an argument moves only the path it names. `results_dir` is not
 inert beside it all the same: it is a `temp_dir` emptying root.
 

@@ -46,7 +46,8 @@ def parse(
     """
     Parse the query and target inputs, checking each entry against its pocket method. No network.
 
-    Starts `failed_entries_path` afresh with the entries that could not be parsed.
+    Starts `failed_entries_path` afresh with the entries that could not be parsed. Without a
+    `results_dir`, writes no log, settings or failed entries unless that file's own path is given.
 
     Args:
         query (str, optional): Query entry, or a file of one entry per line. Required here or in
@@ -54,7 +55,8 @@ def parse(
         target (str, optional): Target entry, a file of them, or a Foldseek database. As `query`.
         job_file (str or dict, optional): JSON job file of job key -> value, or the same
             already loaded. Any argument given overrides it.
-        results_dir (str, optional): Defaults to pocketmapper_results_<YYMMDD_HHMMSS>.
+        results_dir (str, optional): Where the log, the settings and the failed entries go by
+            default. Defaults to None, for none.
         work_dir (str, optional): Directory that entries and relative paths resolve against.
             Defaults to the working directory.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
@@ -142,7 +144,7 @@ def parse_inputs(
         cache_dirs (dict): Holds "pdb_dir", "alphafold_dir" and "fsdb_dir".
         work_dir (str): Directory that entries files, local structure files, a user Foldseek
             database and relative cache directories resolve against.
-        failed_entries_path (str): The failed-entries file.
+        failed_entries_path (str or None): The failed-entries file, or None to write none.
 
     Returns:
         dict: "query" and "target" -> that side's QTRecord dicts, as `parse_entries` returns them.
@@ -153,7 +155,8 @@ def parse_inputs(
     """
     log_extra = {"stage": "Determine Query/Target Types"}
 
-    start_failed_entries(failed_entries_path)
+    if failed_entries_path is not None:
+        start_failed_entries(failed_entries_path)
     sides, _ = parse_entries(
         query,
         target,

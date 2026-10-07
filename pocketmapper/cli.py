@@ -232,6 +232,15 @@ OPTIONS = {
             help="Where results are written. (default: pocketmapper_results_<YYMMDD_HHMMSS>)",
         ),
     ),
+    "results_dir_optional": (
+        ["--results_dir"],
+        dict(
+            default=None,
+            metavar="DIR",
+            help="Where the log, the settings and the failed entries are written. Without it, none is "
+            "written unless its own path is given. (default: none)",
+        ),
+    ),
     "results_dir_required": (
         ["--results_dir"],
         dict(
@@ -348,7 +357,7 @@ COMMANDS = {
                     "fsdb_dir",
                 ],
             ),
-            ("out options", ["results_dir", "failed_entries_path", "job_settings_path_step", "log_path"]),
+            ("out options", ["results_dir_optional", "failed_entries_path", "job_settings_path_step", "log_path"]),
         ],
     ),
     "fetch_structures": (
@@ -369,7 +378,7 @@ COMMANDS = {
             ),
             (
                 "out options",
-                ["results_dir_required", "failed_entries_path", "job_settings_path_step", "log_path"],
+                ["results_dir_optional", "failed_entries_path", "job_settings_path_step", "log_path"],
             ),
             ("temp options", ["temp_dir", "delete_tmp"]),
         ],

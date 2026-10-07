@@ -53,12 +53,14 @@ def fetch_structures(
 
     Parses the entries the job file names. Adds the entries whose structure cannot be fetched to
     `failed_entries_path`. Empties `temp_dir` on the way in and, unless `delete_tmp` is 0, deletes it
-    on the way out, unless an enclosing call holds it.
+    on the way out, unless an enclosing call holds it. Without a `results_dir`, writes no log,
+    settings or failed entries unless that file's own path is given.
 
     Args:
         job_file (str or dict, optional): JSON job file of job key -> value, or the same already
             loaded, e.g. parse's settings. Any argument given overrides it. Must set query and target.
-        results_dir (str, optional): Required here or in `job_file`.
+        results_dir (str, optional): Where the log, the settings, the failed entries and `temp_dir` go
+            by default. Defaults to None, for none.
         work_dir (str, optional): Directory that entries and relative paths resolve against.
             Defaults to the working directory.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
@@ -75,7 +77,8 @@ def fetch_structures(
             <cache_dir>/foldseek_preprocessed_structures.
         fsdb_dir (str, optional): Defaults to <cache_dir>/fsdb.
         threads (int, optional): Defaults to one per available core.
-        temp_dir (str, optional): Defaults to <results_dir>/tmp.
+        temp_dir (str, optional): Defaults to <results_dir>/tmp, or <cache_dir>/tmp without a
+            `results_dir`.
         delete_tmp (int, optional): 1 deletes `temp_dir` at the end; 0 keeps it. Defaults to
             DEFAULT_DELETE_TMP.
 
@@ -83,7 +86,7 @@ def fetch_structures(
         None
 
     Raises:
-        PocketMapperError: If the job file cannot be read, query, target or results_dir is not given,
+        PocketMapperError: If the job file cannot be read, query or target is not given,
             the entries are rejected as `parse` rejects them, a setting is invalid, no structure for a
             side could be fetched, or a Foldseek database cannot be downloaded.
     """
@@ -107,7 +110,7 @@ def fetch_structures(
             "delete_tmp": delete_tmp,
         },
     )
-    for key in ("query", "target", "results_dir"):
+    for key in ("query", "target"):
         require_setting(values, key)
     values = resolve_paths(values, "fetch_structures")
     with run_scope("fetch_structures") as outermost, log_to_file(values["log_path"], values["verbosity"]):
@@ -117,7 +120,7 @@ def fetch_structures(
         delete_tmp = resolve_delete_tmp(values["delete_tmp"])
         sides = parse_job_entries(values, "fetch_structures")
 
-        roots = [values["cache_dir"], values["results_dir"]]
+        roots = [root for root in (values["cache_dir"], values["results_dir"]) if root is not None]
         with temp_dir_scope(values["temp_dir"], delete_tmp, roots):
             fetch_inputs(
                 sides,
@@ -139,7 +142,7 @@ def fetch_inputs(sides, sources, failed_entries_path, threads, temp_dir):
         sides (dict): "query" and "target" -> that side's QTRecord dicts.
         sources (dict): "query" and "target" -> the input the side was parsed from, for the failure
             entries.
-        failed_entries_path (str): The failed-entries file, appended to.
+        failed_entries_path (str or None): The failed-entries file, appended to, or None for none.
         threads (int): Thread count for a Foldseek database download.
         temp_dir (str): Scratch directory; a Foldseek database download works under it.
 
