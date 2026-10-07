@@ -31,6 +31,7 @@ from pocketmapper.records import read_cache_manifest
 from pocketmapper.records import read_records
 from pocketmapper.records import require_file
 from pocketmapper.records import write_records
+from pocketmapper.settings import input_path
 from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_setting
 from pocketmapper.settings import resolve_paths
@@ -44,6 +45,7 @@ def pockets(
     records=None,
     job_file=None,
     results_dir=None,
+    work_dir=None,
     verbosity=None,
     log_path=None,
     failed_entries_path=None,
@@ -68,6 +70,8 @@ def pockets(
             already loaded. Any argument given overrides it.
         results_dir (str, optional): The results directory `parse` wrote to. Required here or in
             `job_file`.
+        work_dir (str, optional): Directory that entries and relative paths resolve against.
+            Defaults to the working directory.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
         log_path (str, optional): Defaults to <results_dir>/info.log.
         failed_entries_path (str, optional): Defaults to <results_dir>/failed_entries.json.
@@ -88,6 +92,7 @@ def pockets(
         job_file,
         {
             "results_dir": results_dir,
+            "work_dir": work_dir,
             "verbosity": verbosity,
             "log_path": log_path,
             "failed_entries_path": failed_entries_path,
@@ -105,7 +110,7 @@ def pockets(
         pisa_source = resolve_pisa_source(values["pisa_source"])
         build_pockets(
             records,
-            alignment if alignment is not None else values["alignment_path"],
+            input_path(values, alignment, "alignment_path"),
             values["pockets_path"],
             values["failed_entries_path"],
             cache_dirs,

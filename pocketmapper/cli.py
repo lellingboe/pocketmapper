@@ -120,6 +120,16 @@ OPTIONS = {
             "but it sets every path, so pass a specific path option to move one. (default: none)",
         ),
     ),
+    "work_dir": (
+        ["--work_dir"],
+        dict(
+            default=None,
+            metavar="DIR",
+            help="Directory that entries, entries files and relative paths resolve against. A run's "
+            "settings dump records it, so a later step run from elsewhere resolves them the same way. "
+            "(default: the current directory)",
+        ),
+    ),
     "verbosity": (
         ["-v", "--verbosity"],
         dict(
@@ -326,6 +336,7 @@ COMMANDS = {
                     "target_pocket_method",
                 ],
             ),
+            ("in options", ["work_dir"]),
             (
                 "cache options",
                 [
@@ -347,7 +358,7 @@ COMMANDS = {
         "Download the structures and Foldseek database the records need.",
         [
             (None, ["job_file", "verbosity", "threads"]),
-            ("in options", ["query_records", "target_records"]),
+            ("in options", ["work_dir", "query_records", "target_records"]),
             (
                 "out options",
                 [
@@ -365,7 +376,7 @@ COMMANDS = {
         "Align the query chains against the target chains.",
         [
             (None, ["job_file", "verbosity", "aligner", "threads"]),
-            ("in options", ["query_records", "target_records"]),
+            ("in options", ["work_dir", "query_records", "target_records"]),
             (
                 "out options",
                 [
@@ -384,7 +395,7 @@ COMMANDS = {
         "Build the pocket of every record in the records files, by default the query and target ones.",
         [
             (None, ["records", "job_file", "verbosity"]),
-            ("in options", ["alignment"]),
+            ("in options", ["work_dir", "alignment"]),
             ("out options", ["results_dir_required", "pockets_path", "failed_entries_path", "log_path"]),
             ("advanced options", ["pisa_source"]),
         ],
@@ -393,7 +404,7 @@ COMMANDS = {
         "Compare the pockets of every aligned query/target pair.",
         [
             (None, ["job_file", "verbosity"]),
-            ("in options", ["target_records", "alignment", "pockets"]),
+            ("in options", ["work_dir", "target_records", "alignment", "pockets"]),
             ("out options", ["results_dir_required", "pocket_comparison_path", "log_path"]),
         ],
     ),
@@ -401,7 +412,10 @@ COMMANDS = {
         "Superpose the top targets of each query onto it.",
         [
             (None, ["job_file", "verbosity", "threads"]),
-            ("in options", ["query_records", "target_records", "pocket_comparison", "alignment", "pockets"]),
+            (
+                "in options",
+                ["work_dir", "query_records", "target_records", "pocket_comparison", "alignment", "pockets"],
+            ),
             ("aligned structure options", ["align_count", "align_struct_method"]),
             ("out options", ["results_dir_required", "aligned_structure_dir", "log_path"]),
         ],
@@ -423,6 +437,7 @@ COMMANDS = {
                 ],
             ),
             ("aligned structure options", ["align_count", "align_struct_method"]),
+            ("in options", ["work_dir"]),
             (
                 "cache options",
                 [

@@ -53,6 +53,8 @@ class Settings:
     target: str
     cache_dir: str
     results_dir: str
+    # Absolute. Entries, a user Foldseek database and every relative path setting resolve against it.
+    work_dir: str
     # A forced pocket method, or "auto" to infer one per entry. Unlike align_struct_method, "auto"
     # is kept here: it is resolved for each entry, not once for the run.
     query_pocket_method: str
@@ -245,23 +247,58 @@ def require_setting(values, key):
 
 def resolve_paths(values):
     """
-    Fill in `results_dir` and any derived path left unset.
+    Fill in `work_dir`, `results_dir` and any derived path left unset, and make every path absolute.
 
     Args:
         values (dict): Job key -> value, with `cache_dir` set.
 
     Returns:
-        dict: A copy of `values` with every path set. Paths already set are kept; `results_dir`
-            defaults to a timestamped name, the rest to locations under `cache_dir` or `results_dir`.
+        dict: A copy of `values` with every path set and absolute. `work_dir` defaults to the
+            working directory, and relative paths resolve against it. Paths already set are kept;
+            `results_dir` defaults to a timestamped name, the rest to locations under `cache_dir` or
+            `results_dir`.
     """
     values = dict(values)
+    values["work_dir"] = os.path.abspath(values["work_dir"] if values["work_dir"] is not None else os.getcwd())
     if values["results_dir"] is None:
         values["results_dir"] = default_results_dir()
+    for key in ("cache_dir", "results_dir"):
+        values[key] = work_path(values["work_dir"], values[key])
     for key in CACHE_PATH_DEFAULTS:
-        values[key] = cache_path(values["cache_dir"], key, values[key])
+        values[key] = work_path(values["work_dir"], cache_path(values["cache_dir"], key, values[key]))
     for key in RESULTS_PATH_DEFAULTS:
-        values[key] = results_path(values["results_dir"], key, values[key])
+        values[key] = work_path(values["work_dir"], results_path(values["results_dir"], key, values[key]))
     return values
+
+
+def work_path(work_dir, path):
+    """
+    Resolve a path against the working directory a run's settings name.
+
+    Args:
+        work_dir (str): The run's absolute `work_dir`.
+        path (str): The path; an absolute one is kept.
+
+    Returns:
+        str: The absolute, normalised path.
+    """
+    return os.path.normpath(os.path.join(work_dir, path))
+
+
+def input_path(values, given, key):
+    """
+    The file a step reads: the one given, else the one a path setting names.
+
+    Args:
+        values (dict): Job key -> value, from `resolve_paths`.
+        given (str or None): The input as passed to the step, None for unset. Resolved against
+            `work_dir`.
+        key (str): The path setting it defaults to, e.g. "alignment_path".
+
+    Returns:
+        str: The absolute path.
+    """
+    return work_path(values["work_dir"], given) if given is not None else values[key]
 
 
 def cache_path(cache_dir, key, path=None):

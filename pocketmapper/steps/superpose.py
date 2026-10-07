@@ -13,6 +13,7 @@ from pocketmapper.records import fsdb_record
 from pocketmapper.records import read_records
 from pocketmapper.records import require_file
 from pocketmapper.settings import check_fsdb_align_struct_method
+from pocketmapper.settings import input_path
 from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_foldseek
 from pocketmapper.settings import require_setting
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 def superpose(
     job_file=None,
     results_dir=None,
+    work_dir=None,
     verbosity=None,
     log_path=None,
     query_records=None,
@@ -50,6 +52,8 @@ def superpose(
             already loaded. Any argument given overrides it.
         results_dir (str, optional): The results directory the inputs default to. Required here or
             in `job_file`.
+        work_dir (str, optional): Directory that entries and relative paths resolve against.
+            Defaults to the working directory.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
         log_path (str, optional): Defaults to <results_dir>/info.log.
         query_records (str, optional): Defaults to the job file's query_records_path, else
@@ -81,6 +85,7 @@ def superpose(
         job_file,
         {
             "results_dir": results_dir,
+            "work_dir": work_dir,
             "verbosity": verbosity,
             "log_path": log_path,
             "aligned_structure_dir": aligned_structure_dir,
@@ -91,11 +96,11 @@ def superpose(
     )
     require_setting(values, "results_dir")
     values = resolve_paths(values)
-    query_records = query_records if query_records is not None else values["query_records_path"]
-    target_records = target_records if target_records is not None else values["target_records_path"]
-    pocket_comparison = pocket_comparison if pocket_comparison is not None else values["pocket_comparison_path"]
-    alignment = alignment if alignment is not None else values["alignment_path"]
-    pockets = pockets if pockets is not None else values["pockets_path"]
+    query_records = input_path(values, query_records, "query_records_path")
+    target_records = input_path(values, target_records, "target_records_path")
+    pocket_comparison = input_path(values, pocket_comparison, "pocket_comparison_path")
+    alignment = input_path(values, alignment, "alignment_path")
+    pockets = input_path(values, pockets, "pockets_path")
     with log_to_file(values["log_path"], values["verbosity"]):
         require_file(alignment, "alignment")
         require_file(pocket_comparison, "pocket comparison")

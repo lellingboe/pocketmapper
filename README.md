@@ -86,6 +86,12 @@ left off the command line.
 | `--pisa_source` | str | `ftp` | Where PISA interfaces are fetched from: `ftp` (EBI FTP server, concurrent) or `api` (PDBe API, one paced request per assembly). Both fill the same cache. |
 | `--help` | flag | — | Show the help message and exit. |
 
+#### In options
+
+| Option | Default | Summary |
+| --- | --- | --- |
+| `--work_dir` | the current directory | Directory that entries, entries files and every relative path resolve against. Recorded absolute in the settings dump, so a step run later from another directory resolves them the same way. |
+
 #### Aligned structure options
 
 | Option | Type | Default | Summary |
@@ -187,8 +193,8 @@ pocketmapper superpose --results_dir ./out
 pocketmapper superpose --results_dir ./out --align_count 3 --aligned_structure_dir ./out/top3
 ```
 
-Every step takes `--job_file`, `--verbosity`, `--log_path` (appended to, so a chain writes one log)
-and `--results_dir`. Beyond those, each takes the options below; they mean what they do for `search`.
+Every step takes `--job_file`, `--verbosity`, `--log_path` (appended to, so a chain writes one log),
+`--work_dir` and `--results_dir`. Beyond those, each takes the options below; they mean what they do for `search`.
 
 | Command | Options |
 | --- | --- |

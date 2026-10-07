@@ -20,6 +20,7 @@ from pocketmapper.records import read_cache_manifest
 from pocketmapper.records import read_records
 from pocketmapper.records import unique_by
 from pocketmapper.records import write_records
+from pocketmapper.settings import input_path
 from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_foldseek
 from pocketmapper.settings import require_setting
@@ -33,6 +34,7 @@ logger = logging.getLogger(__name__)
 def fetch_structures(
     job_file=None,
     results_dir=None,
+    work_dir=None,
     verbosity=None,
     log_path=None,
     failed_entries_path=None,
@@ -56,6 +58,8 @@ def fetch_structures(
             already loaded. Any argument given overrides it.
         results_dir (str, optional): The results directory `parse` wrote to. Required here or in
             `job_file`.
+        work_dir (str, optional): Directory that entries and relative paths resolve against.
+            Defaults to the working directory.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
         log_path (str, optional): Defaults to <results_dir>/info.log.
         failed_entries_path (str, optional): Defaults to <results_dir>/failed_entries.json.
@@ -84,6 +88,7 @@ def fetch_structures(
         job_file,
         {
             "results_dir": results_dir,
+            "work_dir": work_dir,
             "verbosity": verbosity,
             "log_path": log_path,
             "failed_entries_path": failed_entries_path,
@@ -94,8 +99,8 @@ def fetch_structures(
     )
     require_setting(values, "results_dir")
     values = resolve_paths(values)
-    query_records = query_records if query_records is not None else values["query_records_path"]
-    target_records = target_records if target_records is not None else values["target_records_path"]
+    query_records = input_path(values, query_records, "query_records_path")
+    target_records = input_path(values, target_records, "target_records_path")
     with log_to_file(values["log_path"], values["verbosity"]):
         cache_dirs = read_cache_manifest(values["results_dir"])
         threads = resolve_threads(values["threads"])

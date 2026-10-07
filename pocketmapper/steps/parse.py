@@ -29,6 +29,7 @@ def parse(
     target=None,
     job_file=None,
     results_dir=None,
+    work_dir=None,
     verbosity=None,
     log_path=None,
     failed_entries_path=None,
@@ -56,6 +57,8 @@ def parse(
         job_file (str or dict, optional): JSON job file of job key -> value, or the same
             already loaded. Any argument given overrides it.
         results_dir (str, optional): Defaults to pocketmapper_results_<YYMMDD_HHMMSS>.
+        work_dir (str, optional): Directory that entries and relative paths resolve against.
+            Defaults to the working directory.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
         log_path (str, optional): Defaults to <results_dir>/info.log.
         failed_entries_path (str, optional): Defaults to <results_dir>/failed_entries.json.
@@ -86,6 +89,7 @@ def parse(
             "query": query,
             "target": target,
             "results_dir": results_dir,
+            "work_dir": work_dir,
             "verbosity": verbosity,
             "log_path": log_path,
             "failed_entries_path": failed_entries_path,
@@ -111,6 +115,7 @@ def parse(
             values["query_pocket_method"],
             values["target_pocket_method"],
             {key: values[key] for key in CACHE_MANIFEST_KEYS},
+            values["work_dir"],
             values["results_dir"],
             values["query_records_path"],
             values["target_records_path"],
@@ -124,6 +129,7 @@ def parse_inputs(
     query_pocket_method,
     target_pocket_method,
     cache_dirs,
+    work_dir,
     results_dir,
     query_records_path,
     target_records_path,
@@ -142,6 +148,8 @@ def parse_inputs(
         target_pocket_method (str): As `query_pocket_method`, for the target side.
         cache_dirs (dict): Each of `records.CACHE_MANIFEST_KEYS` -> its directory. Made absolute for
             the record paths and the manifest.
+        work_dir (str): Directory that entries files, local structure files and a user Foldseek
+            database resolve against.
         results_dir (str): Where the manifest is written.
         query_records_path (str): Where the query records are written.
         target_records_path (str): Where the target records are written.
@@ -162,6 +170,7 @@ def parse_inputs(
         pdb_dir=cache_dirs["pdb_dir"],
         alphafold_dir=cache_dirs["alphafold_dir"],
         fsdb_dir=cache_dirs["fsdb_dir"],
+        work_dir=work_dir,
     )
 
     sides = {}

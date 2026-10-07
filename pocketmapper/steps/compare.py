@@ -19,6 +19,7 @@ from pocketmapper.pockets.pocket_fetcher import read_pockets_file
 from pocketmapper.records import fsdb_record
 from pocketmapper.records import read_records
 from pocketmapper.records import require_file
+from pocketmapper.settings import input_path
 from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_setting
 from pocketmapper.settings import resolve_paths
@@ -32,6 +33,7 @@ BLOSUM_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "blosum62
 def compare(
     job_file=None,
     results_dir=None,
+    work_dir=None,
     verbosity=None,
     log_path=None,
     target_records=None,
@@ -50,6 +52,8 @@ def compare(
             already loaded. Any argument given overrides it.
         results_dir (str, optional): The results directory the inputs default to. Required here or
             in `job_file`.
+        work_dir (str, optional): Directory that entries and relative paths resolve against.
+            Defaults to the working directory.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
         log_path (str, optional): Defaults to <results_dir>/info.log.
         target_records (str, optional): Defaults to the job file's target_records_path, else
@@ -69,6 +73,7 @@ def compare(
         job_file,
         {
             "results_dir": results_dir,
+            "work_dir": work_dir,
             "verbosity": verbosity,
             "log_path": log_path,
             "pocket_comparison_path": pocket_comparison_path,
@@ -78,9 +83,9 @@ def compare(
     values = resolve_paths(values)
     with log_to_file(values["log_path"], values["verbosity"]):
         compare_aligned_pockets(
-            target_records if target_records is not None else values["target_records_path"],
-            alignment if alignment is not None else values["alignment_path"],
-            pockets if pockets is not None else values["pockets_path"],
+            input_path(values, target_records, "target_records_path"),
+            input_path(values, alignment, "alignment_path"),
+            input_path(values, pockets, "pockets_path"),
             values["pocket_comparison_path"],
         )
 

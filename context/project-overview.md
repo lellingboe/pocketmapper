@@ -34,8 +34,9 @@ parse to None or it would hide the job file's value.
   any record: `lib.fsdb_pocket_mode` gives `"pisa"` when any hit name is PDB-style, else
   `"whole_chain"` (pockets, compare and superpose each call it). No step appends hit records to a
   records file; the hits' pockets and names live only in `pockets.json`.
-- **Record paths are absolute**: parse passes absolute cache dirs to `QTProcessor`, which also
-  `abspath`s a local file and a user FSDB. `pocket_id`/`struct_info` stay as typed.
+- **Record paths are absolute**: parse passes absolute cache dirs to `QTProcessor`, which resolves an
+  entries file, a local file and a user FSDB against `work_dir`. `pocket_id`/`struct_info` stay as
+  typed.
 - `--pisa_source` is not in the manifest; only pockets takes it. fetch_structures and align fetch no
   PISA: the pockets step downloads it, so a pisa record whose PISA fails is aligned, then dropped as
   `pocket_not_built`.
@@ -223,6 +224,10 @@ file) keyed by job keys, never a `Settings`, and call the same `settings.resolve
 (options only some steps take) is what a job file may hold and what `layer_settings` seeds. Unknown
 keys are rejected; one in `REMOVED_JOB_KEYS` gets its replacement named. Search drops keys `Settings`
 lacks before building one.
+
+**`work_dir`** (default cwd) is stored absolute by `resolve_paths`, which joins every path setting onto
+it; step input arguments (`--alignment`, ...) resolve against it through `settings.input_path`. So
+every resolved path is absolute, and a step run from a dump elsewhere resolves as the first did.
 
 **A reused `job_settings.json` names every path**, so an argument moves only the path it names.
 `results_dir` is not inert beside it all the same: it locates `cache_dirs.json` (fetch_structures, align,

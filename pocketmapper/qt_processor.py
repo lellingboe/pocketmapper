@@ -38,7 +38,8 @@ class QTRecord:
 
     Holds the raw input string as `pocket_id` plus everything derived from it -- structure location,
     preprocessing name and pocket method. Paths are as absolute as the directories they were
-    resolved against, and a local file's or user Foldseek database's is made absolute.
+    resolved against, and a local file's or user Foldseek database's is made absolute against the
+    processor's `work_dir`.
     """
 
     pocket_id: str
@@ -59,11 +60,11 @@ class QTProcessor:
     per side.
     """
 
-    def __init__(self, pdb_dir, alphafold_dir, fsdb_dir):
+    def __init__(self, pdb_dir, alphafold_dir, fsdb_dir, work_dir=None):
         """
         Store the directories that record paths are resolved against, and compile the input regexes.
 
-        Record paths are joined onto these directories as given, so pass them absolute for absolute
+        Record paths are joined onto the cache directories as given, so pass them absolute for absolute
         record paths.
 
         Args:
@@ -73,6 +74,8 @@ class QTProcessor:
                 `alphafold` records get their `struct_path`.
             fsdb_dir (str): Directory holding downloaded Foldseek databases, used to locate the
                 bundled `pdb` database.
+            work_dir (str, optional): Directory that an entries file, a local structure file and a
+                user Foldseek database are resolved against. Defaults to None, the working directory.
         """
         # On the instance so every helper logs under the side process_qt_cmdline_input names
         self.log_extra = {"stage": "Processing Inputs"}
@@ -80,6 +83,7 @@ class QTProcessor:
 
         self.pdb_dir = pdb_dir
         self.alphafold_dir = alphafold_dir
+        self.work_dir = os.path.abspath(work_dir if work_dir is not None else os.getcwd())
 
         # Structure type regex patterns
         self.pdb_regex = r"^[a-zA-Z0-9]{4}$"
@@ -161,9 +165,10 @@ class QTProcessor:
             raise PocketMapperError(msg)
 
         # A file holds one entry per line
-        if pocket_method != "foldseek_db" and os.path.isfile(qt_input):
+        entries_path = self.work_path(qt_input)
+        if pocket_method != "foldseek_db" and os.path.isfile(entries_path):
             try:
-                with open(qt_input) as f:
+                with open(entries_path) as f:
                     entries = [line.strip() for line in f.readlines()]
             except Exception as e:
                 logger.critical(f"Problem reading the file {qt_input}: {e}", extra=self.log_extra)
@@ -202,7 +207,7 @@ class QTProcessor:
                 pocket_id=qt,
                 struct_info=qt,
                 struct_type="foldseek_db",
-                struct_path=self.bundled_foldseek_dbs.get(qt) or os.path.abspath(qt),  # Bundled path if available
+                struct_path=self.bundled_foldseek_dbs.get(qt) or self.work_path(qt),  # Bundled path if available
             )
             return record, None
 
@@ -343,9 +348,9 @@ class QTProcessor:
             return "pdb", None
         elif re.match(self.uniprot_regex, struct_str):
             return "alphafold", None
-        elif os.path.isfile(struct_str):
+        elif os.path.isfile(self.work_path(struct_str)):
             return "local_file", None
-        elif os.path.isdir(struct_str):
+        elif os.path.isdir(self.work_path(struct_str)):
             logger.critical(f"Directory input is not currently supported: {struct_str}", extra=self.log_extra)
             raise PocketMapperError(f"Directory input is not currently supported: {struct_str}")
         else:
@@ -360,7 +365,7 @@ class QTProcessor:
             struct_type (str): Type of the structure ("alphafold", "pdb", "local_file").
 
         Returns:
-            str: Path to the structure file. A local file's is made absolute.
+            str: Path to the structure file. A local file's is made absolute against `work_dir`.
         """
         match struct_type:
             case "alphafold":
@@ -368,12 +373,24 @@ class QTProcessor:
             case "pdb":
                 return os.path.join(self.pdb_dir, f"{struct_info}.cif.gz")
             case "local_file":
-                return os.path.abspath(struct_info)
+                return self.work_path(struct_info)
             case _:
                 logger.critical(
                     f"Unknown structure type {struct_type} for struct_info {struct_info}", extra=self.log_extra
                 )
                 raise PocketMapperError(f"Unknown structure type {struct_type} for struct_info {struct_info}")
+
+    def work_path(self, path):
+        """
+        Resolve a path an entry names against `work_dir`.
+
+        Args:
+            path (str): The path as typed; an absolute one is kept.
+
+        Returns:
+            str: The absolute, normalised path.
+        """
+        return os.path.normpath(os.path.join(self.work_dir, path))
 
     def pocket_info(self, qt_str):
         """
