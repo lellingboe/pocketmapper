@@ -6,16 +6,17 @@ Project implementation specifics. Cross-module and derived facts only. Anything 
 `cli.py` is **the only module that knows about argv or exit codes**. Subcommands: `search` plus one per
 step (`parse`, `fetch_structures`, `align`, `pockets`, `compare`, `superpose`). The steps of `search()` are in the
 `pocketmapper.py` module docstring. Parser details (`OPTIONS` table, per-command `COMMANDS` layout,
-optional query/target positionals for `search`, defaults from `constants`) are documented in `cli.py`.
-The job file (search only) is layered on top of parsed arguments, so nothing distinguishes a default
-from a typed value.
+optional query/target positionals for `search` and `parse`, every default None) are documented in
+`cli.py`. Every command takes a job file; parsed arguments are layered over it, so an unset option must
+parse to None or it would hide the job file's value.
 
 ### Steps and hand-off files
 
-- **Three layers.** `steps/<step>.py`: one function per step, explicit paths and values, no `Settings`,
-  no state. `commands.py`: one function per command (path defaults under `results_dir`, logging,
-  validation, temp dir, then its step). `PocketMapper.search`: builds `Settings`, opens the log once,
-  calls the same steps through the same files, so chained commands == `search` by construction.
+- **Two layers.** `steps/<step>.py` holds an entry function named after the step (job file + arguments,
+  path defaults under `results_dir`, logging, validation, temp dir) and a core function (explicit
+  paths and values, no `Settings`, no state); conventions in the `steps` package docstring.
+  `PocketMapper.search` builds `Settings`, opens the log and temp scope once, and calls every entry
+  function with `asdict(settings)` as the job file, so chained commands == `search` by construction.
 - **Hand-off files** (`records.py` reads/writes them): `query_records.json` / `target_records.json`
   (JSON list of `QTRecord` dicts, JSON to keep None/bools), `cache_dirs.json` (absolute cache dirs;
   written by parse and search, read by fetch_structures, align, pockets, which take no cache options),
@@ -182,12 +183,13 @@ run and diff old vs new output. Nothing else covers it.
 **The package never touches the root logger.** Modules use `logging.getLogger(__name__)` under
 `constants.PACKAGE_LOGGER`, which has a `NullHandler`. Never call `logging.info(...)` etc. directly.
 Handlers are added in two places, each removed in a `finally`:
-- **`cli()` adds stdout** before dispatching, because `configure_workflow` can `critical` on a bad job
+- **`cli()` adds stdout** before dispatching, because `layer_settings` can `critical` on a bad job
   file before the log is open (inherited root WARNING lets it through).
-- **`search()` and each command add `info.log`** and set the level from `verbosity`, through the
+- **`search()` and each step add `info.log`** and set the level from `verbosity`, through the
   `lib.log_to_file` context manager, which undoes both on exit, so a second call doesn't write into the
-  first log. The handler appends, so a chain of commands writes one log. Handlers have no level of
-  their own.
+  first log. The handler appends, so a chain of commands writes one log. Nested on the same file (a
+  step inside `search`), it adds no second handler, else every line is written twice. Handlers have no
+  level of their own.
 
 A library caller gets no console output unless it prints `pocketmapper.*`; `lib.format_handler` applies
 the CLI format plus `lib.StageFilter`, which fills `%(stage)s` from `funcName` when absent. Declared
@@ -204,38 +206,50 @@ goes through `run_foldseek` so failures follow this too. **No `exit()`/`sys.exit
 
 ## Settings
 
-`Settings` (`settings.py`) is search's only. **Every `Settings` field is reachable from the CLI**; the job
-file sets nothing the CLI can't. Layering is in `configure_workflow` (job file over args, then
-`resolve_paths`), resolution in `resolve_settings` (`resolve_*`). `Settings` has no defaults and is built
-once. Pocket methods keep `"auto"` (inferred per entry); `align_struct_method` is resolved per run. A
-reused `job_settings.json` names every field, so it pins everything. The step commands take no
-`Settings`; they call the same `settings.resolve_*` validators on their own arguments.
+`Settings` (`settings.py`) is built only by search. **Every `Settings` field is reachable from the CLI**;
+the job file sets nothing the CLI can't. Layering is `settings.layer_settings` for every command
+(arguments not None over job file over `SETTING_DEFAULTS`, then `resolve_paths`); search's resolution is
+in `resolve_settings` (`resolve_*`). `Settings` has no defaults and is built once. Pocket methods keep
+`"auto"` (inferred per entry); `align_struct_method` is resolved per run. The steps take a job dict (or
+file) keyed by `Settings` fields, never a `Settings`, and call the same `settings.resolve_*` validators.
 
-A new option goes in **four hand-maintained places per command**: the function signature (for search
-also `Settings` and its `arguments` dict), `OPTIONS` plus the command's `COMMANDS` row in `cli.py`, and
-README Options (for a step, its row in the step table). `cli()` passes parsed args straight through its
-dispatch table, so there is no kwarg block. Static defaults are `constants.DEFAULT_*` shared by parser
-and signature; path defaults are `settings.CACHE_PATH_DEFAULTS` / `RESULTS_PATH_DEFAULTS`
-(`cache_path`, `results_path`). Miss one → argparse fails or the option is silently ignored. Check, per
-command: `inspect.signature(<function>)` == subparser `_actions` dests; for search also
-`dataclasses.fields(Settings)` == signature == `arguments` keys (modulo `job_file`).
+**A reused `job_settings.json` names every path**, so an argument moves only the path it names.
+`results_dir` is not inert beside it all the same: it locates `cache_dirs.json` (fetch_structures, align,
+pockets) and is a `temp_dir` emptying root. In fetch_structures and align, explicit
+`query_records_path`/`target_records_path` stay out of `layer_settings` and default to their input;
+layered in, an explicit output would also become the input's default (breaks `test_steps_9`/`_13`).
+
+A new option goes in **four hand-maintained places per command**: the function signature and its
+`layer_settings` arguments dict (for search also `Settings`), `OPTIONS` plus the command's `COMMANDS` row
+in `cli.py`, and README Options (for a step, its row in the step table). A fifth for an option with a
+static default: `settings.SETTING_DEFAULTS` (from `constants.DEFAULT_*`, which the help also quotes).
+Signature and parser defaults are all None. Path defaults are `settings.CACHE_PATH_DEFAULTS` /
+`RESULTS_PATH_DEFAULTS` (`cache_path`, `results_path`). `cli()` passes parsed args straight through its
+dispatch table, so there is no kwarg block. Miss one → argparse fails or the option is silently
+ignored. Check, per command: `inspect.signature(steps.<x>.<x>)` == subparser `_actions` dests; for
+search also `dataclasses.fields(Settings)` == signature == `arguments` keys (modulo `job_file`);
+`SETTING_DEFAULTS` keys ⊆ `fields(Settings)`.
 
 Options are grouped by lifetime in `cli.COMMANDS` and README alike: `in`, `aligned structure`, `cache`,
 `out`, `temp`, `advanced`. A file a command reads has a bare name (`--alignment`); one it writes ends in
 `_path`. A new path setting picks a group in both.
 
 **Every directory is made by its first writer**; there is no bulk creation step. Only the log's
-directory is made up front (the file handler opens at once). Pipeline-side writers use `lib.make_dir`
+directory is made up front, by `lib.log_to_file` (the file handler opens at once). Pipeline-side writers use `lib.make_dir`
 (critical + `PocketMapperError`); components use bare `os.makedirs`. A new writer into a configurable
 path must make its directory, or a path option pointed elsewhere fails.
 
 **`temp_dir` is one option, three dirs** (`query_structures/`, `target_structures/`, `foldseek_tmp/`),
 named in `steps/align.py` (all three) and `steps/fetch_structures.py` (`foldseek_tmp/`, for a DB download). The two
 structure dirs are made in `foldseek_preprocessing`, `foldseek_tmp/` before each Foldseek call that uses
-it (MMseqs2 makes only one level of tmp dir), so a `seq` run makes none. `temp_dir` is emptied on entry
-(`lib.empty_temp_dir`; search, fetch_structures, align) so reruns can't feed `createdb` stale structures; emptying is
-`lib.is_within`-guarded against `cache_dir` and `results_dir`, creation is not. It runs after the log is
-open so the skip warning reaches `info.log`. `lib.delete_temp_dir` does nothing if it was never made.
+it (MMseqs2 makes only one level of tmp dir), so a `seq` run makes none. Ownership is
+`lib.temp_dir_scope` (search, fetch_structures, align): emptied on entry so reruns can't feed `createdb`
+stale structures, deleted on a clean exit unless `delete_tmp` is 0. Scopes nest: search's owns temp
+for the whole run and the steps' are no-ops inside it, so `search --delete_tmp 0` keeps every step's
+scratch. The held dir is released in a `finally`, else a failed library run leaves the next one in that
+process neither emptying nor deleting it. Emptying is `lib.is_within`-guarded against `cache_dir` and
+`results_dir`, creation is not. It runs after the log is open so the skip warning reaches `info.log`.
+`lib.delete_temp_dir` does nothing if it was never made.
 
 `search --help` is generated from `help=` strings; `CLI_SEARCH_EPILOG` holds only examples. Resolution
 order, the `aligner` check and tri-state `align_struct_method`: `Settings` docstring and `# 4b.`/`# 4c.` in
@@ -261,8 +275,9 @@ classifiers, `[tool.black] target-version`, README Installation; CI `compat` mat
   `test_invalid_1`, asserted `pocket_not_built`); `forced_pisa_mixed.txt` line 2 (`4Q5J:A`, no partner;
   `test_invalid_8`, asserted `invalid_entry`); `fsdb_mixed_target.txt` (a DB beside a structure;
   `test_steps_11`).
-- **`fixtures/job_file.json` must never set a path** (it would beat the runner's `--results_dir`). Its
-  `align_count: 3` vs `test_settings_2`'s `5` shows priority only in `job_settings.json` — check by hand.
+- **`fixtures/job_file.json` must never set a path** (the runner's `--results_dir` would not move it, so
+  the case would write outside its dir). Its `align_count: 3` vs `test_settings_2`'s `5` shows priority
+  only in `job_settings.json` (5 wins) — check by hand.
 - `test_settings_5`/`_6` share `job_file_qt.json`: file-only query/target vs repeated positionally (rejected).
 - `test_settings_1` only catches rejected/crashing flags; the runner asserts only on
   `pocket_comparison.tsv`, so silently dropped path options need the per-command signature check.
@@ -282,12 +297,12 @@ classifiers, `[tool.black] target-version`, README Installation; CI `compat` mat
 
 ## As a library
 
-`PocketMapper().search(...)`, a command in `commands`, a step in `steps`, or any component directly
+`PocketMapper().search(...)`, a step's entry or core function in `steps`, or any component directly
 (`qt_processor`, `downloads.*`, `structure_preprocessor`, `pockets.pocket_fetcher` or one builder,
-`sequence_aligner`, `structure_aligner`, `foldseek`). No component or step takes a `Settings`;
-`pocketmapper.py` unpacks it per call site.
+`sequence_aligner`, `structure_aligner`, `foldseek`). No component or step takes a `Settings`; the
+entry functions take its dict as `job_file`.
 
-- **Superposition can be deferred**: `search(align_count=0)`, then `commands.superpose(results_dir=...)`,
+- **Superposition can be deferred**: `search(align_count=0)`, then `steps.superpose.superpose(results_dir=...)`,
   or `StructureAligner.align_structs` with `records.read_records` of the records paths in the returned
   settings (FSDB targets also need `fsdb_path`; `steps.superpose` derives it). Records point at
   `pdb_dir`/`alphafold_dir`, which temp deletion never touches. `query_ids`/`target_ids`/`overwrite`
@@ -297,5 +312,5 @@ classifiers, `[tool.black] target-version`, README Installation; CI `compat` mat
 - **`search()` side effects**: logger level + `info.log` handler for the call; empties `temp_dir` on
   entry and `rmtree`s it at the end unless `delete_tmp=0`. Both guarded by `lib.is_within` (under
   `cache_dir` or `results_dir`) — a safety net, not a licence. `fetch_structures` and `align` do the same with
-  their own `temp_dir`.
+  their own `temp_dir` when called outside `search`.
 - Returns only resolved `Settings` as a dict; results are in `pocket_comparison.tsv` / `alignment.tsv`.

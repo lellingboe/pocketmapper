@@ -8,15 +8,89 @@ pocket for the comparison to read.
 import logging
 import os
 
+from pocketmapper.lib import log_to_file
 from pocketmapper.lib import make_dir
 from pocketmapper.pockets.pocket_fetcher import PocketFetcher
 from pocketmapper.pockets.pocket_fetcher import dump_pockets
 from pocketmapper.records import append_failed_entries
 from pocketmapper.records import failed_entry
+from pocketmapper.records import read_cache_manifest
 from pocketmapper.records import read_records
 from pocketmapper.records import write_records
+from pocketmapper.settings import layer_settings
+from pocketmapper.settings import require_setting
+from pocketmapper.settings import resolve_paths
+from pocketmapper.settings import resolve_pisa_source
 
 logger = logging.getLogger(__name__)
+
+
+def pockets(
+    records=None,
+    job_file=None,
+    results_dir=None,
+    verbosity=None,
+    log_path=None,
+    failed_entries_path=None,
+    pockets_path=None,
+    pisa_source=None,
+):
+    """
+    Build the pocket of every record in some records files.
+
+    Reads the pocket cache directory from `results_dir`'s cache manifest. Overwrites `pockets_path`
+    with the pockets of every file named, and rewrites each file in place without the records whose
+    pocket could not be built, adding those to `failed_entries_path`. Downloads any PISA data not
+    already cached.
+
+    Args:
+        records (list, optional): The records files. The pockets file holds only the pockets of the
+            files named. Defaults, when None or empty, to the query and target records files: the
+            job file's query_records_path and target_records_path, else the standard files under
+            <results_dir>.
+        job_file (str or dict, optional): JSON job file of Settings field name -> value, or the same
+            already loaded. Any argument given overrides it.
+        results_dir (str, optional): The results directory `parse` wrote to. Required here or in
+            `job_file`.
+        verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
+        log_path (str, optional): Defaults to <results_dir>/info.log.
+        failed_entries_path (str, optional): Defaults to <results_dir>/failed_entries.json.
+        pockets_path (str, optional): Defaults to <results_dir>/pockets.json.
+        pisa_source (str, optional): "ftp" or "api". Defaults to DEFAULT_PISA_SOURCE.
+
+    Returns:
+        None
+
+    Raises:
+        PocketMapperError: If the job file cannot be read, no results_dir is given, the manifest or a
+            records file is missing, or `pisa_source` is invalid.
+    """
+    values = layer_settings(
+        job_file,
+        {
+            "results_dir": results_dir,
+            "verbosity": verbosity,
+            "log_path": log_path,
+            "failed_entries_path": failed_entries_path,
+            "pockets_path": pockets_path,
+            "pisa_source": pisa_source,
+        },
+    )
+    require_setting(values, "results_dir")
+    values = resolve_paths(values)
+    # The command line gives [] for none
+    if not records:
+        records = [values["query_records_path"], values["target_records_path"]]
+    with log_to_file(values["log_path"], values["verbosity"]):
+        cache_dirs = read_cache_manifest(values["results_dir"])
+        pisa_source = resolve_pisa_source(values["pisa_source"])
+        build_pockets(
+            records,
+            values["pockets_path"],
+            values["failed_entries_path"],
+            cache_dirs["pocket_dir"],
+            pisa_source,
+        )
 
 
 def build_pockets(records_paths, pockets_path, failed_entries_path, pocket_dir, pisa_source):

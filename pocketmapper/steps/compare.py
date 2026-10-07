@@ -11,6 +11,7 @@ import pandas as pd
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import bundled_offset_table
 from pocketmapper.lib import jsonify_dict
+from pocketmapper.lib import log_to_file
 from pocketmapper.lib import make_dir
 from pocketmapper.pocket_comparison import compare_pockets
 from pocketmapper.pockets.pocket_fetcher import load_pockets
@@ -19,11 +20,74 @@ from pocketmapper.records import preproc_to_ids
 from pocketmapper.records import read_records
 from pocketmapper.records import require_file
 from pocketmapper.records import synthesise_target_pockets
+from pocketmapper.settings import layer_settings
+from pocketmapper.settings import require_setting
+from pocketmapper.settings import resolve_paths
 
 logger = logging.getLogger(__name__)
 
 # The packaged BLAST-format similarity matrix the comparison scores with
 BLOSUM_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "blosum62.bla")
+
+
+def compare(
+    job_file=None,
+    results_dir=None,
+    verbosity=None,
+    log_path=None,
+    query_records=None,
+    target_records=None,
+    alignment=None,
+    pockets=None,
+    pocket_comparison_path=None,
+):
+    """
+    Compare the pockets of every aligned query/target pair into a pocket comparison table.
+
+    Writes unknown_ids.json and incorrect_mapping.json beside `pocket_comparison_path` when either has
+    anything to report, deleting any left there by an earlier run.
+
+    Args:
+        job_file (str or dict, optional): JSON job file of Settings field name -> value, or the same
+            already loaded. Any argument given overrides it.
+        results_dir (str, optional): The results directory the inputs default to. Required here or
+            in `job_file`.
+        verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
+        log_path (str, optional): Defaults to <results_dir>/info.log.
+        query_records (str, optional): Defaults to the job file's query_records_path, else
+            <results_dir>/query_records.json.
+        target_records (str, optional): As `query_records`, from target_records_path.
+        alignment (str, optional): As `query_records`, from alignment_path.
+        pockets (str, optional): As `query_records`, from pockets_path.
+        pocket_comparison_path (str, optional): Defaults to <results_dir>/pocket_comparison.tsv.
+
+    Returns:
+        None
+
+    Raises:
+        PocketMapperError: If the job file cannot be read, no results_dir is given, an input is
+            missing or unreadable, a record has no pocket, or a Foldseek-database target has not been
+            through align.
+    """
+    values = layer_settings(
+        job_file,
+        {
+            "results_dir": results_dir,
+            "verbosity": verbosity,
+            "log_path": log_path,
+            "pocket_comparison_path": pocket_comparison_path,
+        },
+    )
+    require_setting(values, "results_dir")
+    values = resolve_paths(values)
+    with log_to_file(values["log_path"], values["verbosity"]):
+        compare_aligned_pockets(
+            query_records if query_records is not None else values["query_records_path"],
+            target_records if target_records is not None else values["target_records_path"],
+            alignment if alignment is not None else values["alignment_path"],
+            pockets if pockets is not None else values["pockets_path"],
+            values["pocket_comparison_path"],
+        )
 
 
 def compare_aligned_pockets(query_records, target_records, alignment, pockets, pocket_comparison_path):

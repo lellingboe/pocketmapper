@@ -122,7 +122,7 @@ test_invalid_8|core|rows failed=invalid_entry@4Q5J:A|Forced method skips only th
 test_invalid_9|core|fail|Unknown aligner rejected|4Q5J:A_E 4Q5J:B_F --aligner bogus
 
 test_settings_1|core settings|rows|Path options set on the command line|4Q5J:A_E 4Q5J:B_F --aligner seq --pdb_dir @CACHE@/pdb_structures --alphafold_dir @CACHE@/alphafold_structures --pocket_dir @CACHE@/pockets --alignment_path @OUT@/custom_alignment.tsv --aligned_structure_dir @OUT@/custom_aligned --job_settings_path @OUT@/custom_settings.json --log_path @OUT@/custom.log --temp_dir @OUT@/custom_temp
-test_settings_2|core settings|rows|Job file wins over CLI arguments|--job_file job_file.json 4Q5J:A_E 4Q5J:B_F --aligner seq --align_count 5
+test_settings_2|core settings|rows|CLI arguments win over the job file|--job_file job_file.json 4Q5J:A_E 4Q5J:B_F --aligner seq --align_count 5
 test_settings_3|core settings|rows|Temp directories kept with --delete_tmp 0|4Q5J:A_E 4Q5J:B_F --aligner seq --delete_tmp 0
 test_settings_4|core settings|rows|Explicit --threads accepted and honoured|4Q5J:A_E 4Q5J:B_F --aligner seq --threads 2
 test_settings_5|core settings|rows|Job file supplies query and target|--job_file job_file_qt.json --aligner seq
@@ -143,6 +143,8 @@ test_steps_10|core local|fail|compare rejects target records whose pockets were 
 test_steps_11|core local|fail|parse rejects a Foldseek database beside a structure target|parse 4Q5J:A_E fsdb_mixed_target.txt
 test_steps_12|core local|fail failed=invalid_entry@human_domains|parse rejects a Foldseek database query|parse human_domains 4Q5J:B_F
 test_steps_13|human_domains|fail|compare rejects a Foldseek database target file align never rewrote|parse 4Q5J:B_F human_domains ; fetch_structures ; align --target_records_path @OUT@/aligned_targets.json ; pockets @OUT@/query_records.json @OUT@/target_records.json ; compare
+test_steps_14|core local|rows|parse takes query and target from a job file; pockets defaults to both records files|parse --job_file job_file_qt.json ; fetch_structures ; align --aligner seq ; pockets ; compare
+test_steps_15|core local|rows|A step reads its inputs from another run's job_settings.json; an argument overrides it|search 4Q5J:A_E 4Q5J:B_F --aligner seq --align_count 0 --results_dir @OUT@/search ; compare --job_file @OUT@/search/job_settings.json --pocket_comparison_path @OUT@/pocket_comparison.tsv
 EOF
 
 # ---------------------------------------------------------------------------

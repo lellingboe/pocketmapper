@@ -204,7 +204,7 @@ DELETE_TMP_VALUES = (0, 1)
 # assembly. Both serve identical JSON.
 PISA_SOURCES = ("ftp", "api")
 
-# Defaults for the search options that have a static value. Options whose default depends on the run
+# Defaults for the settings that have a static value. Settings whose default depends on the run
 # (results_dir, threads and the derived paths) default to None and are resolved at run time.
 DEFAULT_CACHE_DIR = "pocketmapper_cache"
 DEFAULT_VERBOSITY = 3
@@ -252,14 +252,16 @@ Examples:
   pocketmapper parse 4Q5J:B_F 4Q5J:A_E --results_dir ./out
   pocketmapper fetch_structures --results_dir ./out
   pocketmapper align --results_dir ./out
-  pocketmapper pockets out/query_records.json out/target_records.json \\
-      --results_dir ./out
+  pocketmapper pockets --results_dir ./out
   pocketmapper compare --results_dir ./out
   pocketmapper superpose --results_dir ./out
 
   # After a search, superpose again with other settings.
   pocketmapper superpose --results_dir ./out --align_count 3 \\
       --aligned_structure_dir ./out/top3
+
+  # Rerun a step with a run's own settings; arguments override them.
+  pocketmapper align --job_file ./out/job_settings.json
 
 Each step reads the previous step's files from --results_dir, and
 fetch_structures, align and pockets read the cache directories parse recorded

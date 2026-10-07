@@ -4,6 +4,8 @@ Generic, stateless helpers shared across PocketMapper.
 Nothing here knows about the pipeline, Settings, or the Pocket shape -- each function takes
 plain values and returns plain values, or does one thing to the filesystem or the package logger.
 Workflow logic belongs in the component modules rather than here.
+
+The one piece of state is `HELD_TEMP_DIRS`, the scratch directories an open `temp_dir_scope` holds.
 """
 
 import gzip
@@ -22,6 +24,9 @@ from pocketmapper.exceptions import PocketMapperError
 logger = logging.getLogger(__name__)
 
 UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]")
+
+# Absolute paths of the scratch directories an open temp_dir_scope holds
+HELD_TEMP_DIRS = set()
 
 
 class StageFilter(logging.Filter):
@@ -228,12 +233,45 @@ def delete_temp_dir(temp_dir, delete_tmp, roots):
 
 
 @contextmanager
+def temp_dir_scope(temp_dir, delete_tmp, roots):
+    """
+    Own a scratch directory for the length of a `with` block: empty it on entry, delete it on exit.
+
+    The emptying and deletion are `empty_temp_dir`'s and `delete_temp_dir`'s, with their guards. A
+    block that raises deletes nothing, leaving the scratch for inspection. A scope for a directory an
+    enclosing scope already holds does nothing, on entry or exit: the outer scope owns it.
+
+    Args:
+        temp_dir (str): The scratch directory.
+        delete_tmp (int): 1 to delete it on exit, 0 to keep it.
+        roots (list): The directories it may be emptied or deleted under.
+
+    Yields:
+        None
+    """
+    key = os.path.abspath(temp_dir)
+    if key in HELD_TEMP_DIRS:
+        yield
+        return
+    HELD_TEMP_DIRS.add(key)
+    # Released however the block ends, or a failed run would leave the next one in this process
+    # neither emptying nor deleting it
+    try:
+        empty_temp_dir(temp_dir, roots)
+        yield
+        delete_temp_dir(temp_dir, delete_tmp, roots)
+    finally:
+        HELD_TEMP_DIRS.discard(key)
+
+
+@contextmanager
 def log_to_file(log_path, verbosity):
     """
     Log the package to a file, at a level set by `verbosity`, for the length of a `with` block.
 
-    Sets the `pocketmapper` logger's level and adds a file handler appending to `log_path`. Both
-    are undone on exit, however the block ends. The file's directory must already exist.
+    Creates the file's directory, sets the `pocketmapper` logger's level and adds a file handler
+    appending to `log_path`. Both are undone on exit, however the block ends. If the logger already
+    writes to `log_path`, as inside an enclosing call, only the level is set.
 
     Args:
         log_path (str): The log file.
@@ -241,7 +279,11 @@ def log_to_file(log_path, verbosity):
 
     Yields:
         None
+
+    Raises:
+        PocketMapperError: If the log's directory cannot be created.
     """
+    make_dir(os.path.dirname(log_path), {"stage": "Configuring Settings"})
     if verbosity == 4:
         log_level = logging.DEBUG
     elif verbosity == 3:
@@ -254,13 +296,21 @@ def log_to_file(log_path, verbosity):
     package_logger = logging.getLogger(PACKAGE_LOGGER)
     previous_log_level = package_logger.level
     package_logger.setLevel(log_level)
-    handler = format_handler(logging.FileHandler(log_path))
-    package_logger.addHandler(handler)
+    # A second handler on the same file would write every line twice
+    handler = None
+    log_path = os.path.abspath(log_path)
+    if not any(
+        isinstance(existing, logging.FileHandler) and existing.baseFilename == log_path
+        for existing in package_logger.handlers
+    ):
+        handler = format_handler(logging.FileHandler(log_path))
+        package_logger.addHandler(handler)
     try:
         yield
     finally:
-        package_logger.removeHandler(handler)
-        handler.close()
+        if handler is not None:
+            package_logger.removeHandler(handler)
+            handler.close()
         package_logger.setLevel(previous_log_level)
 
 

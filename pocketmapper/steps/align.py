@@ -16,22 +16,145 @@ import pandas as pd
 from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import run_foldseek
+from pocketmapper.lib import log_to_file
 from pocketmapper.lib import make_dir
 from pocketmapper.lib import parse_foldseek_pdb_entry_name
+from pocketmapper.lib import temp_dir_scope
 from pocketmapper.pockets.pisa import PisaParser
 from pocketmapper.pockets.pisa import download_pisa_interfaces
 from pocketmapper.qt_processor import QTProcessor
 from pocketmapper.records import append_failed_entries
 from pocketmapper.records import failed_entry
 from pocketmapper.records import fsdb_record
+from pocketmapper.records import read_cache_manifest
 from pocketmapper.records import read_records
 from pocketmapper.records import unique_by
 from pocketmapper.records import write_records
 from pocketmapper.sequence_aligner import SequenceAligner
+from pocketmapper.settings import check_fsdb_aligner
+from pocketmapper.settings import layer_settings
+from pocketmapper.settings import require_foldseek
+from pocketmapper.settings import require_setting
+from pocketmapper.settings import resolve_aligner
+from pocketmapper.settings import resolve_delete_tmp
+from pocketmapper.settings import resolve_paths
+from pocketmapper.settings import resolve_pisa_source
+from pocketmapper.settings import resolve_threads
 from pocketmapper.steps.fetch_structures import fetch_missing_structures
 from pocketmapper.structure_preprocessor import StructurePreprocessor
 
 logger = logging.getLogger(__name__)
+
+
+def align(
+    job_file=None,
+    results_dir=None,
+    verbosity=None,
+    log_path=None,
+    failed_entries_path=None,
+    query_records=None,
+    target_records=None,
+    query_records_path=None,
+    target_records_path=None,
+    alignment_path=None,
+    aligner=None,
+    threads=None,
+    pisa_source=None,
+    temp_dir=None,
+    delete_tmp=None,
+):
+    """
+    Align the query chains against the target chains into an alignment table.
+
+    Reads the cache directories from `results_dir`'s cache manifest. Drops the records whose
+    structure is missing or cannot be preprocessed, adding them to `failed_entries_path`. Against a
+    PDB Foldseek database, appends a pisa target record per interface of each hit, downloading what
+    they need. Empties `temp_dir` on the way in and, unless `delete_tmp` is 0, deletes it on the way
+    out, unless an enclosing call holds it.
+
+    Args:
+        job_file (str or dict, optional): JSON job file of Settings field name -> value, or the same
+            already loaded. Any argument given overrides it.
+        results_dir (str, optional): The results directory `parse` wrote to. Required here or in
+            `job_file`.
+        verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
+        log_path (str, optional): Defaults to <results_dir>/info.log.
+        failed_entries_path (str, optional): Defaults to <results_dir>/failed_entries.json.
+        query_records (str, optional): Defaults to the job file's query_records_path, else
+            <results_dir>/query_records.json.
+        target_records (str, optional): As `query_records`, for the target side.
+        query_records_path (str, optional): Where the query records left are written. Defaults to
+            `query_records`.
+        target_records_path (str, optional): As `query_records_path`. Defaults to `target_records`.
+        alignment_path (str, optional): Defaults to <results_dir>/alignment.tsv.
+        aligner (str, optional): "foldseek" or "seq". Defaults to DEFAULT_ALIGNER.
+        threads (int, optional): Defaults to one per available core.
+        pisa_source (str, optional): "ftp" or "api", for a PDB Foldseek database's hits. Defaults to
+            DEFAULT_PISA_SOURCE.
+        temp_dir (str, optional): Defaults to <results_dir>/tmp.
+        delete_tmp (int, optional): 1 deletes `temp_dir` at the end; 0 keeps it. Defaults to
+            DEFAULT_DELETE_TMP.
+
+    Returns:
+        None
+
+    Raises:
+        PocketMapperError: If the job file cannot be read, no results_dir is given, the manifest or a
+            records file is missing, a setting is invalid, foldseek is needed but cannot run, a
+            Foldseek-database target is aligned with "seq", a side has no usable records, or a
+            Foldseek invocation fails.
+    """
+    # The records paths rewrite the inputs, so they are not layered: an explicit one would become
+    # its input's default too
+    values = layer_settings(
+        job_file,
+        {
+            "results_dir": results_dir,
+            "verbosity": verbosity,
+            "log_path": log_path,
+            "failed_entries_path": failed_entries_path,
+            "alignment_path": alignment_path,
+            "aligner": aligner,
+            "threads": threads,
+            "pisa_source": pisa_source,
+            "temp_dir": temp_dir,
+            "delete_tmp": delete_tmp,
+        },
+    )
+    require_setting(values, "results_dir")
+    values = resolve_paths(values)
+    query_records = query_records if query_records is not None else values["query_records_path"]
+    target_records = target_records if target_records is not None else values["target_records_path"]
+    with log_to_file(values["log_path"], values["verbosity"]):
+        cache_dirs = read_cache_manifest(values["results_dir"])
+        aligner = resolve_aligner(values["aligner"])
+        if fsdb_record(read_records(target_records)) is not None:
+            check_fsdb_aligner(aligner)
+        if aligner == "foldseek":
+            require_foldseek(
+                "The foldseek aligner was selected",
+                "Or pass --aligner seq to use the built-in BLOSUM62 sequence aligner.",
+            )
+        threads = resolve_threads(values["threads"])
+        pisa_source = resolve_pisa_source(values["pisa_source"])
+        delete_tmp = resolve_delete_tmp(values["delete_tmp"])
+
+        roots = [cache_dirs["cache_dir"], values["results_dir"]]
+        with temp_dir_scope(values["temp_dir"], delete_tmp, roots):
+            align_chains(
+                query_records,
+                target_records,
+                query_records_path if query_records_path is not None else query_records,
+                target_records_path if target_records_path is not None else target_records,
+                values["alignment_path"],
+                values["failed_entries_path"],
+                aligner,
+                threads,
+                values["verbosity"],
+                values["temp_dir"],
+                cache_dirs,
+                pisa_source,
+            )
 
 
 def align_chains(

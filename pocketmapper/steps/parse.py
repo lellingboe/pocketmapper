@@ -8,15 +8,114 @@ import logging
 import os
 
 from pocketmapper.exceptions import PocketMapperError
+from pocketmapper.lib import log_to_file
 from pocketmapper.qt_processor import QTProcessor
+from pocketmapper.records import CACHE_MANIFEST_KEYS
 from pocketmapper.records import append_failed_entries
 from pocketmapper.records import failed_entry
 from pocketmapper.records import fsdb_record
 from pocketmapper.records import start_failed_entries
 from pocketmapper.records import write_cache_manifest
 from pocketmapper.records import write_records
+from pocketmapper.settings import layer_settings
+from pocketmapper.settings import require_setting
+from pocketmapper.settings import resolve_paths
 
 logger = logging.getLogger(__name__)
+
+
+def parse(
+    query=None,
+    target=None,
+    job_file=None,
+    results_dir=None,
+    verbosity=None,
+    log_path=None,
+    failed_entries_path=None,
+    query_pocket_method=None,
+    target_pocket_method=None,
+    cache_dir=None,
+    pdb_dir=None,
+    alphafold_dir=None,
+    pocket_dir=None,
+    foldseek_preprocessed_structure_dir=None,
+    fsdb_dir=None,
+    query_records_path=None,
+    target_records_path=None,
+):
+    """
+    Parse the query and target inputs into records files. No network.
+
+    Writes the records files and `cache_dirs.json`, naming every cache directory absolute, and
+    starts `failed_entries_path` afresh with the entries that could not be parsed.
+
+    Args:
+        query (str, optional): Query entry, or a file of one entry per line. Required here or in
+            `job_file`, not both.
+        target (str, optional): Target entry, a file of them, or a Foldseek database. As `query`.
+        job_file (str or dict, optional): JSON job file of Settings field name -> value, or the same
+            already loaded. Any argument given overrides it.
+        results_dir (str, optional): Defaults to pocketmapper_results_<YYMMDD_HHMMSS>.
+        verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
+        log_path (str, optional): Defaults to <results_dir>/info.log.
+        failed_entries_path (str, optional): Defaults to <results_dir>/failed_entries.json.
+        query_pocket_method (str, optional): Pocket method to force on every query entry, or "auto"
+            (the default) to infer it per entry.
+        target_pocket_method (str, optional): As `query_pocket_method`, for the target side.
+        cache_dir (str, optional): Defaults to DEFAULT_CACHE_DIR.
+        pdb_dir (str, optional): Defaults to <cache_dir>/pdb_structures.
+        alphafold_dir (str, optional): Defaults to <cache_dir>/alphafold_structures.
+        pocket_dir (str, optional): Defaults to <cache_dir>/pockets.
+        foldseek_preprocessed_structure_dir (str, optional): Defaults to
+            <cache_dir>/foldseek_preprocessed_structures.
+        fsdb_dir (str, optional): Defaults to <cache_dir>/fsdb.
+        query_records_path (str, optional): Defaults to <results_dir>/query_records.json.
+        target_records_path (str, optional): Defaults to <results_dir>/target_records.json.
+
+    Returns:
+        None
+
+    Raises:
+        PocketMapperError: If the job file cannot be read, query or target is given both ways or
+            neither way, a pocket method is unknown, a side has no valid entries, or a
+            Foldseek-database target is not the only target entry.
+    """
+    values = layer_settings(
+        job_file,
+        {
+            "query": query,
+            "target": target,
+            "results_dir": results_dir,
+            "verbosity": verbosity,
+            "log_path": log_path,
+            "failed_entries_path": failed_entries_path,
+            "query_pocket_method": query_pocket_method,
+            "target_pocket_method": target_pocket_method,
+            "cache_dir": cache_dir,
+            "pdb_dir": pdb_dir,
+            "alphafold_dir": alphafold_dir,
+            "pocket_dir": pocket_dir,
+            "foldseek_preprocessed_structure_dir": foldseek_preprocessed_structure_dir,
+            "fsdb_dir": fsdb_dir,
+            "query_records_path": query_records_path,
+            "target_records_path": target_records_path,
+        },
+    )
+    for key in ("query", "target"):
+        require_setting(values, key)
+    values = resolve_paths(values)
+    with log_to_file(values["log_path"], values["verbosity"]):
+        parse_inputs(
+            values["query"],
+            values["target"],
+            values["query_pocket_method"],
+            values["target_pocket_method"],
+            {key: values[key] for key in CACHE_MANIFEST_KEYS},
+            values["results_dir"],
+            values["query_records_path"],
+            values["target_records_path"],
+            values["failed_entries_path"],
+        )
 
 
 def parse_inputs(

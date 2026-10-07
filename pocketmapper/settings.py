@@ -1,5 +1,9 @@
 """
-Run configuration: the `Settings` record and the validators that resolve each setting.
+Run configuration: the `Settings` record, the job file layered under the arguments, and the
+validators that resolve each setting.
+
+Every command layers its settings the same way, in `layer_settings`: an argument given beats the
+job file, which beats `SETTING_DEFAULTS`; `resolve_paths` then fills in the paths still unset.
 
 Every `resolve_*` takes the value as given -- from the command line, a job file or a library call, so
 any JSON value -- and returns it checked and normalised, or logs a critical and raises.
@@ -7,13 +11,23 @@ any JSON value -- and returns it checked and normalised, or logs a critical and 
 chosen.
 """
 
+import json
 import logging
 import os
 from dataclasses import dataclass
+from dataclasses import fields
 from datetime import datetime
 
 from pocketmapper.constants import ALIGN_STRUCT_METHODS
 from pocketmapper.constants import ALIGNERS
+from pocketmapper.constants import DEFAULT_ALIGN_COUNT
+from pocketmapper.constants import DEFAULT_ALIGN_STRUCT_METHOD
+from pocketmapper.constants import DEFAULT_ALIGNER
+from pocketmapper.constants import DEFAULT_CACHE_DIR
+from pocketmapper.constants import DEFAULT_DELETE_TMP
+from pocketmapper.constants import DEFAULT_PISA_SOURCE
+from pocketmapper.constants import DEFAULT_POCKET_METHOD
+from pocketmapper.constants import DEFAULT_VERBOSITY
 from pocketmapper.constants import DELETE_TMP_VALUES
 from pocketmapper.constants import FOLDSEEK_INSTALL_HINT
 from pocketmapper.constants import PISA_SOURCES
@@ -28,9 +42,9 @@ class Settings:
     """
     Fully resolved PocketMapper run configuration.
 
-    A record of what a run actually used, built once at the end of `configure_workflow` and dumped
-    to job_settings.json. It has no defaults: each field arrives from the job file, the arguments to
-    `search()` or run-time resolution, in that priority order. No field is optional.
+    A record of what a run actually used, built once by `resolve_settings` and dumped to
+    job_settings.json. It has no defaults: each field arrives from the arguments to `search()`, the
+    job file, SETTING_DEFAULTS or run-time resolution, in that priority order. No field is optional.
     """
 
     query: str
@@ -69,6 +83,19 @@ class Settings:
     fsdb_dir: str
 
 
+# Setting -> its static default. The others default to None: resolved at run time, or required.
+SETTING_DEFAULTS = {
+    "cache_dir": DEFAULT_CACHE_DIR,
+    "verbosity": DEFAULT_VERBOSITY,
+    "aligner": DEFAULT_ALIGNER,
+    "align_count": DEFAULT_ALIGN_COUNT,
+    "align_struct_method": DEFAULT_ALIGN_STRUCT_METHOD,
+    "query_pocket_method": DEFAULT_POCKET_METHOD,
+    "target_pocket_method": DEFAULT_POCKET_METHOD,
+    "delete_tmp": DEFAULT_DELETE_TMP,
+    "pisa_source": DEFAULT_PISA_SOURCE,
+}
+
 # Path setting -> its default, relative to cache_dir
 CACHE_PATH_DEFAULTS = {
     "pdb_dir": "pdb_structures",
@@ -101,6 +128,106 @@ def default_results_dir():
         str: pocketmapper_results_<YYMMDD_HHMMSS>, relative to the working directory.
     """
     return f"pocketmapper_results_{datetime.now().strftime('%y%m%d_%H%M%S')}"
+
+
+def read_job_file(job_file):
+    """
+    Read a job file: Settings field name -> value.
+
+    Args:
+        job_file (str, dict or None): Path to a JSON job file, the same already loaded, or None for none.
+
+    Returns:
+        dict: A copy of the job's values; empty for None.
+
+    Raises:
+        PocketMapperError: If the file is missing, unreadable or not a JSON object, or the job names a
+            setting Settings does not have.
+    """
+    log_extra = {"stage": "Configuring Settings"}
+
+    if job_file is None:
+        return {}
+    if isinstance(job_file, dict):
+        job = dict(job_file)
+        source = "the job settings"
+    else:
+        if not os.path.isfile(job_file):
+            logger.critical(f"Job file not found: {job_file}", extra=log_extra)
+            raise PocketMapperError(f"Job file not found: {job_file}")
+        try:
+            with open(job_file) as f:
+                job = json.load(f)
+        except Exception as e:
+            logger.critical(f"Error reading job file: {job_file}. Is it in JSON format?", extra=log_extra)
+            raise PocketMapperError(f"Error reading job file: {job_file}. Is it in JSON format?") from e
+        if not isinstance(job, dict):
+            msg = f'Job file {job_file} must hold a JSON object of {{"option": value}}.'
+            logger.critical(msg, extra=log_extra)
+            raise PocketMapperError(msg)
+        source = job_file
+
+    unknown = sorted(set(job) - {field.name for field in fields(Settings)})
+    if unknown:
+        msg = f"Unknown setting(s) in {source}: {', '.join(unknown)}"
+        logger.critical(msg, extra=log_extra)
+        raise PocketMapperError(msg)
+    return job
+
+
+def layer_settings(job_file, arguments):
+    """
+    Layer the arguments over the job file over SETTING_DEFAULTS.
+
+    Args:
+        job_file (str, dict or None): As `read_job_file`.
+        arguments (dict): Settings field name -> the value passed, None for unset. Holds only the
+            settings the caller takes as arguments.
+
+    Returns:
+        dict: Every Settings field -> its value: the argument if not None, else the job file's, else
+            its SETTING_DEFAULTS entry, else None. Nothing is checked or derived.
+
+    Raises:
+        PocketMapperError: If the job file cannot be read, or query or target is both an argument and
+            in the job file.
+    """
+    log_extra = {"stage": "Configuring Settings"}
+
+    job = read_job_file(job_file)
+    # query and target must come from exactly one of the two: the one silently overridden would name
+    # a search other than the one run
+    for key in ("query", "target"):
+        if arguments.get(key) is not None and job.get(key) is not None:
+            msg = f"{key} is set both in the job file and as an argument; give it only once."
+            logger.critical(msg, extra=log_extra)
+            raise PocketMapperError(msg)
+
+    values = {field.name: None for field in fields(Settings)}
+    values.update(SETTING_DEFAULTS)
+    values.update(job)
+    values.update({key: value for key, value in arguments.items() if value is not None})
+    return values
+
+
+def require_setting(values, key):
+    """
+    Check that a setting with no default was given.
+
+    Args:
+        values (dict): Settings field name -> value, from `layer_settings`.
+        key (str): The setting.
+
+    Returns:
+        None
+
+    Raises:
+        PocketMapperError: If `values[key]` is None.
+    """
+    if values[key] is None:
+        msg = f"No {key} given; pass it as an argument or set it in the job file."
+        logger.critical(msg, extra={"stage": "Configuring Settings"})
+        raise PocketMapperError(msg)
 
 
 def resolve_paths(values):

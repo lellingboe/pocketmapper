@@ -1,6 +1,6 @@
 """
-Command-line front end: argparse over `PocketMapper.search` and the step commands in
-`pocketmapper.commands`.
+Command-line front end: argparse over `PocketMapper.search` and the step entry functions in
+`pocketmapper.steps`.
 
 This is the only module that knows about `sys.argv`, terminals or exit codes. Everything here exists
 to turn a command line into one function's keyword arguments and nothing more: each subcommand's
@@ -10,12 +10,12 @@ through. The pipeline itself stays importable without a terminal.
 `OPTIONS` holds every option once; `COMMANDS` lists which options each subcommand takes, grouped
 for `--help`. Three parsing details are load-bearing, each for a reason the code alone would not show:
 
-- `search`'s query and target are optional positionals; there are no `--query`/`--target` options.
-  A job file may supply them instead, and `configure_workflow` requires each from exactly one of
-  the two.
-- Defaults are real values, shared with the functions through `constants`. The job file is layered
-  on top of the parsed arguments, so a default here never hides a job-file value. Options whose
-  default depends on the run default to None and are resolved downstream.
+- `search`'s and `parse`'s query and target are optional positionals; there are no
+  `--query`/`--target` options. A job file may supply them instead, and `settings.layer_settings`
+  and `settings.require_setting` require each from exactly one of the two.
+- Every option defaults to None, for unset: an argument given beats the job file, and the defaults
+  (`settings.SETTING_DEFAULTS`, or resolved at run time) apply only after it, so a real default here
+  would hide every job-file value. The help still states each default.
 - No `choices=` anywhere. The same values arrive from the job file and from library calls, which
   never pass through this parser, so validation lives downstream where every path reaches it.
 
@@ -26,7 +26,6 @@ import argparse
 import logging
 import sys
 
-from pocketmapper import commands
 from pocketmapper.constants import CLI_COMMAND_EPILOGS
 from pocketmapper.constants import DEFAULT_ALIGN_COUNT
 from pocketmapper.constants import DEFAULT_ALIGN_STRUCT_METHOD
@@ -40,6 +39,12 @@ from pocketmapper.constants import PACKAGE_LOGGER
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.lib import format_handler
 from pocketmapper.pocketmapper import PocketMapper
+from pocketmapper.steps.align import align
+from pocketmapper.steps.compare import compare
+from pocketmapper.steps.fetch_structures import fetch_structures
+from pocketmapper.steps.parse import parse
+from pocketmapper.steps.pockets import pockets
+from pocketmapper.steps.superpose import superpose
 
 
 def input_file(flag, name, default):
@@ -75,20 +80,6 @@ def output_file(flag, name, default):
 # Option name -> (flags, add_argument keyword arguments). The name is the dest, except for a variant
 # of an option whose wording differs between commands, named after it with a suffix.
 OPTIONS = {
-    "query": (
-        ["query"],
-        dict(
-            metavar="QUERY",
-            help="Query entry, or a file with one entry per line. STRUCT[:CHAIN[:RESIDUES]], e.g. 4Q5J:B_F.",
-        ),
-    ),
-    "target": (
-        ["target"],
-        dict(
-            metavar="TARGET",
-            help="Target entry, a file with one entry per line, or a Foldseek DB name: human_domains, pdb.",
-        ),
-    ),
     "query_optional": (
         ["query"],
         dict(
@@ -112,10 +103,12 @@ OPTIONS = {
     "records": (
         ["records"],
         dict(
-            nargs="+",
+            nargs="*",
+            default=None,
             metavar="RECORDS",
             help="Records files, e.g. query_records.json target_records.json. Each is rewritten in place "
-            "without the records whose pocket could not be built.",
+            "without the records whose pocket could not be built. (default: the query and target records "
+            "files)",
         ),
     ),
     "job_file": (
@@ -123,14 +116,15 @@ OPTIONS = {
         dict(
             default=None,
             metavar="PATH",
-            help='JSON file of {"option": value}, query and target included; it overrides CLI args. ' "(default: none)",
+            help='JSON file of {"option": value}, e.g. a run\'s job_settings.json. Arguments override it, '
+            "but it sets every path, so pass a specific path option to move one. (default: none)",
         ),
     ),
     "verbosity": (
         ["-v", "--verbosity"],
         dict(
             type=int,
-            default=DEFAULT_VERBOSITY,
+            default=None,
             metavar="INT",
             help=f"Log level: 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. (default: {DEFAULT_VERBOSITY})",
         ),
@@ -138,7 +132,7 @@ OPTIONS = {
     "aligner": (
         ["-a", "--aligner"],
         dict(
-            default=DEFAULT_ALIGNER,
+            default=None,
             metavar="STR",
             help="Chain aligner: foldseek (needs the binary) or seq (built-in BLOSUM62 sequence aligner). "
             f"(default: {DEFAULT_ALIGNER})",
@@ -147,7 +141,7 @@ OPTIONS = {
     "query_pocket_method": (
         ["-q", "--query_pocket_method"],
         dict(
-            default=DEFAULT_POCKET_METHOD,
+            default=None,
             metavar="STR",
             help="Query pocket method: auto (infer it from each entry), pisa, passthrough, vdw or whole_chain. "
             f"(default: {DEFAULT_POCKET_METHOD})",
@@ -156,7 +150,7 @@ OPTIONS = {
     "target_pocket_method": (
         ["-t", "--target_pocket_method"],
         dict(
-            default=DEFAULT_POCKET_METHOD,
+            default=None,
             metavar="STR",
             help="As --query_pocket_method, for targets; also accepts foldseek_db. "
             f"(default: {DEFAULT_POCKET_METHOD})",
@@ -175,7 +169,7 @@ OPTIONS = {
         ["--align_count"],
         dict(
             type=int,
-            default=DEFAULT_ALIGN_COUNT,
+            default=None,
             metavar="INT",
             help="How many top-scoring targets to superpose onto each query; 0 disables. "
             f"(default: {DEFAULT_ALIGN_COUNT})",
@@ -184,7 +178,7 @@ OPTIONS = {
     "align_struct_method": (
         ["--align_struct_method"],
         dict(
-            default=DEFAULT_ALIGN_STRUCT_METHOD,
+            default=None,
             metavar="STR",
             help="Which transform superposes a target onto its query: auto, pocket or foldseek. "
             f"(default: {DEFAULT_ALIGN_STRUCT_METHOD})",
@@ -193,7 +187,7 @@ OPTIONS = {
     "cache_dir": (
         ["--cache_dir"],
         dict(
-            default=DEFAULT_CACHE_DIR,
+            default=None,
             metavar="DIR",
             help=f"Where structures, pockets and PISA responses are cached. (default: {DEFAULT_CACHE_DIR})",
         ),
@@ -240,9 +234,10 @@ OPTIONS = {
     "results_dir_required": (
         ["--results_dir"],
         dict(
-            required=True,
+            default=None,
             metavar="DIR",
-            help="The results directory of the earlier steps; inputs and outputs default to files in it.",
+            help="The results directory of the earlier steps; inputs and outputs default to files in it. "
+            "Required here or in the job file.",
         ),
     ),
     "query_records": input_file("--query_records", "query records file", "<results_dir>/query_records.json"),
@@ -297,7 +292,7 @@ OPTIONS = {
         ["--delete_tmp"],
         dict(
             type=int,
-            default=DEFAULT_DELETE_TMP,
+            default=None,
             metavar="INT",
             help=f"1 deletes --temp_dir at the end; 0 keeps it. (default: {DEFAULT_DELETE_TMP})",
         ),
@@ -305,7 +300,7 @@ OPTIONS = {
     "pisa_source": (
         ["--pisa_source"],
         dict(
-            default=DEFAULT_PISA_SOURCE,
+            default=None,
             metavar="STR",
             help="Where PISA interfaces are fetched from: ftp (EBI FTP server) or api (paced PDBe API). "
             f"(default: {DEFAULT_PISA_SOURCE})",
@@ -320,7 +315,17 @@ COMMANDS = {
     "parse": (
         "Parse the query and target into records files, and check the inferred pocket methods. No network.",
         [
-            (None, ["query", "target", "verbosity", "query_pocket_method", "target_pocket_method"]),
+            (
+                None,
+                [
+                    "query_optional",
+                    "target_optional",
+                    "job_file",
+                    "verbosity",
+                    "query_pocket_method",
+                    "target_pocket_method",
+                ],
+            ),
             (
                 "cache options",
                 [
@@ -341,7 +346,7 @@ COMMANDS = {
     "fetch_structures": (
         "Download the structures and Foldseek database the records need.",
         [
-            (None, ["verbosity", "threads"]),
+            (None, ["job_file", "verbosity", "threads"]),
             ("in options", ["query_records", "target_records"]),
             (
                 "out options",
@@ -359,7 +364,7 @@ COMMANDS = {
     "align": (
         "Align the query chains against the target chains.",
         [
-            (None, ["verbosity", "aligner", "threads"]),
+            (None, ["job_file", "verbosity", "aligner", "threads"]),
             ("in options", ["query_records", "target_records"]),
             (
                 "out options",
@@ -377,9 +382,9 @@ COMMANDS = {
         ],
     ),
     "pockets": (
-        "Build the pocket of every record in the records files named.",
+        "Build the pocket of every record in the records files, by default the query and target ones.",
         [
-            (None, ["records", "verbosity"]),
+            (None, ["records", "job_file", "verbosity"]),
             ("out options", ["results_dir_required", "pockets_path", "failed_entries_path", "log_path"]),
             ("advanced options", ["pisa_source"]),
         ],
@@ -387,7 +392,7 @@ COMMANDS = {
     "compare": (
         "Compare the pockets of every aligned query/target pair.",
         [
-            (None, ["verbosity"]),
+            (None, ["job_file", "verbosity"]),
             ("in options", ["query_records", "target_records", "alignment", "pockets"]),
             ("out options", ["results_dir_required", "pocket_comparison_path", "log_path"]),
         ],
@@ -395,7 +400,7 @@ COMMANDS = {
     "superpose": (
         "Superpose the top targets of each query onto it.",
         [
-            (None, ["verbosity", "threads"]),
+            (None, ["job_file", "verbosity", "threads"]),
             ("in options", ["query_records", "target_records", "pocket_comparison", "alignment"]),
             ("aligned structure options", ["align_count", "align_struct_method"]),
             ("out options", ["results_dir_required", "aligned_structure_dir", "log_path"]),
@@ -504,12 +509,12 @@ def cli(argv=None):
 
     # Command -> the function its options are the parameters of
     dispatch = {
-        "parse": commands.parse,
-        "fetch_structures": commands.fetch_structures,
-        "align": commands.align,
-        "pockets": commands.pockets,
-        "compare": commands.compare,
-        "superpose": commands.superpose,
+        "parse": parse,
+        "fetch_structures": fetch_structures,
+        "align": align,
+        "pockets": pockets,
+        "compare": compare,
+        "superpose": superpose,
         "search": PocketMapper().search,
     }
     kwargs = {dest: value for dest, value in vars(args).items() if dest != "command"}

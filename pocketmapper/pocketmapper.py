@@ -4,7 +4,7 @@ PocketMapper: map and compare binding pockets across protein structures.
 `PocketMapper.search()` is the whole workflow. It resolves its settings, then runs the steps in
 `pocketmapper.steps` in order, each handing the next its files under `results_dir`:
 
-1. `configure_workflow` -> job file over arguments; `resolve_settings` -> Settings, job_settings.json.
+1. `configure_workflow` -> arguments over job file; `resolve_settings` -> Settings, job_settings.json.
 2. `steps.parse` -> query_records.json, target_records.json, cache_dirs.json; failed_entries.json
    started afresh.
 3. `steps.fetch_structures` -> structures and a bundled Foldseek database into the cache.
@@ -16,10 +16,12 @@ PocketMapper: map and compare binding pockets across protein structures.
 7. `steps.superpose` -> the top align_count targets per query, superposed into aligned_structures/.
 
 Every step but parse drops the records it fails, into failed_entries.json, so each records file
-holds only usable records. Each step also runs on its own; see `pocketmapper.commands`.
+holds only usable records. `search` calls each step's entry function with its resolved Settings as
+the job file, so each step also runs on its own, the same way; see `pocketmapper.steps`.
 
-This is the only module that knows about `Settings`; components are handed the individual values
-they need, so none of them has to build one to be usable on its own.
+This is the only module that builds a `Settings`. Steps take a job dict keyed by its field names,
+and components are handed the individual values they need, so none of them has to build one to be
+usable on its own.
 
 Author: Lachlan Ellingboe
 """
@@ -28,41 +30,29 @@ import json
 import logging
 import os
 from dataclasses import asdict
-from dataclasses import fields
 
-from pocketmapper.constants import DEFAULT_ALIGN_COUNT
-from pocketmapper.constants import DEFAULT_ALIGN_STRUCT_METHOD
-from pocketmapper.constants import DEFAULT_ALIGNER
-from pocketmapper.constants import DEFAULT_CACHE_DIR
-from pocketmapper.constants import DEFAULT_DELETE_TMP
-from pocketmapper.constants import DEFAULT_PISA_SOURCE
-from pocketmapper.constants import DEFAULT_POCKET_METHOD
-from pocketmapper.constants import DEFAULT_VERBOSITY
-from pocketmapper.exceptions import PocketMapperError
-from pocketmapper.lib import delete_temp_dir
-from pocketmapper.lib import empty_temp_dir
 from pocketmapper.lib import log_to_file
-from pocketmapper.lib import make_dir
-from pocketmapper.records import CACHE_MANIFEST_KEYS
+from pocketmapper.lib import temp_dir_scope
 from pocketmapper.records import fsdb_record
-from pocketmapper.records import read_cache_manifest
 from pocketmapper.records import read_records
 from pocketmapper.settings import Settings
 from pocketmapper.settings import check_fsdb_align_struct_method
 from pocketmapper.settings import check_fsdb_aligner
+from pocketmapper.settings import layer_settings
 from pocketmapper.settings import require_foldseek
+from pocketmapper.settings import require_setting
 from pocketmapper.settings import resolve_align_struct_method
 from pocketmapper.settings import resolve_aligner
 from pocketmapper.settings import resolve_delete_tmp
 from pocketmapper.settings import resolve_paths
 from pocketmapper.settings import resolve_pisa_source
 from pocketmapper.settings import resolve_threads
-from pocketmapper.steps.align import align_chains
-from pocketmapper.steps.compare import compare_aligned_pockets
-from pocketmapper.steps.fetch_structures import fetch_inputs
-from pocketmapper.steps.parse import parse_inputs
-from pocketmapper.steps.pockets import build_pockets
-from pocketmapper.steps.superpose import superpose_top_targets
+from pocketmapper.steps.align import align
+from pocketmapper.steps.compare import compare
+from pocketmapper.steps.fetch_structures import fetch_structures
+from pocketmapper.steps.parse import parse
+from pocketmapper.steps.pockets import pockets
+from pocketmapper.steps.superpose import superpose
 
 logger = logging.getLogger(__name__)
 
@@ -79,17 +69,17 @@ class PocketMapper:
         query=None,
         target=None,
         job_file=None,
-        cache_dir=DEFAULT_CACHE_DIR,
+        cache_dir=None,
         results_dir=None,
-        verbosity=DEFAULT_VERBOSITY,
+        verbosity=None,
         threads=None,
-        aligner=DEFAULT_ALIGNER,
-        align_count=DEFAULT_ALIGN_COUNT,
-        align_struct_method=DEFAULT_ALIGN_STRUCT_METHOD,
-        query_pocket_method=DEFAULT_POCKET_METHOD,
-        target_pocket_method=DEFAULT_POCKET_METHOD,
-        delete_tmp=DEFAULT_DELETE_TMP,
-        pisa_source=DEFAULT_PISA_SOURCE,
+        aligner=None,
+        align_count=None,
+        align_struct_method=None,
+        query_pocket_method=None,
+        target_pocket_method=None,
+        delete_tmp=None,
+        pisa_source=None,
         pdb_dir=None,
         alphafold_dir=None,
         pocket_dir=None,
@@ -120,8 +110,8 @@ class PocketMapper:
             query (str, optional): Query identifier, string or path to a list. Required here or in
                 `job_file`, not both.
             target (str, optional): Target structure identifier, string or path to a list. As `query`.
-            job_file (str, optional): Path to a JSON job file of Settings field name -> value. Every
-                value it sets wins over the matching argument.
+            job_file (str or dict, optional): JSON job file of Settings field name -> value, or the
+                same already loaded. Any argument given overrides it.
             cache_dir (str, optional): Directory to cache intermediate structures.
                 Defaults to DEFAULT_CACHE_DIR.
             results_dir (str, optional): Directory to output results to.
@@ -218,91 +208,35 @@ class PocketMapper:
 
         values = self.configure_workflow(job_file, arguments)
 
-        # The only directory made up front: log_to_file opens its file handler immediately.
-        # Every other directory is made by whatever first writes into it.
-        make_dir(os.path.dirname(values["log_path"]), {"stage": "Configuring Settings"})
         with log_to_file(values["log_path"], values["verbosity"]):
             settings = self.resolve_settings(values)
-            cache_dirs = {key: getattr(settings, key) for key in CACHE_MANIFEST_KEYS}
-            parse_inputs(
-                settings.query,
-                settings.target,
-                settings.query_pocket_method,
-                settings.target_pocket_method,
-                cache_dirs,
-                settings.results_dir,
-                settings.query_records_path,
-                settings.target_records_path,
-                settings.failed_entries_path,
-            )
-            # Checked before the database is downloaded
-            if fsdb_record(read_records(settings.target_records_path)) is not None:
-                check_fsdb_aligner(settings.aligner)
-                check_fsdb_align_struct_method(settings.align_struct_method)
-            # The manifest is the parse step's absolute copy of cache_dirs
-            cache_dirs = read_cache_manifest(settings.results_dir)
-
-            fetch_inputs(
-                settings.query_records_path,
-                settings.target_records_path,
-                settings.query_records_path,
-                settings.target_records_path,
-                settings.failed_entries_path,
-                settings.threads,
-                settings.temp_dir,
-            )
-            align_chains(
-                settings.query_records_path,
-                settings.target_records_path,
-                settings.query_records_path,
-                settings.target_records_path,
-                settings.alignment_path,
-                settings.failed_entries_path,
-                settings.aligner,
-                settings.threads,
-                settings.verbosity,
-                settings.temp_dir,
-                cache_dirs,
-                settings.pisa_source,
-            )
-            build_pockets(
-                [settings.query_records_path, settings.target_records_path],
-                settings.pockets_path,
-                settings.failed_entries_path,
-                cache_dirs["pocket_dir"],
-                settings.pisa_source,
-            )
-            compare_aligned_pockets(
-                settings.query_records_path,
-                settings.target_records_path,
-                settings.alignment_path,
-                settings.pockets_path,
-                settings.pocket_comparison_path,
-            )
-            superpose_top_targets(
-                settings.query_records_path,
-                settings.target_records_path,
-                settings.pocket_comparison_path,
-                settings.alignment_path,
-                settings.aligned_structure_dir,
-                settings.align_struct_method,
-                settings.align_count,
-                settings.threads,
-            )
-            delete_temp_dir(settings.temp_dir, settings.delete_tmp, [settings.cache_dir, settings.results_dir])
+            # Every step gets the whole run's settings; their own log and temp scopes are no-ops
+            # inside these, so the log is written once and temp_dir lives for the whole run
+            job = asdict(settings)
+            with temp_dir_scope(settings.temp_dir, settings.delete_tmp, [settings.cache_dir, settings.results_dir]):
+                parse(job_file=job)
+                # Checked before the database is downloaded
+                if fsdb_record(read_records(settings.target_records_path)) is not None:
+                    check_fsdb_aligner(settings.aligner)
+                    check_fsdb_align_struct_method(settings.align_struct_method)
+                fetch_structures(job_file=job)
+                align(job_file=job)
+                pockets(job_file=job)
+                compare(job_file=job)
+                superpose(job_file=job)
 
             logger.info("PocketMapper search completed successfully.", extra={"stage": "End"})
 
-        return asdict(settings)
+        return job
 
     def configure_workflow(self, job_file, arguments):
         """
-        Layer the job file over the arguments and fill in every path left unset.
+        Layer the arguments over the job file and fill in every path left unset.
 
         Args:
-            job_file (str or None): Path to a JSON job file, or None for none. Any value it sets wins
-                over `arguments`.
-            arguments (dict): Settings field name -> value from `search()`.
+            job_file (str, dict or None): JSON job file, the same already loaded, or None for none.
+                Any argument given overrides it.
+            arguments (dict): Settings field name -> value from `search()`, None for unset.
 
         Returns:
             dict: Settings field name -> value, every path set but nothing else checked.
@@ -311,54 +245,17 @@ class PocketMapper:
             PocketMapperError: If the job file is missing, unreadable or names an unknown setting, or if
                 query or target is given both ways or neither way.
         """
-        log_extra = {"stage": "Configuring Settings"}
-
-        # 1. The job file, if any
-        job = {}
-        if job_file is not None:
-            if not os.path.isfile(job_file):
-                logger.critical(f"Job file not found: {job_file}", extra=log_extra)
-                raise PocketMapperError(f"Job file not found: {job_file}")
-            try:
-                with open(job_file) as f:
-                    job = json.load(f)
-            except Exception as e:
-                logger.critical(f"Error reading job file: {job_file}. Is it in JSON format?", extra=log_extra)
-                raise PocketMapperError(f"Error reading job file: {job_file}. Is it in JSON format?") from e
-            if not isinstance(job, dict):
-                msg = f'Job file {job_file} must hold a JSON object of {{"option": value}}.'
-                logger.critical(msg, extra=log_extra)
-                raise PocketMapperError(msg)
-            unknown = sorted(set(job) - {f.name for f in fields(Settings)})
-            if unknown:
-                msg = f"Unknown setting(s) in {job_file}: {', '.join(unknown)}"
-                logger.critical(msg, extra=log_extra)
-                raise PocketMapperError(msg)
-
-        # 2. The job file wins over the arguments, except that query and target must come from exactly
-        # one of the two: a silently discarded positional would search something other than what the
-        # command line shows.
+        values = layer_settings(job_file, arguments)
         for key in ("query", "target"):
-            if job.get(key) is not None and arguments[key] is not None:
-                msg = f"{key} is set both in the job file and as an argument; give it only once."
-                logger.critical(msg, extra=log_extra)
-                raise PocketMapperError(msg)
-        values = {**arguments, **job}
-        for key in ("query", "target"):
-            if values[key] is None:
-                msg = f"No {key} given; pass it as an argument or set it in the job file."
-                logger.critical(msg, extra=log_extra)
-                raise PocketMapperError(msg)
-
-        # 3. Paths left unset by both
+            require_setting(values, key)
         return resolve_paths(values)
 
     def resolve_settings(self, values):
         """
         Check and resolve every setting, and write job_settings.json.
 
-        Empties `temp_dir`. Probes the foldseek binary when that aligner is
-        selected. Logs, so run it with the run's log open.
+        Probes the foldseek binary when that aligner is selected. Logs, so run it with the run's log
+        open.
 
         Args:
             values (dict): Settings field name -> value, from `configure_workflow`.
@@ -370,11 +267,6 @@ class PocketMapper:
             PocketMapperError: If a setting has an unknown value, or foldseek is selected but cannot run.
         """
         log_extra = {"stage": "Configuring Settings"}
-
-        # 4a. Empty this run's scratch space, so a rerun into the same results_dir does not inherit
-        # the last run's structures. After the log is open, so the warning for a temp_dir that cannot
-        # be emptied reaches info.log.
-        empty_temp_dir(values["temp_dir"], [values["cache_dir"], values["results_dir"]])
 
         # 4b. Validate the aligner and, for foldseek, probe the binary. Must come before anything is
         # fetched, so a missing binary fails without wasted downloads, and before the settings are
