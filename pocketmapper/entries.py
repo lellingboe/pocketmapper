@@ -228,6 +228,49 @@ def split_missing_structures(records, step, source, failed_entries_path, log_ext
     return kept
 
 
+def reject_fsdb_query(records, step, source):
+    """
+    Set aside the Foldseek databases among the query records: a database can only be searched.
+
+    Args:
+        records (list): The query side's QTRecord or structure dicts.
+        step (str): The step rejecting them, for the failure entries.
+        source (str): The input they were parsed from, for the failure entries.
+
+    Returns:
+        tuple: (the records left, an `invalid_entry` failure entry per database).
+    """
+    kept = []
+    failures = []
+    for record in records:
+        if record["struct_type"] != "foldseek_db":
+            kept.append(record)
+            continue
+        reason = f"A Foldseek database cannot be a query entry: {record['pocket_id']}"
+        failures.append(failed_entry(record["pocket_id"], step, "invalid_entry", source, record, reason))
+    return kept, failures
+
+
+def check_fsdb_target(records, log_extra):
+    """
+    Check that a Foldseek-database target is the only target entry.
+
+    Args:
+        records (list): The target side's QTRecord or structure dicts.
+        log_extra (dict): Logging `extra` for the failure message.
+
+    Returns:
+        None
+
+    Raises:
+        PocketMapperError: If a Foldseek database is among several target entries.
+    """
+    if fsdb_record(records) is not None and len(records) > 1:
+        msg = f"A Foldseek database target must be the only target entry, but {len(records)} target entries were given"
+        logger.critical(msg, extra=log_extra)
+        raise PocketMapperError(msg)
+
+
 def unique_by(records, *fields):
     """
     Keep the first record for each distinct combination of some fields.

@@ -340,8 +340,9 @@ Where the implementation departs from the draft above:
 - **`parse_entries`** also takes `step` (named in failure entries) and `failed_entries_path`, and
   reports its failures itself, before the side checks can raise, so a failed parse still lists them.
   Its failures come back keyed by side, like the records, which parse's table needs.
-- **`fetch_structures` in job-file mode** also rejects a Foldseek-database query entry, as parse
-  does, so a dump from a failed parse cannot download a database as a query.
+- **`fetch_structures` in job-file mode** also rejects a Foldseek-database query entry, and a
+  database beside other target entries, as parse does (`entries.reject_fsdb_query`,
+  `check_fsdb_target`), so a dump from a failed parse cannot download a database it would reject.
 - **`--fetch_missing`**: align fetches missing structures and a missing bundled database; pockets and
   superpose fetch structures only. Neither needs the database: pockets reads the hits from the
   alignment, and superpose runs after align has used it.

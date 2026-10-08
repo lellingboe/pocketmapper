@@ -70,8 +70,8 @@ dump) as `--job_file`; nothing in `results_dir` supplies entries or cache dirs.
   per-struct_type ladder against the loop over 400 generated entries.
 - **`fetch_structures` parses structure-only** (`resolve_job_structures` → `steps.parse.parse_structure_side`),
   from positional `entries` or else the job's query and target; a side whose pocket method is
-  `foldseek_db` is forced to struct type `foldseek_db`, and an FSDB query entry is rejected as parse
-  rejects it. `--out_dir` is a `QTProcessor` with all three cache dirs set to it.
+  `foldseek_db` is forced to struct type `foldseek_db`, and an FSDB query entry or an FSDB beside other
+  targets is rejected as parse rejects it (shared `entries.reject_fsdb_query` / `check_fsdb_target`). `--out_dir` is a `QTProcessor` with all three cache dirs set to it.
 - **`parse` is a dry run**: it returns `steps.parse.entries_table` (a DataFrame) and `cli()` prints it
   after dispatch, since the log goes to stdout too; search logs it. `parse_entries` returns failures
   keyed by side, like `sides`, for that table. Nothing downstream reads it.
@@ -331,7 +331,7 @@ classifiers, `[tool.black] target-version`, README Installation; CI `compat` mat
 - No unit tests; `tests/e2e/` is the whole suite (`pocketmapper-e2e` skill).
 - **Deliberately wrong fixture lines — don't fix them:** `invalid_residues.txt` line 2 (`4Q5J:A:9999`,
   `test_invalid_1`, asserted `pocket_not_built`); `forced_pisa_mixed.txt` line 2 (`4Q5J:A`, no partner;
-  `test_invalid_8`, asserted `invalid_entry`); `fsdb_mixed_target.txt` (a DB beside a structure;
+  `test_invalid_8`, asserted `invalid_entry`); `fsdb_mixed_target.txt` (a DB beside a structure, also via `job_file_fsdb_mixed.json` in `test_steps_22`;
   `test_steps_11`).
 - **`fixtures/job_file.json` must never set a path** (the runner's `--results_dir` would not move it, so
   the case would write outside its dir). Its `align_count: 3` vs `test_settings_2`'s `5` shows priority

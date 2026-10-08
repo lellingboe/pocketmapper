@@ -150,6 +150,7 @@ test_steps_18|core local|files=structures/4Q5J.cif.gz,structures/P24941.cif.gz,s
 test_steps_19|core local|files=pockets.json,pockets.tsv,pockets_settings.json|pockets on its own, from entries given|pockets 4Q5J:B_F 4Q5J:A:1101,1104 --pockets_tsv_path @OUT@/pockets.tsv
 test_steps_20|core local|files=pdb/4Q5J.cif.gz,pockets.json|pockets --fetch_missing 1 downloads a structure missing from the cache|pockets 4Q5J:B_F --pdb_dir @OUT@/pdb --fetch_missing 1
 test_steps_21|core local|files=entries.tsv,parse_settings.json|parse writes its table with --entries_path|parse 4Q5J:A_E 4Q5J:B_F --entries_path @OUT@/entries.tsv
+test_steps_22|core local|fail|fetch_structures from a job file rejects a Foldseek database beside a structure target|fetch_structures --job_file job_file_fsdb_mixed.json
 EOF
 
 # ---------------------------------------------------------------------------

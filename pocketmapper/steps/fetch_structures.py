@@ -12,7 +12,9 @@ import os
 import pandas as pd
 
 from pocketmapper.downloads.structure_downloader import StructureDownloader
+from pocketmapper.entries import check_fsdb_target
 from pocketmapper.entries import failed_entry
+from pocketmapper.entries import reject_fsdb_query
 from pocketmapper.entries import report_failures
 from pocketmapper.entries import unique_by
 from pocketmapper.exceptions import PocketMapperError
@@ -67,8 +69,9 @@ def fetch_structures(
     Args:
         entries (list, optional): Entries or bare structure ids (`4Q5J`, `P12345`, `pdb`), or files
             of them. Defaults, when None or empty, to the job file's entries, else its query and
-            target, where a side whose pocket method is foldseek_db is fetched as a Foldseek database
-            and a Foldseek-database query entry is rejected, as `parse` rejects it.
+            target, where a side whose pocket method is foldseek_db is fetched as a Foldseek database,
+            and a Foldseek-database query entry, or one beside other target entries, is rejected as
+            `parse` rejects it.
         job_file (str or dict, optional): JSON job file of job key -> value, or the same already
             loaded, e.g. parse's settings. Any argument given overrides it.
         results_dir (str, optional): Where the log, the settings, the failed entries and `temp_dir` go
@@ -105,7 +108,7 @@ def fetch_structures(
 
     Raises:
         PocketMapperError: If the job file cannot be read, neither entries nor query and target are
-            given, a setting is invalid, no structure for a side could be fetched, or a Foldseek
+            given, a Foldseek-database target is not the only target entry, a setting is invalid, no structure for a side could be fetched, or a Foldseek
             database cannot be downloaded.
     """
     values = layer_settings(
@@ -168,7 +171,8 @@ def resolve_job_structures(values):
             structure dicts; `sources` maps the same names to the input each was parsed from.
 
     Raises:
-        PocketMapperError: If a structure type is unknown or an entries file cannot be read.
+        PocketMapperError: If a structure type is unknown, an entries file cannot be read, or a
+            Foldseek-database target is not the only target entry.
     """
     log_extra = {"stage": "Processing Inputs"}
 
@@ -199,16 +203,12 @@ def resolve_job_structures(values):
         sides[name] = structures
         sources[name] = entries if isinstance(entries, str) else " ".join(entries)
 
-    # A database can only be searched, not searched with
-    for structure in [structure for structure in sides.get("query", []) if structure["struct_type"] == "foldseek_db"]:
-        reason = f"A Foldseek database cannot be a query entry: {structure['pocket_id']}"
-        failures.append(
-            failed_entry(
-                structure["pocket_id"], "fetch_structures", "invalid_entry", sources["query"], structure, reason
-            )
-        )
-        sides["query"].remove(structure)
+    if "query" in sides:
+        sides["query"], databases = reject_fsdb_query(sides["query"], "fetch_structures", sources["query"])
+        failures += databases
     report_failures(values["failed_entries_path"], failures, log_extra)
+    if "target" in sides:
+        check_fsdb_target(sides["target"], log_extra)
     return sides, sources
 
 

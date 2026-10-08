@@ -12,8 +12,9 @@ import os
 
 import pandas as pd
 
+from pocketmapper.entries import check_fsdb_target
 from pocketmapper.entries import failed_entry
-from pocketmapper.entries import fsdb_record
+from pocketmapper.entries import reject_fsdb_query
 from pocketmapper.entries import report_failures
 from pocketmapper.entries import start_failed_entries
 from pocketmapper.exceptions import PocketMapperError
@@ -306,11 +307,8 @@ def parse_entries(
             failed_entry(entry, step, "invalid_entry", source, detail=reason) for entry, reason, source in rejected
         ]
 
-    # A database can only be searched, not searched with
-    for record in [record for record in sides["query"] if record["struct_type"] == "foldseek_db"]:
-        reason = f"A Foldseek database cannot be a query entry: {record['pocket_id']}"
-        failures["query"].append(failed_entry(record["pocket_id"], step, "invalid_entry", query, record, reason))
-        sides["query"].remove(record)
+    sides["query"], databases = reject_fsdb_query(sides["query"], step, query)
+    failures["query"] += databases
     report_failures(failed_entries_path, failures["query"] + failures["target"], log_extra)
 
     errors = []
@@ -321,13 +319,7 @@ def parse_entries(
     if errors:
         raise PocketMapperError("; ".join(errors))
 
-    if fsdb_record(sides["target"]) is not None and len(sides["target"]) > 1:
-        msg = (
-            "A Foldseek database target must be the only target entry, but "
-            f"{len(sides['target'])} target entries were given"
-        )
-        logger.critical(msg, extra=log_extra)
-        raise PocketMapperError(msg)
+    check_fsdb_target(sides["target"], log_extra)
     return sides, failures
 
 
