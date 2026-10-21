@@ -305,7 +305,8 @@ OPTIONS = {
         dict(
             default=None,
             metavar="DIR",
-            help="Scratch space, emptied before use and deleted at the end. (default: <results_dir>/tmp)",
+            help="Scratch space, emptied before use and deleted at the end of a successful run. "
+            "(default: <results_dir>/tmp)",
         ),
     ),
     "delete_tmp": (
@@ -314,7 +315,7 @@ OPTIONS = {
             type=int,
             default=None,
             metavar="INT",
-            help=f"1 deletes --temp_dir at the end; 0 keeps it. (default: {DEFAULT_DELETE_TMP})",
+            help=f"1 deletes --temp_dir at the end of a successful run; 0 keeps it. (default: {DEFAULT_DELETE_TMP})",
         ),
     ),
     "entries_pockets": (
