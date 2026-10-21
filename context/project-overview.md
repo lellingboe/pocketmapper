@@ -107,45 +107,9 @@ A query and target on one chain share a `preprocess_name`, so some rows carry a 
 
 ### Foldseek-DB targets
 
-With a `foldseek_db` target record, no target structures are fetched; `foldseek.extract_fsdb_structures`
-rebuilds the superpose selection via `createsubdb` + `convert2pdb`.
-
-- **`createsubdb` rejects `--threads`** (exits non-zero); it is the only one of the five subcommands that
-  does. Hence `run_foldseek` adds no flags; each caller builds its own list.
-- `align_structs` interprets target ids once per call: given target records → `pocket_id`s mapped through
-  `preprocess_name` (PDB DB; `steps.superpose` builds them from `pockets.json` `chains`, hit names in
-  alignment order); none → entry names (other DBs). So `fsdb_structures/` never mixes the two.
-- Target pocket: `steps.pockets.expand_fsdb_pdb_targets` (PDB DB; needs `--alignment`, an FSDB target
-  without one is an error) or `synthesise_target_pocket` (other). **Every hit of a PDB DB is a
-  `chains` key**: `[]` for a non-PDB name, no interface or only unspellable pairs; a hit whose
-  structure download failed lists its pocket_ids with `null` pockets.
-- **One `pocket_id` can sit behind two `preprocess_name`s** (`4q5j-assembly1_B`, `-assembly2_B` →
-  `4Q5J:B_F`). `existing_calcs` scores only the first; the transform is whichever assembly Foldseek listed first.
-- **Pockets come from the AU, Foldseek's `tseq` from the assembly.** Verified to agree normally (4Q5J
-  self-comparison: `overlap_count == pocket_len`, identity 1.0, RMSD ~1e-14); a populated
-  `incorrect_mapping.json` signals divergent numbering.
-- `--align_struct_method pocket` is rejected for any FSDB target (`settings.check_fsdb_align_struct_method`,
-  in search before the download and in superpose); `--aligner seq` likewise (`check_fsdb_aligner`, search
-  and align).
-
-**UniProt renumbering** (`offset_table.tsv`; resolved in `steps.compare`, applied in
-`synthesise_target_pocket`):
-- Only bundled `human_domains`, looked up by resolved DB path in `foldseek.bundled_offset_table`. User
-  DBs keep 0-indexed positions, logged at INFO.
-- Only `target_overlap_ids` changes — verified against a same-environment baseline.
-- Missing entry or short spec aborts the run (no per-row fallback: it would mix coordinate systems in one
-  column). **Refresh the table whenever `BUNDLED_HUMAN_DOMAINS_DB` moves.**
-
-**Bundled DB ships without `.source`**; strip it from any refresh. It duplicates `.lookup` and nothing
-reads it (verified: `easy-search`, `createsubdb`, `convert2pdb` all work without it); saves 1.4 MB.
-`.lookup` must stay (`extract_fsdb_structures` reads it).
-
-The DB is otherwise at its floor: `_ca` is 53 of 77 MB, 8.4M residues at 6.33 B each
-(`--coord-store-mode 2`, smallest mode). zstd -19 saves only 30% and foldseek cannot read a compressed DB.
-
-**No cap on enriched hits**, by choice. `4Q5J:B_F` vs bundled `pdb`: ~4,970 hits / ~3,620 entries, hours
-on first run with `pisa_source` `api` (per-assembly PISA behind a sleep); `ftp` is concurrent but untimed
-at this scale; reruns hit the cache. Add a cap here if needed.
+Read `context/foldseek-db-targets.md` before changing how a `foldseek_db` target is aligned, pocketed,
+superposed or renumbered, or before refreshing the bundled `human_domains` DB (its offset table must be
+refreshed with it).
 
 ## Pockets
 
@@ -154,14 +118,7 @@ non-`foldseek_db` record whose structure is on disk, lists every record given in
 reports as `pocket_not_built` any whose `pocket_id` is missing or None in the merged dict, writing it
 `null` (checked after the merge: a later method can overwrite an earlier one with None).
 
-- **`POCKET_BUILDERS` in `pocket_fetcher` is the whole method table.** Builders live beside their
-  primitive and all take `(records, pocket_dir)`, plus keyword options the caller passes per method
-  through `fetch_pockets(builder_options=...)` (pisa's `pisa_source` today). A new method =
-  one row + one builder.
-- Records are dicts, not DataFrames. The fetcher builds every record it is given.
-- **`expand_fsdb_pdb_targets` lives in `steps/pockets.py`, not in `pockets/`** (it builds records and
-  downloads). It shares `pocket_dir/pisa/` with `pisa_pockets`; both go through
-  `pockets.pisa.pisa_cache_layout`, the one place the cache layout is spelled out.
+See `pocketmapper/pockets/CLAUDE.md` before changing pocket builders or the PISA cache layout.
 
 ## Downloads
 
@@ -242,75 +199,9 @@ failures raise it too.
 
 ## Settings
 
-`Settings` (`settings.py`) is built only by search. **Every `Settings` field is reachable from the CLI**;
-the job file sets nothing the CLI can't. Layering is `settings.layer_settings` for every command
-(arguments not None over job file over `SETTING_DEFAULTS`, then `resolve_paths`); search's resolution is
-in `resolve_settings` (`resolve_*`). `Settings` has no defaults and is built once. Pocket methods keep
-`"auto"` (inferred per entry); `align_struct_method` is resolved per run. The steps take a job dict (or
-file) keyed by job keys, never a `Settings`, and call the same `settings.resolve_*` validators.
-
-**Job keys are separate from `Settings`.** `settings.JOB_KEYS` = `fields(Settings)` + `STEP_ONLY_KEYS`
-(options only some steps take; `STEP_ONLY_PATH_KEYS` among them resolve against `work_dir` in
-`resolve_paths`) is what a job file may hold and what `layer_settings` seeds. Unknown
-keys are rejected; one in `REMOVED_JOB_KEYS` gets its replacement named. Search drops keys `Settings`
-lacks before building one.
-
-**`work_dir`** (default cwd) is stored absolute by `resolve_paths`, which joins every path setting onto
-it; step input arguments (`--alignment`, ...) resolve against it through `settings.input_path`. So
-every resolved path is absolute, and a step run from a dump elsewhere resolves as the first did.
-
-**Settings dumps.** `settings.dump_settings` writes every command's values, minus `job_settings_path`,
-to `job_settings_path`: search's resolved `Settings` to `job_settings.json`, a step's layered values
-(paths resolved, before its validators) to `<results_dir>/<command>_settings.json` (the default comes
-from `resolve_paths(values, command)`, not `RESULTS_PATH_DEFAULTS`). `layer_settings` drops
-`job_settings_path` from a job file, so a step chained off another's dump never overwrites it. A step
-nested in search writes none: `lib.run_scope` records the outermost command and nested scopes yield
-False (`lib.outer_command()` reads it).
-
-**`results_dir` is optional for parse and fetch_structures**: `resolve_paths` then leaves every
-results path not given None (`temp_dir` → `<cache_dir>/tmp`), and `log_to_file(None)`,
-`dump_settings` and the failed-entries writers do nothing for a None path. Only search defaults it
-to a timestamped name; the other steps `require_setting` it.
-
-**A reused dump names every path**, so an argument moves only the path it names. `results_dir` is not
-inert beside it all the same: it is a `temp_dir` emptying root.
-
-A new option goes in **four hand-maintained places per command**: the function signature and its
-`layer_settings` arguments dict (for search also `Settings`; for a step-only option
-`settings.STEP_ONLY_KEYS` instead), `OPTIONS` plus the command's `COMMANDS` row
-in `cli.py`, and README Options (for a step, its row in the step table). A fifth for an option with a
-static default: `settings.SETTING_DEFAULTS` (from `constants.DEFAULT_*`, which the help also quotes).
-Signature and parser defaults are all None. Path defaults are `settings.CACHE_PATH_DEFAULTS` /
-`RESULTS_PATH_DEFAULTS` (`cache_path`, `results_path`). `cli()` passes parsed args straight through its
-dispatch table, so there is no kwarg block. Miss one → argparse fails or the option is silently
-ignored. Check, per command: `inspect.signature(steps.<x>.<x>)` == subparser `_actions` dests; for
-search also `dataclasses.fields(Settings)` == signature == `arguments` keys (modulo `job_file`);
-`SETTING_DEFAULTS` keys ⊆ `JOB_KEYS`.
-
-Options are grouped by lifetime in `cli.COMMANDS` and README alike: `in`, `aligned structure`, `cache`,
-`out`, `temp`, `advanced` (README lists advanced options in the main table: an `Advanced options`
-heading there would take the `#advanced-options` anchor). A file a command reads has a bare name (`--alignment`); one it writes ends in
-`_path`. A new path setting picks a group in both.
-
-**Every directory is made by its first writer**; there is no bulk creation step. Only the log's
-directory is made up front, by `lib.log_to_file` (the file handler opens at once). A writer that does
-not make its directory fails once a path option points elsewhere.
-
-**`temp_dir` is one option, three dirs** (`query_structures/`, `target_structures/`, `foldseek_tmp/`),
-named in `steps/align.py` (all three) and `steps/fetch_structures.py` (`foldseek_tmp/`, for a DB download). The two
-structure dirs are made in `foldseek_preprocessing`, `foldseek_tmp/` before each Foldseek call that uses
-it (MMseqs2 makes only one level of tmp dir), so a `seq` run makes none. Ownership is
-`lib.temp_dir_scope` (search, fetch_structures, align): emptied on entry so reruns can't feed `createdb`
-stale structures, deleted on a clean exit unless `delete_tmp` is 0. Scopes nest: search's owns temp
-for the whole run and the steps' are no-ops inside it, so `search --delete_tmp 0` keeps every step's
-scratch. The held dir is released in a `finally`, else a failed library run leaves the next one in that
-process neither emptying nor deleting it. Emptying is `lib.is_within`-guarded against `cache_dir` and
-`results_dir`, creation is not. It runs after the log is open so the skip warning reaches `info.log`.
-`lib.delete_temp_dir` does nothing if it was never made.
-
-`search --help` is generated from `help=` strings; `CLI_SEARCH_EPILOG` holds only examples. Resolution
-order, the `aligner` check and tri-state `align_struct_method`: `Settings` docstring and `# 4b.`/`# 4c.` in
-`resolve_settings`. `aligner` has no auto mode; a broken `foldseek` fails at 4b before fetching.
+Read `context/settings.md` before adding or changing an option, a job key or a path setting, or how
+settings are layered, resolved or dumped. A new option goes in four hand-maintained places per command;
+miss one and it is silently ignored.
 
 ## Python versions
 
@@ -335,24 +226,14 @@ classifiers, `[tool.ruff] target-version`, README Installation; CI `compat` matr
 - **`fixtures/job_file.json` must never set a path** (the runner's `--results_dir` would not move it, so
   the case would write outside its dir). Its `align_count: 3` vs `test_settings_2`'s `5` shows priority
   only in `job_settings.json` (5 wins) — check by hand.
-- `test_settings_5`/`_6` share `job_file_qt.json`: file-only query/target vs repeated positionally (rejected).
-- `test_settings_1` only catches rejected/crashing flags; the runner asserts only on
-  `pocket_comparison.tsv`, so silently dropped path options need the per-command signature check.
 - **Delete `build/` before building or testing a wheel.** Stale, gitignored, but setuptools reuses
   `build/lib/`, so `pip install .` ships dead modules (`align.py`, `local_aligner.py`, a 3.12-only
   `pisa.py`, top-level `structure_fetcher.py`/`pisa_downloader.py` shadowing `downloads/`). Never edit it.
-- Structure parsing is gemmi; biopython only for pairwise alignment and SVD superposition.
 - `StructurePreprocessor` caches on `<foldseek_preprocessed_structure_dir>/<preprocess_name>.cif.gz`
   existing and writes its own `.part`;
   `StructureDownloader` uses each record's `struct_path` and `lib_download`'s `.part`.
 - **`StructureDownloader` makes a destination's parent directory** just before downloading into it;
   one it cannot make surfaces as `structure_not_found`.
-- **e2e cases can chain commands** (`parse ... ; fetch_structures --job_file @OUT@/parse_settings.json ;
-  cd DIR ; ...`) and assert `files=`, `failed=`, `same=`; format in the `run_e2e.sh` header. Every
-  chained step after parse needs that `--job_file`: the runner adds only `--results_dir` (and
-  `--cache_dir` for parse/search). `test_fsdb_1`/`test_steps_17` need `POCKETMAPPER_PDB_FSDB`: any
-  Foldseek DB of `<pdb>-assembly<N>.cif.gz` files (`createdb`) has PDB-style entry names, so a few
-  cached mmCIFs make a small local one.
 
 ## As a library
 

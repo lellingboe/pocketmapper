@@ -149,6 +149,11 @@ Things that fail silently rather than loudly if you get them wrong:
   so the case skips cleanly when that isn't set.
 - **Choose `expect` honestly.** Use `rows` only when hits are genuinely guaranteed for that
   pair — an over-optimistic `rows` turns into a flaky failure that hides real regressions.
+- **`test_settings_1` only catches rejected/crashing flags**; the runner asserts only on
+  `pocket_comparison.tsv`, so silently dropped path options need the per-command signature check
+  (`context/settings.md`).
+- `test_settings_5`/`_6` share `job_file_qt.json`: file-only query/target vs repeated positionally
+  (rejected).
 
 Then verify: `run_e2e.sh -n <name>` to check the command it builds, then run it by name
 against the warm cache and confirm it passes for the reason you expect (check the row count
