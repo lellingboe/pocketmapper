@@ -5,18 +5,17 @@ AI agent guidelines.
 ## Language
 
 - **Clear**: Straightforward grammar and language.
-- **Terse**: To the point.
 - **Accurate**: Prioritize accuracy of information above all else. 
 
 ## Git
 
-- **Add and Commit**: Always ask before using add or commit.
+- **Add and Commit**: Always ask before using add, commit, rm, etc.
 
 ## Context File Editing
 
 - `ai-interaction`: Human managed.
-- `project-overview`: Primarily AI managed.
-- `coding-standards`: Human managed - suggesting edits is allowed.
+- `project-overview`: Hybrid, suggest updates.
+- `coding-standards`: Hybrid, suggest updates.
 - `current-feature`: Human drafted, AI iterated.
 
 ## Commands
