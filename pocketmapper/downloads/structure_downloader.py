@@ -7,8 +7,7 @@ each record's `struct_path`, which doubles as the on-disk cache between runs.
 
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tqdm import tqdm
 

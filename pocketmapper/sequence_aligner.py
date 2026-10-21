@@ -14,8 +14,7 @@ from Bio import Align
 from Bio.Align import substitution_matrices
 
 from pocketmapper.constants import ALIGNMENT_COLUMNS
-from pocketmapper.lib import one_letter_code
-from pocketmapper.lib import split_chain_info
+from pocketmapper.lib import one_letter_code, split_chain_info
 
 
 class SequenceAligner:

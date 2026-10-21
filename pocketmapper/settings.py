@@ -16,26 +16,27 @@ chosen.
 import json
 import logging
 import os
-from dataclasses import dataclass
-from dataclasses import fields
+from dataclasses import dataclass, fields
 from datetime import datetime
 
-from pocketmapper.constants import ALIGN_STRUCT_METHODS
-from pocketmapper.constants import ALIGNERS
-from pocketmapper.constants import DEFAULT_ALIGN_COUNT
-from pocketmapper.constants import DEFAULT_ALIGN_STRUCT_METHOD
-from pocketmapper.constants import DEFAULT_ALIGNER
-from pocketmapper.constants import DEFAULT_CACHE_DIR
-from pocketmapper.constants import DEFAULT_DELETE_TMP
-from pocketmapper.constants import DEFAULT_FETCH_MISSING
-from pocketmapper.constants import DEFAULT_PISA_SOURCE
-from pocketmapper.constants import DEFAULT_POCKET_METHOD
-from pocketmapper.constants import DEFAULT_STRUCT_TYPE
-from pocketmapper.constants import DEFAULT_VERBOSITY
-from pocketmapper.constants import DELETE_TMP_VALUES
-from pocketmapper.constants import FETCH_MISSING_VALUES
-from pocketmapper.constants import FOLDSEEK_INSTALL_HINT
-from pocketmapper.constants import PISA_SOURCES
+from pocketmapper.constants import (
+    ALIGN_STRUCT_METHODS,
+    ALIGNERS,
+    DEFAULT_ALIGN_COUNT,
+    DEFAULT_ALIGN_STRUCT_METHOD,
+    DEFAULT_ALIGNER,
+    DEFAULT_CACHE_DIR,
+    DEFAULT_DELETE_TMP,
+    DEFAULT_FETCH_MISSING,
+    DEFAULT_PISA_SOURCE,
+    DEFAULT_POCKET_METHOD,
+    DEFAULT_STRUCT_TYPE,
+    DEFAULT_VERBOSITY,
+    DELETE_TMP_VALUES,
+    FETCH_MISSING_VALUES,
+    FOLDSEEK_INSTALL_HINT,
+    PISA_SOURCES,
+)
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import check_foldseek
 

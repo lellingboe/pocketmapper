@@ -21,16 +21,13 @@ import json
 import logging
 import os
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from glob import glob
 
 from tqdm import tqdm
 
-from pocketmapper.constants import DEFAULT_PISA_SOURCE
-from pocketmapper.constants import PISA_SOURCES
-from pocketmapper.downloads.lib_download import download_api
-from pocketmapper.downloads.lib_download import download_file
+from pocketmapper.constants import DEFAULT_PISA_SOURCE, PISA_SOURCES
+from pocketmapper.downloads.lib_download import download_api, download_file
 from pocketmapper.downloads.structure_downloader import DOWNLOAD_WORKERS
 from pocketmapper.exceptions import PocketMapperError
 

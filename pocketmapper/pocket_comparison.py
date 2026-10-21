@@ -10,8 +10,7 @@ as a MappedPocket instead, so the same Pocket is read on every alignment row wit
 """
 
 import logging
-from collections import defaultdict
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 from itertools import product
 from typing import NamedTuple
 
@@ -23,13 +22,14 @@ from tqdm import tqdm
 
 from pocketmapper.constants import ALIGNMENT_COLUMNS
 from pocketmapper.exceptions import PocketMapperError
-from pocketmapper.lib import binary_similarity
-from pocketmapper.lib import full_similarity
-from pocketmapper.lib import read_blast_similarity_matrix
-from pocketmapper.lib import read_offset_table
-from pocketmapper.lib import seq_to_uniprot_map
-from pocketmapper.pockets.pocket import Pocket
-from pocketmapper.pockets.pocket import PocketResidue
+from pocketmapper.lib import (
+    binary_similarity,
+    full_similarity,
+    read_blast_similarity_matrix,
+    read_offset_table,
+    seq_to_uniprot_map,
+)
+from pocketmapper.pockets.pocket import Pocket, PocketResidue
 
 logger = logging.getLogger(__name__)
 

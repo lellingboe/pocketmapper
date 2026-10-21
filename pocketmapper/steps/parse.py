@@ -12,20 +12,17 @@ import os
 
 import pandas as pd
 
-from pocketmapper.entries import check_fsdb_target
-from pocketmapper.entries import failed_entry
-from pocketmapper.entries import reject_fsdb_query
-from pocketmapper.entries import report_failures
-from pocketmapper.entries import start_failed_entries
+from pocketmapper.entries import (
+    check_fsdb_target,
+    failed_entry,
+    reject_fsdb_query,
+    report_failures,
+    start_failed_entries,
+)
 from pocketmapper.exceptions import PocketMapperError
-from pocketmapper.lib import log_to_file
-from pocketmapper.lib import make_dir
-from pocketmapper.lib import run_scope
+from pocketmapper.lib import log_to_file, make_dir, run_scope
 from pocketmapper.qt_processor import QTProcessor
-from pocketmapper.settings import dump_settings
-from pocketmapper.settings import layer_settings
-from pocketmapper.settings import require_setting
-from pocketmapper.settings import resolve_paths
+from pocketmapper.settings import dump_settings, layer_settings, require_setting, resolve_paths
 
 logger = logging.getLogger(__name__)
 

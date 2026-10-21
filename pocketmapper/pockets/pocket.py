@@ -13,8 +13,7 @@ coordinates -- leaves it at its default rather than omitting it, so no consumer 
 to read a field with `.get` or straight indexing.
 """
 
-from dataclasses import dataclass
-from dataclasses import field
+from dataclasses import dataclass, field
 
 
 @dataclass

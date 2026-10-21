@@ -13,8 +13,7 @@ import shutil
 import gemmi
 from tqdm import tqdm
 
-from pocketmapper.lib import gzip_file
-from pocketmapper.lib import split_chain_info
+from pocketmapper.lib import gzip_file, split_chain_info
 
 logger = logging.getLogger(__name__)
 

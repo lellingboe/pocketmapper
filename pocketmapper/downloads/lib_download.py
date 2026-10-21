@@ -19,8 +19,7 @@ import os
 import threading
 from http.client import HTTPException
 from time import sleep
-from urllib.error import HTTPError
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 

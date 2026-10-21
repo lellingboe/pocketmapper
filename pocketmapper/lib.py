@@ -17,9 +17,7 @@ import re
 import shutil
 from contextlib import contextmanager
 
-from pocketmapper.constants import FOLDSEEK_AA_CODES
-from pocketmapper.constants import LOG_FORMAT
-from pocketmapper.constants import PACKAGE_LOGGER
+from pocketmapper.constants import FOLDSEEK_AA_CODES, LOG_FORMAT, PACKAGE_LOGGER
 from pocketmapper.exceptions import PocketMapperError
 
 logger = logging.getLogger(__name__)

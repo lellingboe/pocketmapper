@@ -14,8 +14,7 @@ import logging
 import os
 
 from pocketmapper.exceptions import PocketMapperError
-from pocketmapper.lib import make_dir
-from pocketmapper.lib import outer_command
+from pocketmapper.lib import make_dir, outer_command
 
 logger = logging.getLogger(__name__)
 

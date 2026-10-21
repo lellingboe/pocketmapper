@@ -23,12 +23,9 @@ import json
 import logging
 import os
 import re
-from dataclasses import asdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
-from pocketmapper.constants import DEFAULT_CHAIN
-from pocketmapper.constants import DEFAULT_POCKET_METHOD
-from pocketmapper.constants import STRUCT_TYPES
+from pocketmapper.constants import DEFAULT_CHAIN, DEFAULT_POCKET_METHOD, STRUCT_TYPES
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import bundled_foldseek_dbs
 from pocketmapper.lib import split_chain_info

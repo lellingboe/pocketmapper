@@ -6,23 +6,21 @@ import logging
 
 import pandas as pd
 
-from pocketmapper.entries import fsdb_record
-from pocketmapper.entries import require_file
-from pocketmapper.entries import split_missing_structures
-from pocketmapper.lib import fsdb_pocket_mode
-from pocketmapper.lib import log_to_file
-from pocketmapper.lib import run_scope
+from pocketmapper.entries import fsdb_record, require_file, split_missing_structures
+from pocketmapper.lib import fsdb_pocket_mode, log_to_file, run_scope
 from pocketmapper.pockets.pocket_fetcher import read_pockets_file
-from pocketmapper.settings import check_fsdb_align_struct_method
-from pocketmapper.settings import dump_settings
-from pocketmapper.settings import input_path
-from pocketmapper.settings import layer_settings
-from pocketmapper.settings import require_foldseek
-from pocketmapper.settings import require_setting
-from pocketmapper.settings import resolve_align_struct_method
-from pocketmapper.settings import resolve_fetch_missing
-from pocketmapper.settings import resolve_paths
-from pocketmapper.settings import resolve_threads
+from pocketmapper.settings import (
+    check_fsdb_align_struct_method,
+    dump_settings,
+    input_path,
+    layer_settings,
+    require_foldseek,
+    require_setting,
+    resolve_align_struct_method,
+    resolve_fetch_missing,
+    resolve_paths,
+    resolve_threads,
+)
 from pocketmapper.steps.fetch_structures import fetch_missing_entries
 from pocketmapper.steps.parse import parse_job_entries
 from pocketmapper.structure_aligner import StructureAligner

@@ -9,30 +9,24 @@ import logging
 import os
 
 from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT
-from pocketmapper.entries import failed_entry
-from pocketmapper.entries import fsdb_record
-from pocketmapper.entries import report_failures
-from pocketmapper.entries import split_missing_structures
-from pocketmapper.entries import unique_by
+from pocketmapper.entries import failed_entry, fsdb_record, report_failures, split_missing_structures, unique_by
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import run_foldseek
-from pocketmapper.lib import log_to_file
-from pocketmapper.lib import make_dir
-from pocketmapper.lib import run_scope
-from pocketmapper.lib import temp_dir_scope
+from pocketmapper.lib import log_to_file, make_dir, run_scope, temp_dir_scope
 from pocketmapper.sequence_aligner import SequenceAligner
-from pocketmapper.settings import check_fsdb_aligner
-from pocketmapper.settings import dump_settings
-from pocketmapper.settings import layer_settings
-from pocketmapper.settings import require_foldseek
-from pocketmapper.settings import require_setting
-from pocketmapper.settings import resolve_aligner
-from pocketmapper.settings import resolve_delete_tmp
-from pocketmapper.settings import resolve_fetch_missing
-from pocketmapper.settings import resolve_paths
-from pocketmapper.settings import resolve_threads
-from pocketmapper.steps.fetch_structures import fetch_missing_entries
-from pocketmapper.steps.fetch_structures import fetch_missing_fsdb
+from pocketmapper.settings import (
+    check_fsdb_aligner,
+    dump_settings,
+    layer_settings,
+    require_foldseek,
+    require_setting,
+    resolve_aligner,
+    resolve_delete_tmp,
+    resolve_fetch_missing,
+    resolve_paths,
+    resolve_threads,
+)
+from pocketmapper.steps.fetch_structures import fetch_missing_entries, fetch_missing_fsdb
 from pocketmapper.steps.parse import parse_job_entries
 from pocketmapper.structure_preprocessor import StructurePreprocessor
 

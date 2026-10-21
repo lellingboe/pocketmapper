@@ -14,8 +14,7 @@ import json
 import logging
 import os
 import string
-from itertools import count
-from itertools import permutations
+from itertools import count, permutations
 
 import gemmi
 import numpy as np
@@ -24,8 +23,7 @@ import pandas as pd
 from pocketmapper.constants import RESOLVED_ALIGN_STRUCT_METHODS
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import extract_fsdb_structures
-from pocketmapper.lib import safe_filename
-from pocketmapper.lib import split_chain_info
+from pocketmapper.lib import safe_filename, split_chain_info
 from pocketmapper.pocket_comparison import parse_pocket_transform
 
 logger = logging.getLogger(__name__)

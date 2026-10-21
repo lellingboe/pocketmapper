@@ -15,10 +15,8 @@ import os
 import gemmi
 from tqdm import tqdm
 
-from pocketmapper.lib import one_letter_code
-from pocketmapper.lib import split_chain_info
-from pocketmapper.pockets.pocket import Pocket
-from pocketmapper.pockets.pocket import PocketResidue
+from pocketmapper.lib import one_letter_code, split_chain_info
+from pocketmapper.pockets.pocket import Pocket, PocketResidue
 
 logger = logging.getLogger(__name__)
 

@@ -26,18 +26,20 @@ import argparse
 import logging
 import sys
 
-from pocketmapper.constants import CLI_COMMAND_EPILOGS
-from pocketmapper.constants import DEFAULT_ALIGN_COUNT
-from pocketmapper.constants import DEFAULT_ALIGN_STRUCT_METHOD
-from pocketmapper.constants import DEFAULT_ALIGNER
-from pocketmapper.constants import DEFAULT_CACHE_DIR
-from pocketmapper.constants import DEFAULT_DELETE_TMP
-from pocketmapper.constants import DEFAULT_FETCH_MISSING
-from pocketmapper.constants import DEFAULT_PISA_SOURCE
-from pocketmapper.constants import DEFAULT_POCKET_METHOD
-from pocketmapper.constants import DEFAULT_STRUCT_TYPE
-from pocketmapper.constants import DEFAULT_VERBOSITY
-from pocketmapper.constants import PACKAGE_LOGGER
+from pocketmapper.constants import (
+    CLI_COMMAND_EPILOGS,
+    DEFAULT_ALIGN_COUNT,
+    DEFAULT_ALIGN_STRUCT_METHOD,
+    DEFAULT_ALIGNER,
+    DEFAULT_CACHE_DIR,
+    DEFAULT_DELETE_TMP,
+    DEFAULT_FETCH_MISSING,
+    DEFAULT_PISA_SOURCE,
+    DEFAULT_POCKET_METHOD,
+    DEFAULT_STRUCT_TYPE,
+    DEFAULT_VERBOSITY,
+    PACKAGE_LOGGER,
+)
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.lib import format_handler
 from pocketmapper.pocketmapper import PocketMapper

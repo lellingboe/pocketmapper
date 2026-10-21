@@ -13,35 +13,37 @@ from dataclasses import asdict
 
 import pandas as pd
 
-from pocketmapper.entries import failed_entry
-from pocketmapper.entries import fsdb_record
-from pocketmapper.entries import preproc_to_ids
-from pocketmapper.entries import report_failures
-from pocketmapper.entries import require_file
-from pocketmapper.entries import split_missing_structures
+from pocketmapper.entries import (
+    failed_entry,
+    fsdb_record,
+    preproc_to_ids,
+    report_failures,
+    require_file,
+    split_missing_structures,
+)
 from pocketmapper.exceptions import PocketMapperError
-from pocketmapper.lib import fsdb_pocket_mode
-from pocketmapper.lib import log_to_file
-from pocketmapper.lib import make_dir
-from pocketmapper.lib import parse_foldseek_pdb_entry_name
-from pocketmapper.lib import run_scope
-from pocketmapper.lib import split_chain_info
-from pocketmapper.pockets.pisa import PisaParser
-from pocketmapper.pockets.pisa import download_pisa_interfaces
-from pocketmapper.pockets.pocket_fetcher import PocketFetcher
-from pocketmapper.pockets.pocket_fetcher import write_pockets_file
+from pocketmapper.lib import (
+    fsdb_pocket_mode,
+    log_to_file,
+    make_dir,
+    parse_foldseek_pdb_entry_name,
+    run_scope,
+    split_chain_info,
+)
+from pocketmapper.pockets.pisa import PisaParser, download_pisa_interfaces
+from pocketmapper.pockets.pocket_fetcher import PocketFetcher, write_pockets_file
 from pocketmapper.qt_processor import QTProcessor
-from pocketmapper.settings import dump_settings
-from pocketmapper.settings import input_path
-from pocketmapper.settings import layer_settings
-from pocketmapper.settings import require_setting
-from pocketmapper.settings import resolve_fetch_missing
-from pocketmapper.settings import resolve_paths
-from pocketmapper.settings import resolve_pisa_source
-from pocketmapper.steps.fetch_structures import fetch_missing_entries
-from pocketmapper.steps.fetch_structures import fetch_missing_structures
-from pocketmapper.steps.parse import parse_job_entries
-from pocketmapper.steps.parse import parse_listed_entries
+from pocketmapper.settings import (
+    dump_settings,
+    input_path,
+    layer_settings,
+    require_setting,
+    resolve_fetch_missing,
+    resolve_paths,
+    resolve_pisa_source,
+)
+from pocketmapper.steps.fetch_structures import fetch_missing_entries, fetch_missing_structures
+from pocketmapper.steps.parse import parse_job_entries, parse_listed_entries
 
 logger = logging.getLogger(__name__)
 

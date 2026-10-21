@@ -29,31 +29,29 @@ Author: Lachlan Ellingboe
 
 import json
 import logging
-from dataclasses import asdict
-from dataclasses import fields
+from dataclasses import asdict, fields
 
 from pocketmapper.entries import fsdb_record
-from pocketmapper.lib import log_to_file
-from pocketmapper.lib import run_scope
-from pocketmapper.lib import temp_dir_scope
-from pocketmapper.settings import Settings
-from pocketmapper.settings import check_fsdb_align_struct_method
-from pocketmapper.settings import check_fsdb_aligner
-from pocketmapper.settings import dump_settings
-from pocketmapper.settings import layer_settings
-from pocketmapper.settings import require_foldseek
-from pocketmapper.settings import require_setting
-from pocketmapper.settings import resolve_align_struct_method
-from pocketmapper.settings import resolve_aligner
-from pocketmapper.settings import resolve_delete_tmp
-from pocketmapper.settings import resolve_paths
-from pocketmapper.settings import resolve_pisa_source
-from pocketmapper.settings import resolve_threads
+from pocketmapper.lib import log_to_file, run_scope, temp_dir_scope
+from pocketmapper.settings import (
+    Settings,
+    check_fsdb_align_struct_method,
+    check_fsdb_aligner,
+    dump_settings,
+    layer_settings,
+    require_foldseek,
+    require_setting,
+    resolve_align_struct_method,
+    resolve_aligner,
+    resolve_delete_tmp,
+    resolve_paths,
+    resolve_pisa_source,
+    resolve_threads,
+)
 from pocketmapper.steps.align import align
 from pocketmapper.steps.compare import compare
 from pocketmapper.steps.fetch_structures import fetch_structures
-from pocketmapper.steps.parse import parse
-from pocketmapper.steps.parse import parse_job_entries
+from pocketmapper.steps.parse import parse, parse_job_entries
 from pocketmapper.steps.pockets import pockets
 from pocketmapper.steps.superpose import superpose
 
