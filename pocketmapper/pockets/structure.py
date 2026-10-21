@@ -29,11 +29,11 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
     gain `seq_pos` and coordinates, and its `whole_chain` and `ca_sequence` are overwritten.
 
     Args:
-        struct (gemmi.Structure | str): A parsed structure, or a path gemmi will read.
+        struct (gemmi.Structure or str): A parsed structure, or a path gemmi will read.
         chain_id (str): The chain to extract.
-        pocket_residues (list | None): Author seqids in the pocket, or None to take every CA-bearing
+        pocket_residues (list or None): Author seqids in the pocket, or None to take every CA-bearing
             residue of the chain. Recorded on the returned Pocket as `whole_chain`.
-        pocket (Pocket | None): An existing Pocket to extend; a new one is built when None.
+        pocket (Pocket or None): An existing Pocket to extend; a new one is built when None.
 
     Returns:
         Pocket: The pocket, or None if the file is missing or the chain is not in the structure.

@@ -382,7 +382,7 @@ class QTProcessor:
 
         Args:
             qt (str): The whole input entry, named in the log messages.
-            residue_info (str | None): The entry's `residue_info` portion.
+            residue_info (str or None): The entry's `residue_info` portion.
 
         Returns:
             tuple: (residue_info, reason). `residue_info` is the comma-joined residue ids in canonical

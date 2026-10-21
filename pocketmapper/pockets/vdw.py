@@ -34,7 +34,7 @@ class VdWCalculator:
         A `gemmi.Structure` passed in has `setup_entities()` called on it.
 
         Args:
-            structure (gemmi.Structure | str): A parsed structure, or a path gemmi will read.
+            structure (gemmi.Structure or str): A parsed structure, or a path gemmi will read.
             domain_chain (str): Chain the pocket belongs to.
             motif_chain (str): Chain it is in contact with.
 

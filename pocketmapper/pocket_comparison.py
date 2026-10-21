@@ -543,7 +543,7 @@ def compare_pockets(
             os.path.join(os.path.dirname(pocketmapper.__file__), "blosum62.bla").
         synthesise_target_pockets (bool): Build a whole-chain pseudo-pocket per alignment row instead
             of looking the target up in `pocket_dict`, for a Foldseek database with no target records.
-        offset_table_path (str | None): Path to the offset table shipped with that database, which
+        offset_table_path (str or None): Path to the offset table shipped with that database, which
             renumbers the synthesised targets' residues into UniProt coordinates. Consulted only
             alongside `synthesise_target_pockets`; None leaves them as positions within the entry.
 
