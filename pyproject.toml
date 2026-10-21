@@ -31,7 +31,7 @@ classifiers = [
 
 [project.optional-dependencies]
 dev = [
-  "bump2version",
+  "bump-my-version",
   "pre-commit",
   "ruff",
 ]
@@ -64,3 +64,14 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
+
+[tool.bumpversion]
+current_version = "0.2.5"
+commit = true
+tag = true
+tag_name = "{new_version}"
+
+[[tool.bumpversion.files]]
+filename = "pocketmapper/__init__.py"
+search = '__version__ = "{current_version}"'
+replace = '__version__ = "{new_version}"'
