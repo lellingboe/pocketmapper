@@ -1,6 +1,6 @@
 [project]
 name = "pocketmapper"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
     "biopython>=1.80",
     "numpy>=1.24",
@@ -66,7 +66,7 @@ ignore = ["E501"]
 "__init__.py" = ["F401"]
 
 [tool.bumpversion]
-current_version = "0.2.5"
+current_version = "0.2.6"
 commit = true
 tag = true
 tag_name = "{new_version}"
