@@ -77,14 +77,14 @@ left off the command line.
 
 | Option | Type | Default | Summary |
 | --- | --- | --- | --- |
-| `--job_file` | path | none | JSON file of `{"option": value}`, query and target included. Arguments override it. |
-| `--verbosity` | int | `3` | Log level: 4=DEBUG, 3=INFO, 2=WARNING, anything else=ERROR. |
-| `--aligner` | str | `foldseek` | Chain aligner: `foldseek` (needs the binary) or `seq` (built-in BLOSUM62 sequence aligner). |
-| `--query_pocket_method` | str | `auto` | Query pocket method: `auto` infers it from each entry; `pisa`, `passthrough`, `vdw`, `whole_chain` force it. Each entry is still checked against the method — see [Input format](#input-format). |
-| `--target_pocket_method` | str | `auto` | As `--query_pocket_method`, for targets; also accepts `foldseek_db`. |
-| `--threads` | int | one per core | Cap on the cores Foldseek uses. |
+| `-j`, `--job_file` | path | none | JSON file of `{"option": value}`, query and target included. Arguments override it. |
+| `-v`, `--verbosity` | int | `3` | Log level: 4=DEBUG, 3=INFO, 2=WARNING, anything else=ERROR. |
+| `-a`, `--aligner` | str | `foldseek` | Chain aligner: `foldseek` (needs the binary) or `seq` (built-in BLOSUM62 sequence aligner). |
+| `-q`, `--query_pocket_method` | str | `auto` | Query pocket method: `auto` infers it from each entry; `pisa`, `passthrough`, `vdw`, `whole_chain` force it. Each entry is still checked against the method — see [Input format](#input-format). |
+| `-t`, `--target_pocket_method` | str | `auto` | As `--query_pocket_method`, for targets; also accepts `foldseek_db`. |
+| `-T`, `--threads` | int | one per core | Cap on the cores Foldseek uses. |
 | `--pisa_source` | str | `ftp` | Where PISA interfaces are fetched from: `ftp` (EBI FTP server, concurrent) or `api` (PDBe API, one paced request per assembly). Both fill the same cache. |
-| `--help` | flag | — | Show the help message and exit. |
+| `-h`, `--help` | flag | — | Show the help message and exit. |
 
 #### In options
 
@@ -130,14 +130,15 @@ split a run's outputs across directories.
 
 #### Temp options
 
-Scratch space for a single run: emptied before the run uses it and deleted when it ends — set
+Scratch space for a single run: emptied before the run uses it and deleted when it ends successfully (a
+failed run leaves it in place) — set
 `--delete_tmp 0` to keep it for inspection. The per-run query and target structures and Foldseek's
 own scratch all live inside it, so it is only created with `--aligner foldseek`, or to download a
 bundled Foldseek database.
 
 | Option | Default | Summary |
 | --- | --- | --- |
-| `--temp_dir` | `<results_dir>/tmp` | Per-run scratch, emptied before use and deleted at the end of the run. |
+| `--temp_dir` | `<results_dir>/tmp` | Per-run scratch, emptied before use and deleted at the end of a successful run. |
 | `--delete_tmp` | `1` | `1` deletes `--temp_dir` at the end of the run; `0` keeps it. |
 
 ### Running one step at a time
@@ -161,7 +162,7 @@ pocketmapper superpose --job_file ./out/parse_settings.json
 | `fetch_structures` | Downloads the structures and a bundled Foldseek database the entries need. Also works on its own: `fetch_structures 4Q5J P24941 --out_dir ./structures`. | `ENTRY ...`, else the entries | the cache, or `--out_dir`; optionally `--structures_tsv_path` |
 | `align` | Aligns the query chains against the target chains. | the entries, the cache | `alignment.tsv` |
 | `pockets` | Downloads the PISA interfaces the entries need, then builds the pocket of every entry. Also works on its own: `pockets 4Q5J:B_F --results_dir ./out`. Against the `pdb` database, also downloads each hit's PISA interfaces and structure and builds a pocket per interface. | the entries, the cache, `alignment.tsv` (database target only) | `pockets.json` |
-| `compare` | Compares the pockets of every aligned pair. | the target entry, `alignment.tsv`, `pockets.json` | `pocket_comparison.tsv`, `unknown_ids.json`, `incorrect_mapping.json` |
+| `compare` | Compares the pockets of every aligned pair. | the entries, `alignment.tsv`, `pockets.json` | `pocket_comparison.tsv`, `unknown_ids.json`, `incorrect_mapping.json` |
 | `superpose` | Superposes the top targets onto each query. | the entries, the cache, `pocket_comparison.tsv`, `alignment.tsv`, `pockets.json` (`pdb` database target only) | `aligned_structures/` |
 
 - **Every step parses the entries again**, from the `query`, `target` and pocket methods in its job
@@ -207,9 +208,9 @@ they mean what they do for `search`.
 | Command | Options |
 | --- | --- |
 | `parse` | `QUERY`, `TARGET` (or from the job file), `--query_pocket_method`, `--target_pocket_method`, the [cache options](#cache-options), `--entries_path` |
-| `fetch_structures` | `ENTRY ...` (entries or bare ids such as `4Q5J`, `P12345`, `pdb`, or files of them; default the job file's query and target), `--struct_type` (`auto`, `pdb`, `alphafold` or `foldseek_db`), `--out_dir` (every file into one directory instead of the cache), `--structures_tsv_path` (a table of `id`, `struct_type`, `path`, `ok`), `--threads`, the [temp options](#temp-options) |
+| `fetch_structures` | `ENTRY ...` (entries or bare ids such as `4Q5J`, `P12345`, `pdb`, or files of them; default the job file's `entries`, else its query and target), `--struct_type` (`auto`, `pdb`, `alphafold` or `foldseek_db`), `--out_dir` (every file into one directory instead of the cache), `--structures_tsv_path` (a table of `id`, `struct_type`, `path`, `ok`), `--threads`, the [temp options](#temp-options) |
 | `align` | `--threads`, the [temp options](#temp-options), `--aligner`, `--alignment_path` and `--fetch_missing` |
-| `pockets` | `ENTRY ...` (entries or files of them, every one with `--pocket_method`, default `auto`; no Foldseek hit is expanded; default the job file's query and target), `--alignment`, `--pockets_path`, `--pockets_tsv_path` (a table of `pocket_id`, `chain`, `res_auth_ids`, `method`), `--pisa_source`, `--fetch_missing` |
+| `pockets` | `ENTRY ...` (entries or files of them, every one with `--pocket_method`, default `auto`; no Foldseek hit is expanded; default the job file's `entries`, else its query and target), `--alignment`, `--pockets_path`, `--pockets_tsv_path` (a table of `pocket_id`, `chain`, `res_auth_ids`, `method`), `--pisa_source`, `--fetch_missing` |
 | `compare` | `--alignment`, `--pockets`, `--pocket_comparison_path` |
 | `superpose` | `--pocket_comparison`, `--alignment`, `--pockets`, the [aligned structure options](#aligned-structure-options), `--aligned_structure_dir`, `--threads`, `--fetch_missing` |
 
@@ -238,8 +239,8 @@ How the pocket residues are derived is inferred from the shape of the entry:
 | Example | Method | Meaning |
 | --- | --- | --- |
 | `4Q5J:B_F` | pisa | Interface residues of chain B against chain F, taken from PDBe PISA |
-| `4Q5J:A:10,11,12` | passthrough | Exactly the residues listed, on chain A |
-| `4Q5J:A_B:10,11,12` | vdw | Van der Waals contact residues on chain A against chain B |
+| `4Q5J:A:10,11,12` | passthrough | Exactly the residues listed, on chain A (reported in ascending order) |
+| `4Q5J:A_B:10,11,12` | vdw | Van der Waals contact residues on chain A against chain B. The residue list is ignored: on a PDB entry the trailing `:` part only selects vdw over pisa (or force it with `--query_pocket_method vdw`) |
 | `P04637:A:10,11,12` | passthrough | AlphaFold model for the accession, residues listed |
 | `4Q5J:B` | whole_chain | Open search — the whole of chain B is treated as the pocket |
 | `4Q5J` | whole_chain | Open search over the default chain, `A` |
@@ -316,8 +317,8 @@ separate rate-limited request, so the first run takes hours. Both counts are log
 starts, and reruns are fast from the interface cache.
 
 A Foldseek database you build yourself also works as a target (pass its path, with
-`--target_pocket_method foldseek_db`), but without an offset table beside it the target residue ids are
-0-indexed positions within the entry. That is logged at INFO, because the same column then means
+`--target_pocket_method foldseek_db`), but only the bundled `human_domains` has an offset table, so its
+target residue ids are 0-indexed positions within the entry. That is logged at INFO, because the same column then means
 different things on different runs.
 
 ### Outputs
@@ -333,11 +334,13 @@ Everything is written under `--results_dir`:
 | `info.log` | The run log. |
 | `pockets.json` | Every entry's pocket, keyed by pocket id (`null` where it could not be built), and `chains`: each aligned chain's name -> the pocket ids on it. Versioned; a file from an older version is rejected, so rerun `pockets`. |
 | `failed_entries.json` | Every entry skipped along the way: the entry, the step that skipped it, the reason (`invalid_entry`, `structure_not_found`, `structure_preprocessing_failed`, `pocket_not_built`) and the parsed entry. Empty when nothing was skipped. |
-| `unknown_ids.json` | Residue codes the aligner and the structure disagreed on (e.g. MSE -> M). Only written if any were seen, beside `pocket_comparison.tsv`. |
+| `unknown_ids.json` | Pocket residues whose one-letter code in the alignment differs from the structure's. Only written if any were seen, beside `pocket_comparison.tsv`. |
 | `incorrect_mapping.json` | Pockets dropped because their own sequence disagreed with the aligner's for that chain — typically assembly vs asymmetric unit numbering. Only written if any were dropped, beside `pocket_comparison.tsv`. |
 
 Under `--cache_dir` and surviving between runs: the downloaded mmCIF files (`pdb_structures/` and
-`alphafold_structures/`), the raw PISA responses (`pockets/pisa/`), and the derived
+`alphafold_structures/`), the single-chain copies Foldseek is given
+(`foldseek_preprocessed_structures/`), the downloaded `pdb` Foldseek database (`fsdb/`), the raw PISA
+responses (`pockets/pisa/`), and the derived
 pockets themselves (`pockets/pisa_pockets.json`, `passthrough_pockets.json`, `vdw_pockets.json`,
 `whole_chain_pockets.json`). The pocket files are written for inspection only and never read back;
 each pocket is an object of metadata fields plus a `residues` map keyed by author residue number.
@@ -457,7 +460,7 @@ sets *every* option, paths included, so a command-line option changes only the s
 follow `--results_dir` all the same: where `--temp_dir` may be emptied. So to reuse a run's files, give
 its `results_dir` or none. With `search`, a new `--results_dir` beside it writes over that run's outputs.
 
-**`--temp_dir` is emptied on the way in and deleted on the way out.** It holds `query_structures/`,
+**`--temp_dir` is emptied on the way in and deleted on the way out of a successful run.** It holds `query_structures/`,
 `target_structures/` and `foldseek_tmp/`, each created only when used, so a rerun into the same
 `--results_dir` never hands Foldseek what the previous run left behind. Both the emptying and the
 deletion are skipped with a warning when `temp_dir` does not resolve to somewhere under `--cache_dir`

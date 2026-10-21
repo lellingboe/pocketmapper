@@ -101,10 +101,10 @@ class PocketMapper:
 
         For the length of the call, sets the `pocketmapper` logger's level and adds a handler writing
         to `log_path`; both are restored on return. Empties `temp_dir` on the way in and, unless
-        `delete_tmp` is 0, deletes it on the way out. Each directory is created only when something
-        is first written into it. Besides the results, writes pockets.json, failed_entries.json and
-        job_settings.json into `results_dir`, so any step can be rerun there on its own, with
-        job_settings.json as its job file.
+        `delete_tmp` is 0, deletes it on a clean return; a raised error leaves it in place. Each
+        directory is created only when something is first written into it. Besides the results,
+        writes pockets.json, failed_entries.json and job_settings.json into `results_dir`, so any
+        step can be rerun there on its own, with job_settings.json as its job file.
 
         Args:
             query (str, optional): Query identifier, string or path to a list. Required here or in
@@ -132,8 +132,8 @@ class PocketMapper:
                 'pisa', 'passthrough', 'vdw', 'whole_chain' or 'foldseek_db' -- or 'auto' (the
                 default) to infer it per entry from the input string.
             target_pocket_method (str, optional): As `query_pocket_method`, for the target side.
-            delete_tmp (int, optional): 1 deletes temp_dir at the end of the run; 0 keeps it for
-                inspection. Defaults to DEFAULT_DELETE_TMP.
+            delete_tmp (int, optional): 1 deletes temp_dir at the end of a successful run; 0 keeps
+                it for inspection. Defaults to DEFAULT_DELETE_TMP.
             pisa_source (str, optional): Where PISA interfaces are fetched from -- 'ftp' for the EBI
                 FTP server or 'api' for the paced PDBe API. Both serve the same data into the same
                 cache. Defaults to DEFAULT_PISA_SOURCE.
@@ -144,8 +144,8 @@ class PocketMapper:
             pocket_dir (str, optional): Cache of parsed pockets. Defaults to <cache_dir>/pockets.
             foldseek_preprocessed_structure_dir (str, optional): Cache of the single-chain structures
                 Foldseek is given. Defaults to <cache_dir>/foldseek_preprocessed_structures.
-            temp_dir (str, optional): Per-run scratch, wiped before use and deleted at the end of the
-                run. Defaults to <results_dir>/tmp.
+            temp_dir (str, optional): Per-run scratch, wiped before use and deleted at the end of a
+                successful run. Defaults to <results_dir>/tmp.
             aligned_structure_dir (str, optional): Where the superposed structures for the top hits
                 are written. Defaults to <results_dir>/aligned_structures.
             alignment_path (str, optional): Where the alignment table is written.

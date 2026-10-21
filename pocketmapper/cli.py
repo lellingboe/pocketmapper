@@ -581,8 +581,8 @@ COMMANDS = {
                     "threads",
                 ],
             ),
-            ("aligned structure options", ["align_count", "align_struct_method"]),
             ("in options", ["work_dir"]),
+            ("aligned structure options", ["align_count", "align_struct_method"]),
             (
                 "cache options",
                 [

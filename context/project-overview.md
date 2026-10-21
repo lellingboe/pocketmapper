@@ -103,7 +103,7 @@ two sides position by position, so misordering gives wrong `rmsd`, `ca_dists` an
 
 A query and target on one chain share a `preprocess_name`, so some rows carry a query-only `pocket_id` in
 `target`. `StructureAligner.align_structs` filters them before target lookup (else a bare pandas
-`KeyError`). Output shape: README "Open searches".
+`KeyError`). Output shape: README "Closed vs Open Search".
 
 ### Foldseek-DB targets
 
@@ -200,8 +200,8 @@ checks that live nowhere else.
   otherwise (else a `KeyError` aborts the run). Syntax and repeats are caught in
   `QTProcessor.parse_residue_info`; a repeat would silently misalign overlap lists (wrong `pocket_len`,
   `jaccard_index`, `rmsd`, `ca_dists`).
-- **Declared schemas**: `constants.ALIGNMENT_COLUMNS`, `POCKET_COMPARISON_COLUMNS`. New columns go in the
-  constant.
+- **Declared schemas**: `constants.ALIGNMENT_COLUMNS`, `pocket_comparison.POCKET_COMPARISON_COLUMNS`. New
+  columns go in the declared list.
 - **`compare_pockets` must not write to a `Pocket`.**
 - **Aligned structures are named `lib.safe_filename(query_id)`**, not by `pocket_id`; grep the
   `MOLECULE` records instead.
@@ -235,8 +235,8 @@ stages are Title Case step names; a function name in the stage column means none
 
 `extra` is always named **`log_extra`**. Single-stage classes (`StructureDownloader`, `PisaDownloader`,
 `StructureAligner`, `StructurePreprocessor`) set `self.log_extra` once and never mutate it; others build
-it per function. `QTProcessor`'s `.update()` in `process_qt_cmdline_input` is the one deliberate
-exception (call-scoped side name). `PocketMapper` holds no state at all.
+it per function. `QTProcessor`'s `.update()` in `process_qt_cmdline_input` and
+`process_structure_input` is the one deliberate exception (call-scoped side name). `PocketMapper` holds no state at all.
 
 Errors: `logger.critical(...)` then `raise PocketMapperError(...)`; `cli()` catches and exits 1. Foldseek
 goes through `run_foldseek` so failures follow this too. **No `exit()`/`sys.exit()` outside `cli()`.**
@@ -289,7 +289,8 @@ search also `dataclasses.fields(Settings)` == signature == `arguments` keys (mod
 `SETTING_DEFAULTS` keys ⊆ `JOB_KEYS`.
 
 Options are grouped by lifetime in `cli.COMMANDS` and README alike: `in`, `aligned structure`, `cache`,
-`out`, `temp`, `advanced`. A file a command reads has a bare name (`--alignment`); one it writes ends in
+`out`, `temp`, `advanced` (README lists advanced options in the main table: an `Advanced options`
+heading there would take the `#advanced-options` anchor). A file a command reads has a bare name (`--alignment`); one it writes ends in
 `_path`. A new path setting picks a group in both.
 
 **Every directory is made by its first writer**; there is no bulk creation step. Only the log's
