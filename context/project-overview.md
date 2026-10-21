@@ -217,8 +217,8 @@ run and diff old vs new output. Nothing else covers it.
 
 ## Logging and errors
 
-**The package never touches the root logger.** Modules use `logging.getLogger(__name__)` under
-`constants.PACKAGE_LOGGER`, which has a `NullHandler`. Never call `logging.info(...)` etc. directly.
+**The package never touches the root logger.** Module loggers sit under `constants.PACKAGE_LOGGER`,
+which has a `NullHandler`.
 Handlers are added in two places, each removed in a `finally`:
 - **`cli()` adds stdout** before dispatching, because `layer_settings` can `critical` on a bad job
   file before the log is open (inherited root WARNING lets it through).
@@ -233,13 +233,12 @@ the CLI format plus `lib.StageFilter`, which fills `%(stage)s` from `funcName` w
 stages are Title Case step names; a function name in the stage column means none was declared. Omitting
 `extra` is fine where the function name is the best label.
 
-`extra` is always named **`log_extra`**. Single-stage classes (`StructureDownloader`, `PisaDownloader`,
-`StructureAligner`, `StructurePreprocessor`) set `self.log_extra` once and never mutate it; others build
-it per function. `QTProcessor`'s `.update()` in `process_qt_cmdline_input` and
+Single-stage classes (`StructureDownloader`, `PisaDownloader`, `StructureAligner`,
+`StructurePreprocessor`) set `self.log_extra` once and never mutate it; others build it per function. `QTProcessor`'s `.update()` in `process_qt_cmdline_input` and
 `process_structure_input` is the one deliberate exception (call-scoped side name). `PocketMapper` holds no state at all.
 
-Errors: `logger.critical(...)` then `raise PocketMapperError(...)`; `cli()` catches and exits 1. Foldseek
-goes through `run_foldseek` so failures follow this too. **No `exit()`/`sys.exit()` outside `cli()`.**
+Errors: `cli()` catches `PocketMapperError` and exits 1. Foldseek goes through `run_foldseek` so its
+failures raise it too.
 
 ## Settings
 
@@ -294,9 +293,8 @@ heading there would take the `#advanced-options` anchor). A file a command reads
 `_path`. A new path setting picks a group in both.
 
 **Every directory is made by its first writer**; there is no bulk creation step. Only the log's
-directory is made up front, by `lib.log_to_file` (the file handler opens at once). Pipeline-side writers use `lib.make_dir`
-(critical + `PocketMapperError`); components use bare `os.makedirs`. A new writer into a configurable
-path must make its directory, or a path option pointed elsewhere fails.
+directory is made up front, by `lib.log_to_file` (the file handler opens at once). A writer that does
+not make its directory fails once a path option points elsewhere.
 
 **`temp_dir` is one option, three dirs** (`query_structures/`, `target_structures/`, `foldseek_tmp/`),
 named in `steps/align.py` (all three) and `steps/fetch_structures.py` (`foldseek_tmp/`, for a DB download). The two

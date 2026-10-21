@@ -1,28 +1,43 @@
 # Coding standards
 
 ## General
-- **Write quality code!** Take the extra time to do things the right way.
-- **Find solutions which are easy to maintain.** Choose solutions which minimize codebase entropy.
-- **Keep documentation, docstrings, and comments up-to-date.** Stale documentation only leads to more errors.
+- **Choose the solution that is easiest to maintain.** Fewer special cases and fewer places to change
+  beat cleverness.
+- **Update docs, docstrings and comments in the same change as the code.** Stale documentation causes
+  errors.
 
-## Comments
-- **Concise**
-  - To avoid getting in the way of just reading the code
-- **Local**
-  - Reference what a constant is or what a block of code does
-  - Do not reference how it is being used elsewhere, this is likely to become stale.
+## Comments and docstrings
+- **Local.** Say what this code does and what it depends on or must precede. Never say who calls it or
+  how it is used elsewhere; that goes stale.
+- **Concise.** A comment should not get in the way of reading the code.
+- **Every module, class and function has a docstring.**
+- **Google style**, with the summary on the line after the opening `"""`:
+  - one-line summary;
+  - paragraphs only for side effects or behaviour the caller would not expect;
+  - `Args:` as `name (type): Description.`, adding `, optional` when it has a default; alternatives
+    as `str or None`, never `str | None`;
+  - `Returns:` / `Yields:` as `type: Description.`; `Raises:` as `ExceptionType: When.`
 
-## Docstrings
-- **Google-style**
-  - A one-line summary
-  - Paragraphs detailing unexpected side-effects the caller should know
-  - `Args:` / `Returns:` / `Raises:`
-- **Function docstrings are local**
-  - Limit information to what the function does
-  - Do not reference how it is used elsewhere, this is likely to become stale.
+## Python
+- **Type annotations only on dataclasses and NamedTuples.** No function carries them.
+- **`os.path`, never `pathlib`.**
+- **f-strings, never `%` or `.format()`**, including in logger calls.
+- **Absolute imports** (`from pocketmapper.x import y`).
+- **No leading-underscore names**; everything is public and documented.
+- **`except Exception` only to clean up and re-raise, or to `logger.exception` and continue a
+  per-item loop.** Never a bare `except:`.
 
-## Features
-- **Limit type annotations to dataclasses.** No function in the package carries them.
-- **`os.path`, never `pathlib`**
-- **`f-strings`, never `%` or `.format()`**
-- **Formatting is managed by ruff.** Its settings live in `pyproject.toml`.
+## Logging and errors
+Mechanism: `project-overview.md` "Logging and errors".
+- **`logger = logging.getLogger(__name__)`**; never `logging.info(...)` etc. on the root logger.
+- **`extra` is always named `log_extra`.**
+- **Fail with `logger.critical(...)` then `raise PocketMapperError(...)`.** No `exit()`/`sys.exit()`
+  outside `cli()`.
+- **A writer into a configurable path makes its own directory**: `lib.make_dir` in the pipeline,
+  `os.makedirs` in components.
+
+## Formatting
+- **ruff, configured in `pyproject.toml`.** pre-commit runs `ruff check --fix` and `ruff format`; CI
+  checks both.
+- **120 columns, comments and docstrings included.** `E501` is off and ruff does not wrap comments, so
+  wrap them by hand.
