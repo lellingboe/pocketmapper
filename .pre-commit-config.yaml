@@ -1,15 +1,7 @@
 repos:
--   repo: https://github.com/PyCQA/isort
-    rev: 9.0.1
+-   repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.10
     hooks:
-    -   id: isort
--   repo: https://github.com/python/black
-    rev: 25.1.0
-    hooks:
-    - id: black
-      pass_filenames: true
--   repo: https://github.com/pycqa/flake8
-    rev: 7.3.0
-    hooks:
-    - id: flake8
-      pass_filenames: true
+    -   id: ruff-check
+        args: [--fix]
+    -   id: ruff-format

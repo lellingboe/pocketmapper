@@ -474,10 +474,7 @@ def resolve_align_struct_method(align_struct_method, aligner):
     # A job file can hold any JSON value, not only a str
     method = align_struct_method.lower() if isinstance(align_struct_method, str) else align_struct_method
     if method not in ALIGN_STRUCT_METHODS:
-        msg = (
-            f"Unknown align_struct_method {align_struct_method!r}. "
-            f"Choose one of: {', '.join(ALIGN_STRUCT_METHODS)}."
-        )
+        msg = f"Unknown align_struct_method {align_struct_method!r}. Choose one of: {', '.join(ALIGN_STRUCT_METHODS)}."
         logger.critical(msg, extra=log_extra)
         raise PocketMapperError(msg)
 

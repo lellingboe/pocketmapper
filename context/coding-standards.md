@@ -25,4 +25,4 @@
 - **Limit type annotations to dataclasses.** No function in the package carries them.
 - **`os.path`, never `pathlib`**
 - **`f-strings`, never `%` or `.format()`**
-- **Formatting is managed by black and flake8.** Their settings live in `pyproject.toml` and `.flake8`.
+- **Formatting is managed by ruff.** Its settings live in `pyproject.toml`.

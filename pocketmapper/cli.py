@@ -166,8 +166,7 @@ OPTIONS = {
         dict(
             default=None,
             metavar="STR",
-            help="As --query_pocket_method, for targets; also accepts foldseek_db. "
-            f"(default: {DEFAULT_POCKET_METHOD})",
+            help=f"As --query_pocket_method, for targets; also accepts foldseek_db. (default: {DEFAULT_POCKET_METHOD})",
         ),
     ),
     "threads": (
@@ -259,8 +258,7 @@ OPTIONS = {
         dict(
             default=None,
             metavar="DIR",
-            help="The results directory; inputs and outputs default to files in it. Required here or in the "
-            "job file.",
+            help="The results directory; inputs and outputs default to files in it. Required here or in the job file.",
         ),
     ),
     "alignment": input_file("--alignment", "alignment table", "<results_dir>/alignment.tsv"),

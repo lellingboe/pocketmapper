@@ -316,12 +316,12 @@ order, the `aligner` check and tri-state `align_struct_method`: `Settings` docst
 ## Python versions
 
 **3.10 – 3.14**, verified by full e2e at both ends. Four places must agree: `requires-python`, the
-classifiers, `[tool.black] target-version`, README Installation; CI `compat` matrix is a fifth.
+classifiers, `[tool.ruff] target-version`, README Installation; CI `compat` matrix is a fifth.
 
 - **Floor is 3.10**: `match` statements, PEP 604 dataclass annotations (no `from __future__ import
   annotations`), and biopython itself.
-- **`compat` guards the floor, not `lint`** (flake8 parses with its own interpreter). `compileall` at 3.10
-  catches syntax; the import step catches annotation/`importlib.resources` failures. It uses
+- **`compat` guards the floor, not `lint`** (ruff flags some post-3.10 syntax from `target-version`, but is
+  not the 3.10 parser). `compileall` at 3.10 catches syntax; the import step catches annotation/`importlib.resources` failures. It uses
   `pkgutil.walk_packages` with a prefix (`iter_modules` skips subpackage modules) and asserts a module count.
 - **Only 3.10 resolves pandas 2.x**; 3.11+ get 3.x. Hence e2e runs 3.10 and 3.14. Both give identical
   row counts on every non-`huge` case.

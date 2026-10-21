@@ -166,7 +166,7 @@ covered by a dependency-install job, because foldseek has no Windows build.
 - A new case does **not** run in CI unless you edit the workflow. Adding one there spends
   runner minutes on a live-network job with a 20-minute timeout and one retry — worth it for a
   genuinely new code path, not for a variation on an existing pair.
-- Lint runs first and blocks e2e, so run `black ./ --check -l 120 && flake8` locally before
+- Lint runs first and blocks e2e, so run `ruff check . && ruff format --check .` locally before
   pushing.
 
 ## Don't

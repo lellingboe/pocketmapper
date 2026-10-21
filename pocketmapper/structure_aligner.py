@@ -472,10 +472,7 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
             PocketMapperError: If `method` is neither "pocket" nor "foldseek".
         """
         if method not in RESOLVED_ALIGN_STRUCT_METHODS:
-            msg = (
-                f"Unknown align_struct_method {method!r}. "
-                f"Choose one of: {', '.join(RESOLVED_ALIGN_STRUCT_METHODS)}."
-            )
+            msg = f"Unknown align_struct_method {method!r}. Choose one of: {', '.join(RESOLVED_ALIGN_STRUCT_METHODS)}."
             logger.critical(msg, extra=self.log_extra)
             raise PocketMapperError(msg)
         if align_count <= 0:

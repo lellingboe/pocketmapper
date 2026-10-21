@@ -17,16 +17,16 @@ jobs:
           pip install .[dev]
       - name: Lint
         run: |
-          black ./ --check -l 120
-          flake8
+          ruff check .
+          ruff format --check .
   # Every supported interpreter, cheaply: install, byte-compile, import, and run
   # the CLI's help. No network beyond PyPI and no foldseek, so this can cover the
   # whole range without multiplying the e2e job's load on wwPDB and PDBe PISA.
   #
-  # This is also the only guard on the floor. flake8 parses with whatever
-  # interpreter runs it, so `lint` at 3.12 would happily pass a 3.12-only
-  # construct (an f-string reusing its outer quote, say) that 3.10 cannot even
-  # compile. compileall at 3.10 is what catches that; the import step catches the
+  # This is also the real guard on the floor. ruff flags some newer-than-3.10
+  # syntax (an f-string reusing its outer quote, say) from its target-version,
+  # but that is a lint, not the 3.10 parser. compileall at 3.10 is what proves
+  # the package compiles there; the import step catches the
   # separate class of failure compileall cannot see -- PEP 604 `str | None` field
   # annotations and importlib.resources lookups are evaluated at import time.
   compat:
