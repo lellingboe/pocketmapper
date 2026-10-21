@@ -44,7 +44,9 @@ class Pocket:
     """
 
     # Pocket residue ids in ascending order. Not `list(residues)`: its order can differ, and it may
-    # name ids that `residues` lacks.
+    # name ids that `residues` lacks. Nothing checks the order: the two sides of a comparison are paired
+    # position by position, so misordered ids give wrong rmsd, ca_dists and transforms with no warning,
+    # while overlap counts and identities stay correct.
     res_auth_ids: list = field(default_factory=list)
     residues: dict = field(default_factory=dict)
     # CA sequence of the WHOLE chain, not of the pocket.

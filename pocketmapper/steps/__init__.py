@@ -19,7 +19,8 @@ next; inside `search` it writes none.
 Entries: every step parses the query and target entries its settings name, through
 `steps.parse.parse_job_entries`, and rejects what `parse` rejects. No step reads another's records;
 the cache and the files under `results_dir` are all the steps hand on. Every step takes the cache
-options, so a chain shares its cache by taking them from the same job file.
+options, so a chain shares its cache by taking them from the same job file. No step rewrites its
+inputs, so every step is idempotent on rerun.
 
 Defaults: an input defaults to the matching `*_path` setting (the standard file under `results_dir`
 unless the job file names another).

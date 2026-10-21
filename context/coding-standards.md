@@ -30,7 +30,8 @@
 ## Logging and errors
 Mechanism: `project-overview.md` "Logging and errors".
 - **`logger = logging.getLogger(__name__)`**; never `logging.info(...)` etc. on the root logger.
-- **`extra` is always named `log_extra`.**
+- **`extra` is always named `log_extra`.** A single-stage class sets `self.log_extra` once in `__init__`
+  and never mutates it; elsewhere build it per function. A declared `stage` is the Title Case step name.
 - **Fail with `logger.critical(...)` then `raise PocketMapperError(...)`.** No `exit()`/`sys.exit()`
   outside `cli()`.
 - **A writer into a configurable path makes its own directory**: `lib.make_dir` in the pipeline,

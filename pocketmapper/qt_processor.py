@@ -98,8 +98,9 @@ class QTProcessor:
             "whole_chain": (r"^[A-Za-z0-9]?\:?$", "a single chain and no residue list, e.g. '4Q5J:B'"),
             "pisa": (r"^[A-Za-z0-9]_[A-Za-z0-9]$", "a chain pair, e.g. '4Q5J:B_F'"),
             "passthrough": (r"^[A-Za-z0-9]\:(\d+\,?)+$", "a chain and a residue list, e.g. '4Q5J:A:10,11,12'"),
-            # The partner chain is required. A trailing residue list matches but is ignored: the
-            # contacts define the pocket.
+            # The partner chain is required: when it was optional, a forced vdw on '4Q5J:A' reached
+            # gemmi as chain None. A trailing residue list matches but is ignored: the contacts define
+            # the pocket.
             "vdw": (r"^[A-Za-z0-9]_[A-Za-z0-9](\:(\d+\,?)*)?$", "a chain pair, e.g. '4Q5J:A_B'"),
         }
 
@@ -334,7 +335,9 @@ class QTProcessor:
         struct_path = self.determine_ref_struct_path(struct_info, struct_type)
 
         # Generate a unique name for the structure: a readable stem and chain, then a hash that also covers
-        # a local file's contents, since its name says nothing about which structure it holds
+        # a local file's contents, since its name says nothing about which structure it holds. By basename
+        # alone, /dir1/structure.pdb:A and /dir2/structure.pdb:A would collide and one be silently
+        # mis-aligned. So identical copies share a name and an in-place edit gets a new one.
         input_fname = os.path.basename(struct_info).split(".")[0]
         domain_chain, _ = split_chain_info(chain_info)
         name = input_fname + "_" + domain_chain  # e.g., "P12345_A" or "1ABC_A"

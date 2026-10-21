@@ -1,207 +1,49 @@
 # Project overview
-Project implementation specifics. Cross-module and derived facts only. Anything a single docstring or comment already states appears here as a pointer to that site, never as a second copy.
+Cross-module and derived facts only. Anything one docstring or comment already states is left to that site
+and not copied here.
 
-## Pipeline
+## Where to start
 
-`cli.py` is **the only module that knows about argv or exit codes**. Subcommands: `search` plus one per
-step (`parse`, `fetch_structures`, `align`, `pockets`, `compare`, `superpose`). The steps of `search()` are in the
-`pocketmapper.py` module docstring. Parser details (`OPTIONS` table, per-command `COMMANDS` layout,
-optional query/target positionals for `search` and `parse`, optional `ENTRY...` for `fetch_structures`
-and `pockets`, every default None) are documented in
-`cli.py`. Every command takes a job file; parsed arguments are layered over it, so an unset option must
-parse to None or it would hide the job file's value.
-
-### Steps and hand-off files
-
-**No records are handed on.** Every step re-derives its records from the entries in its settings
-(`steps.parse.parse_job_entries` → `parse_entries`; fetch_structures structure-only, see Input
-grammar), in memory; what steps hand each other is the
-cache and the files below. A chain passes settings explicitly: `parse_settings.json` (or any step's
-dump) as `--job_file`; nothing in `results_dir` supplies entries or cache dirs.
-
-- **Two layers.** `steps/<step>.py` holds an entry function named after the step (job file + arguments,
-  path defaults under `results_dir`, logging, validation, temp dir) and a core function (explicit
-  paths and values, no `Settings`, no state); conventions in the `steps` package docstring.
-  `PocketMapper.search` builds `Settings`, opens the log and temp scope once, and calls every entry
-  function with `asdict(settings)` as the job file, so chained commands == `search` by construction.
-- **Hand-off files**: `failed_entries.json` (truncated by parse/search, appended by every step that
-  parses; nothing reads it back), `alignment.tsv`,
-  `pockets.json` (`write_pockets_file`/`read_pockets_file`: `version` 2, `pockets` with `null` for a record
-  given and not built, `chains` = `preprocess_name` -> pocket_ids; per-method cache files keep the plain
-  `dump_pockets` mapping), `pocket_comparison.tsv` (compare's
-  `unknown_ids.json`/`incorrect_mapping.json` go beside it).
-- **Each step skips what it cannot use and logs it** into `failed_entries.json` (reasons in the
-  `entries.failed_entry` callers). Only fetch_structures downloads entry structures; align, pockets
-  and superpose skip a missing one as `structure_not_found` (`entries.split_missing_structures`)
-  unless `fetch_missing` is 1 (`steps.fetch_structures.fetch_missing_entries`; align also a bundled
-  DB; search never sets this step-only job key). pockets lists a skipped entry `null`. No step
-  rewrites its inputs, so every step is idempotent on rerun. `QTRecord` has no `success` flag.
-- **Each failure warns once per run.** Every step re-parses, so the same rejection or missing
-  structure recurs per step. `entries.append_failed_entries` skips a `(pocket_id, reason)` already in
-  the file and `entries.report_failures` logs new ones at WARNING, repeats at DEBUG. So
-  `QTProcessor.parse_individual_qt` does not log its reason; its caller does. A component's own
-  warnings (e.g. `StructurePreprocessor`) are not deduplicated.
-- **`preprocess_name` is recomputed per step** (local files re-hashed each time), so consistency rests
-  on the inputs not changing between steps; compare's coverage check (Invariants) catches a
-  mismatch.
-- **The target side's shape replaces the old `self.` flags.** A `foldseek_db` record, always the only
-  target entry from parse, means an FSDB target. Its pocket mode comes from the alignment, not from
-  any record: `lib.fsdb_pocket_mode` gives `"pisa"` when any hit name is PDB-style, else
-  `"whole_chain"` (pockets, compare and superpose each call it). The hits' pockets and names live only
-  in `pockets.json`.
-- **Record paths are absolute**: `QTProcessor` resolves the cache dirs, an entries file, a local file
-  and a user FSDB against `work_dir`. `pocket_id`/`struct_info` stay as typed.
-- Only pockets takes `--pisa_source`. fetch_structures and align fetch no
-  PISA: the pockets step downloads it, so a pisa record whose PISA fails is aligned, then dropped as
-  `pocket_not_built`.
-
-### Input grammar
-
-`struct_info[:chain_info[:residue_info]]`, or a file of such lines. Forms: README "Input format".
-
-- A local file like `4Q5J.cif.gz:B_F` resolves to `vdw`, not `pisa` (PISA is PDB-only). This is how the
-  mixed-input e2e fixtures reach vdw.
-- **Two tables in `QTProcessor.__init__` are the whole grammar**: `pocket_methods` (method → pattern,
-  warning phrase) and `struct_type_pocket_methods` (struct type → methods, in try order).
-  `determine_pocket_method` takes the first match; `validate_pocket_method` checks every record (forced or
-  inferred) against its method's pattern, so forced and inferred cannot drift.
-- **vdw's partner chain is required.** When optional, a forced `vdw` on `4Q5J:A` reached gemmi as chain `None`.
-  Tightening is inference-neutral (`whole_chain` claims bare chains first) — verified by replaying the old
-  per-struct_type ladder against the loop over 400 generated entries.
-- **`fetch_structures` parses structure-only** (`resolve_job_structures` → `steps.parse.parse_structure_side`),
-  from positional `entries` or else the job's query and target; a side whose pocket method is
-  `foldseek_db` is forced to struct type `foldseek_db`, and an FSDB query entry or an FSDB beside other
-  targets is rejected as parse rejects it (shared `entries.reject_fsdb_query` / `check_fsdb_target`). `--out_dir` is a `QTProcessor` with all three cache dirs set to it.
-- **`parse` is a dry run**: it returns `steps.parse.entries_table` (a DataFrame) and `cli()` prints it
-  after dispatch, since the log goes to stdout too; search logs it. `parse_entries` returns failures
-  keyed by side, like `sides`, for that table. Nothing downstream reads it.
-- **`pockets ENTRY...`** parses the entries as one side (`steps.parse.parse_listed_entries`) with
-  `pocket_method`, and passes `build_pockets` no alignment, so it expands no FSDB hit; an FSDB entry
-  is skipped. `entries` is shared with fetch_structures, so either's dump replays into the other.
-- **Structure-only parse**: `QTProcessor.parse_structure` (and `process_structure_input` for a file)
-  resolves struct type and path without `build_record`, so `P12345:A_B` (no method fits) still
-  resolves. `struct_type` forces `pdb`/`alphafold` (checked against the id pattern) or `foldseek_db`
-  (`constants.STRUCT_TYPES`); a user FSDB path otherwise passes `isfile` and parses as a local file.
-- **A rejected entry is skipped, not fatal**: `parse_individual_qt` returns `(None, reason)` and parse
-  lists it in `failed_entries.json` as `invalid_entry`. `steps.parse.parse_entries` (both sides, on the
-  one-side `parse_side`, which takes an entry, a file or a list) raises only when a
-  side ends up empty or a `foldseek_db` target is not the only target entry; a `foldseek_db` query entry
-  is itself an `invalid_entry`. An unrecognised method *name* raises up front in
-  `process_qt_cmdline_input`.
-
-### Pocket shape
-
-`pockets.pocket.Pocket` declares the fields; `parse_pocket_from_struct` derives `seq_pos`/`whole_chain`.
-`residues` is keyed by author seqid string. `res_auth_ids` is not `list(residues)`: it is the ordered list
-the comparison walks (PISA seeds it from the interface; `residues` is chain order).
-
-**Every producer must emit `res_auth_ids` ascending; nothing checks.** `overlap_ids` + `superpose` pair the
-two sides position by position, so misordering gives wrong `rmsd`, `ca_dists` and transforms while
-`overlap_count` and identities stay correct — no warning. vdw/whole_chain walk the chain; pisa/passthrough sort.
-
-### Open searches
-
-A query and target on one chain share a `preprocess_name`, so some rows carry a query-only `pocket_id` in
-`target`. `StructureAligner.align_structs` filters them before target lookup (else a bare pandas
-`KeyError`). Output shape: README "Closed vs Open Search".
-
-### Foldseek-DB targets
-
-Read `context/foldseek-db-targets.md` before changing how a `foldseek_db` target is aligned, pocketed,
-superposed or renumbered, or before refreshing the bundled `human_domains` DB (its offset table must be
-refreshed with it).
-
-## Pockets
-
-`PocketFetcher.fetch_pockets` is the entry point; `steps.pockets.build_pockets` calls it on every
-non-`foldseek_db` record whose structure is on disk, lists every record given in `pockets.json`, and
-reports as `pocket_not_built` any whose `pocket_id` is missing or None in the merged dict, writing it
-`null` (checked after the merge: a later method can overwrite an earlier one with None).
-
-See `pocketmapper/pockets/CLAUDE.md` before changing pocket builders or the PISA cache layout.
-
-## Downloads
-
-See `pocketmapper/downloads/CLAUDE.md` before changing fetching, pacing, retries or caching.
+- `pocketmapper.py` module docstring: the steps of `search()` and what each writes under `results_dir`.
+- `steps/__init__.py`: each step's entry/core layers, settings layering, and how every step re-derives its
+  records from the entries (no records are handed on).
+- `cli.py`: the only module that knows about argv or exit codes; why every option defaults to None.
+- `entries.py`: `failed_entries.json`, and why each failure warns once per run.
+- `qt_processor.py`: the input grammar; the two tables in `QTProcessor.__init__` are the whole of it.
+- `pockets/CLAUDE.md`, `downloads/CLAUDE.md`: read before changing those packages.
 
 ## Invariants
 
-Breaking these gives silently wrong output. Each is documented at its code site; this is the map plus
+Breaking these gives silently wrong output. Each is explained at its code site; this is the map, plus
 checks that live nowhere else.
 
-- **`seq_pos`** — declared on `PocketResidue`, set in `parse_pocket_from_struct`, used in
-  `map_pocket_into_alignment`. Computed any other way → zero overlap, no error. Check: pocket vs itself
-  gives `overlap_count == pocket_len`. It is not the reported id; `synthesise_target_pocket` keeps
-  `seq_pos` 0-indexed while keying by UniProt position, which is what makes renumbering safe.
-- **Residue letters mirror Foldseek, not gemmi.** `constants.FOLDSEEK_AA_CODES` is Foldseek's
-  `threeToOneAA` verbatim (139 names, rest `X`). gemmi 0.7.5's `one_letter_code` disagrees on 14 (`SEC`→`U`;
-  `BAL`, `KYN`, `HZP`→`X`).
-- **Foldseek letters compare case-insensitively.** `createdb` lowercases residues with CA B-factor below
-  threshold (default 0); 4ER4, 2ER6, 2ER9 hit this wholesale. `compare_pockets` uppercases the four
-  sequence columns; `alignment.tsv` keeps Foldseek's casing.
+- **`seq_pos`**: declared on `PocketResidue`, set in `parse_pocket_from_struct`, read in
+  `map_pocket_into_alignment`. Computed any other way, it gives zero overlap and no error. Check: a pocket
+  compared with itself gives `overlap_count == pocket_len`.
+- **`res_auth_ids` ascending** in every producer (`Pocket`); nothing checks it. `pockets.json` round-trips
+  this order and `seq_pos` (`read_pockets_file`).
+- **Residue letters mirror Foldseek, not gemmi** (`constants.FOLDSEEK_AA_CODES`). They compare
+  case-insensitively (`compare_pockets`), because Foldseek lowercases some residues; 4ER4, 2ER6 and 2ER9
+  are lowercased wholesale.
 - **Every chain walk reads `first_conformer()`** (`parse_pocket_from_struct`, `vdw_pockets`,
-  `SequenceAligner`). Microheterogeneity (4Z0Y:A 252: `HS8`+`HIS`) otherwise shifts later `seq_pos` by
-  one. `test_core_10` covers it.
-- **A pocket failing `MIN_SEQ_IDENTITY` yields no rows** (goes to `incorrect_mapping.json`).
-- **`preprocess_name` is the alignment join key** (`QTProcessor.parse_individual_qt`);
-  `pockets.json` `chains` (built by `entries.preproc_to_ids` plus the FSDB hits) bridges it to
-  `pocket_id`. compare's `check_coverage` errors on an alignment name `chains` lacks (target names
-  exempt when synthesising); a `null` pocket or `[]` is a skip. A local file is hashed at parse time; editing it
-  before align leaves a stale name. **Local files are hashed with their contents**: by
-  basename, `/dir1/structure.pdb:A` and `/dir2/structure.pdb:A` collide and one is silently mis-aligned
-  (`test_core_9`, `test_local_7`). Hence identical copies share a name, in-place edits get a new one, and
-  local `4Q5J.cif.gz:B` ≠ PDB `4Q5J:B`.
-- **`chain_info` is split only by `lib.split_chain_info`.** Indexing `chain_info[0]` breaks on
-  multi-char chains; patterns reject `4Q5J:AA_BB`, but library callers bypass them.
-- **Passthrough `res_auth_ids` must all be keys of `residues`** — `passthrough_pockets` skips the entry
-  otherwise (else a `KeyError` aborts the run). Syntax and repeats are caught in
-  `QTProcessor.parse_residue_info`; a repeat would silently misalign overlap lists (wrong `pocket_len`,
-  `jaccard_index`, `rmsd`, `ca_dists`).
-- **Declared schemas**: `constants.ALIGNMENT_COLUMNS`, `pocket_comparison.POCKET_COMPARISON_COLUMNS`. New
-  columns go in the declared list.
-- **`compare_pockets` must not write to a `Pocket`.**
-- **Aligned structures are named `lib.safe_filename(query_id)`**, not by `pocket_id`; grep the
-  `MOLECULE` records instead.
-- **Two transform sources by `align_struct_method`** (see `StructureAligner` docstring). Only
-  `parse_pocket_transform` may read the pocket transform; never pass a raw `target_to_query_*` cell to gemmi.
-- **Superposition lives in `StructureAligner.align_structs`**; `steps.superpose` only derives the target
-  shape.
-- **`pockets.json` round-trips `res_auth_ids` order and `seq_pos`**; a hand-written one that gets
-  either wrong gives silently wrong overlap.
+  `SequenceAligner`), and a new walk must too. `test_core_10` covers it.
+- **`preprocess_name` is the alignment join key** (`QTProcessor.build_record`), bridged to `pocket_id` by
+  `pockets.json` `chains`. Every step recomputes it (re-hashing local files), so consistency depends on the
+  inputs not changing between steps. `steps.compare.check_coverage` catches a mismatch. `test_core_9` and
+  `test_local_7` cover local-file names.
+- **`chain_info` is split only by `lib.split_chain_info`.** `chain_info[0]` breaks on multi-character
+  chains; the patterns reject them, but library callers bypass the patterns.
 
 **Changing the comparison without changing behaviour**: capture `compare_pockets`' arguments from a real
 run and diff old vs new output. Nothing else covers it.
 
 ## Logging and errors
 
-**The package never touches the root logger.** Module loggers sit under `constants.PACKAGE_LOGGER`,
-which has a `NullHandler`.
-Handlers are added in two places, each removed in a `finally`:
-- **`cli()` adds stdout** before dispatching, because `layer_settings` can `critical` on a bad job
-  file before the log is open (inherited root WARNING lets it through).
-- **`search()` and each step add `info.log`** and set the level from `verbosity`, through the
-  `lib.log_to_file` context manager, which undoes both on exit, so a second call doesn't write into the
-  first log. The handler appends, so a chain of commands writes one log. Nested on the same file (a
-  step inside `search`), it adds no second handler, else every line is written twice. Handlers have no
-  level of their own.
-
-A library caller gets no console output unless it prints `pocketmapper.*`; `lib.format_handler` applies
-the CLI format plus `lib.StageFilter`, which fills `%(stage)s` from `funcName` when absent. Declared
-stages are Title Case step names; a function name in the stage column means none was declared. Omitting
-`extra` is fine where the function name is the best label.
-
-Single-stage classes (`StructureDownloader`, `PisaDownloader`, `StructureAligner`,
-`StructurePreprocessor`) set `self.log_extra` once and never mutate it; others build it per function. `QTProcessor`'s `.update()` in `process_qt_cmdline_input` and
-`process_structure_input` is the one deliberate exception (call-scoped side name). `PocketMapper` holds no state at all.
-
-Errors: `cli()` catches `PocketMapperError` and exits 1. Foldseek goes through `run_foldseek` so its
-failures raise it too.
-
-## Settings
-
-Read `context/settings.md` before adding or changing an option, a job key or a path setting, or how
-settings are layered, resolved or dumped. A new option goes in four hand-maintained places per command;
-miss one and it is silently ignored.
+- The package never touches the root logger: `__init__` gives `constants.PACKAGE_LOGGER` a `NullHandler`.
+- Handlers are added only in `cli()` (stdout) and `lib.log_to_file` (`info.log`, for `search` and every
+  step), each removed in a `finally`.
+- Errors go through `PocketMapperError`, which `cli()` turns into exit 1. Foldseek runs through
+  `run_foldseek` so its failures raise it too.
 
 ## Python versions
 
@@ -211,8 +53,9 @@ classifiers, `[tool.ruff] target-version`, README Installation; CI `compat` matr
 - **Floor is 3.10**: `match` statements, PEP 604 dataclass annotations (no `from __future__ import
   annotations`), and biopython itself.
 - **`compat` guards the floor, not `lint`** (ruff flags some post-3.10 syntax from `target-version`, but is
-  not the 3.10 parser). `compileall` at 3.10 catches syntax; the import step catches annotation/`importlib.resources` failures. It uses
-  `pkgutil.walk_packages` with a prefix (`iter_modules` skips subpackage modules) and asserts a module count.
+  not the 3.10 parser). `compileall` at 3.10 catches syntax; the import step catches
+  annotation/`importlib.resources` failures. It uses `pkgutil.walk_packages` with a prefix (`iter_modules`
+  skips subpackage modules) and asserts a module count.
 - **Only 3.10 resolves pandas 2.x**; 3.11+ get 3.x. Hence e2e runs 3.10 and 3.14. Both give identical
   row counts on every non-`huge` case.
 
@@ -221,19 +64,14 @@ classifiers, `[tool.ruff] target-version`, README Installation; CI `compat` matr
 - No unit tests; `tests/e2e/` is the whole suite (`pocketmapper-e2e` skill).
 - **Deliberately wrong fixture lines — don't fix them:** `invalid_residues.txt` line 2 (`4Q5J:A:9999`,
   `test_invalid_1`, asserted `pocket_not_built`); `forced_pisa_mixed.txt` line 2 (`4Q5J:A`, no partner;
-  `test_invalid_8`, asserted `invalid_entry`); `fsdb_mixed_target.txt` (a DB beside a structure, also via `job_file_fsdb_mixed.json` in `test_steps_22`;
-  `test_steps_11`).
+  `test_invalid_8`, asserted `invalid_entry`); `fsdb_mixed_target.txt` (a DB beside a structure, also via
+  `job_file_fsdb_mixed.json` in `test_steps_22`; `test_steps_11`).
 - **`fixtures/job_file.json` must never set a path** (the runner's `--results_dir` would not move it, so
   the case would write outside its dir). Its `align_count: 3` vs `test_settings_2`'s `5` shows priority
   only in `job_settings.json` (5 wins) — check by hand.
 - **Delete `build/` before building or testing a wheel.** Stale, gitignored, but setuptools reuses
   `build/lib/`, so `pip install .` ships dead modules (`align.py`, `local_aligner.py`, a 3.12-only
   `pisa.py`, top-level `structure_fetcher.py`/`pisa_downloader.py` shadowing `downloads/`). Never edit it.
-- `StructurePreprocessor` caches on `<foldseek_preprocessed_structure_dir>/<preprocess_name>.cif.gz`
-  existing and writes its own `.part`;
-  `StructureDownloader` uses each record's `struct_path` and `lib_download`'s `.part`.
-- **`StructureDownloader` makes a destination's parent directory** just before downloading into it;
-  one it cannot make surfaces as `structure_not_found`.
 
 ## As a library
 
@@ -242,19 +80,9 @@ classifiers, `[tool.ruff] target-version`, README Installation; CI `compat` matr
 `sequence_aligner`, `structure_aligner`, `foldseek`). No component or step takes a `Settings`; the
 entry functions take its dict as `job_file`.
 
-- **Records come from `steps.parse.parse_entries`** (query, target, both pocket methods, a dict
-  holding the cache dirs, `work_dir`): the side checks parse makes, no files. `parse_side` takes one
-  side as an entry, an entries file or a list.
+- **Records come from `steps.parse.parse_entries`**: the side checks parse makes, with no files written.
 - **Superposition can be deferred**: `search(align_count=0)`, then
   `steps.superpose.superpose(job_file=settings)`, or `StructureAligner.align_structs` with
   `parse_entries` of the returned settings (FSDB targets also need `fsdb_path`; `steps.superpose`
-  derives it). Records point at
-  `pdb_dir`/`alphafold_dir`, which temp deletion never touches. `query_ids`/`target_ids`/`overwrite`
-  exist for batching this.
-- `__init__` exports only `PocketMapper` and `__version__`; always import submodules explicitly.
-- `search(job_file=...)` needs no query/target if the file sets them; both ways is rejected.
-- **`search()` side effects**: logger level + `info.log` handler for the call; empties `temp_dir` on
-  entry and `rmtree`s it at the end unless `delete_tmp=0`. Both guarded by `lib.is_within` (under
-  `cache_dir` or `results_dir`) — a safety net, not a licence. `fetch_structures` and `align` do the same with
-  their own `temp_dir` when called outside `search`.
-- Returns only resolved `Settings` as a dict; results are in `pocket_comparison.tsv` / `alignment.tsv`.
+  derives it). Records point at `pdb_dir`/`alphafold_dir`, which temp deletion never touches.
+  `query_ids`/`target_ids`/`overwrite` exist for batching this.
