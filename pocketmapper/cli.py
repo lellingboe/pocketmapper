@@ -26,6 +26,7 @@ import argparse
 import logging
 import sys
 
+from pocketmapper import __version__
 from pocketmapper.constants import (
     CLI_COMMAND_EPILOGS,
     DEFAULT_ALIGN_COUNT,
@@ -626,6 +627,7 @@ def build_parser():
         prog="pocketmapper",
         description="PocketMapper - compare the binding surfaces of protein-protein interactions.",
     )
+    parser.add_argument("-V", "--version", action="version", version=f"pocketmapper {__version__}")
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
 
     for command, (description, groups) in COMMANDS.items():

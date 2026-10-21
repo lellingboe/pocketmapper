@@ -40,6 +40,8 @@ brew install foldseek
 
 Foldseek also has precompiled binaries available at <https://dev.mmseqs.com/foldseek/>.
 
+Check the installed version with `pocketmapper --version`.
+
 ## Usage
 
 ```bash
