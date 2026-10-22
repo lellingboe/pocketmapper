@@ -44,7 +44,7 @@ static default: `lib.settings.SETTING_DEFAULTS` (from `lib.constants.DEFAULT_*`,
 Signature and parser defaults are all None. Path defaults are `lib.settings.CACHE_PATH_DEFAULTS` /
 `RESULTS_PATH_DEFAULTS` (`cache_path`, `results_path`). `cli()` passes parsed args straight through its
 dispatch table, so there is no kwarg block. Miss one → argparse fails or the option is silently
-ignored. Check, per command: `inspect.signature(steps.<x>.<x>)` == subparser `_actions` dests; for
+ignored. Check, per command: `inspect.signature(<step>.step.<command>)` == subparser `_actions` dests; for
 search also `dataclasses.fields(Settings)` == signature == `arguments` keys (modulo `job_file`);
 `SETTING_DEFAULTS` keys ⊆ `JOB_KEYS`.
 

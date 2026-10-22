@@ -1,9 +1,7 @@
 """
 PocketMapper: map and compare binding pockets across protein structures.
 
-`PocketMapper.search()` is the whole workflow. It resolves its settings, then runs the steps in order.
-Each step parses the query and target entries again from the same settings; what they hand each other is
-the cache and the files under `results_dir`:
+`PocketMapper.search()` is the whole workflow. It resolves its settings, then runs the steps in order:
 
 1. `configure_workflow` -> arguments over job file; `resolve_settings` -> Settings, job_settings.json.
 2. `parse.step` -> every entry checked before anything is fetched; failed_entries.json started
@@ -13,16 +11,37 @@ the cache and the files under `results_dir`:
 5. `pockets.step` -> PISA interfaces into the cache, then pockets.json. Against a PDB Foldseek
    database, also a pisa pocket per interface of each hit. The Pocket shape itself is declared in
    `pockets/pocket.py`.
-6. `steps.compare` -> pocket_comparison.tsv.
-7. `steps.superpose` -> the top align_count targets per query, superposed into aligned_structures/.
+6. `compare.step` -> pocket_comparison.tsv.
+7. `superpose.step` -> the top align_count targets per query, superposed into aligned_structures/.
 
-Each step skips what it cannot use and lists it, with the reason, in failed_entries.json. `search`
-calls each step's entry function with its resolved Settings as the job file, so each step also runs
-on its own, the same way; see `pocketmapper.steps`.
+Each step skips what it cannot use and lists it, with the reason, in failed_entries.json.
 
-This is the only module that builds a `Settings`. Steps take a job dict keyed by its field names,
-and components are handed the individual values they need, so none of them has to build one to be
-usable on its own.
+Steps: each step is a package, and `pocketmapper.<step>.step` holds its two layers. The entry function,
+named after the step's command (`parse`, `fetch_structures`, `align`, `pockets`, `compare`, `superpose`),
+is what the CLI and `search` call: it layers its settings, resolves its path defaults under
+`results_dir`, logs to `log_path` for the length of the call, validates its settings, manages its scratch
+directory and calls the core function. `search` calls it with its resolved Settings as the job file, so
+each step also runs on its own, the same way. The core function takes explicit paths and values, keeps no
+state between calls, and takes records in memory, never a records file.
+
+Settings: an argument given beats the job file (a JSON path, or the same already loaded as a dict), which
+beats `lib.settings.SETTING_DEFAULTS`. A job file keyed by job keys, such as a run's job_settings.json,
+works as-is; it names every path, so an argument moves only the path it names. An input defaults to the
+matching `*_path` setting (the standard file under `results_dir` unless the job file names another).
+`results_dir` is required, as an argument or in the job file, by every step but `parse` and
+`fetch_structures`, which without one write nothing but what is given a path of its own. Run on its own,
+each step writes its settings to `<results_dir>/<command>_settings.json`, a job file for the next; inside
+`search` it writes none.
+
+Entries: every step parses the query and target entries its settings name, through
+`parse.step.parse_job_entries`, and rejects what `parse` rejects. No step reads another's records; the
+cache and the files under `results_dir` are all the steps hand on. Every step takes the cache options, so
+a chain shares its cache by taking them from the same job file. No step rewrites its inputs, so every
+step is idempotent on rerun.
+
+This is the only module that builds a `Settings`. Entry functions take a job dict keyed by its field
+names; core functions and components take only the individual values they need, never a `Settings`, so
+none of them has to build one to be usable on its own.
 
 Author: Lachlan Ellingboe
 """
@@ -32,6 +51,7 @@ import logging
 from dataclasses import asdict, fields
 
 from pocketmapper.align.step import align
+from pocketmapper.compare.step import compare
 from pocketmapper.fetch.step import fetch_structures
 from pocketmapper.lib.entries import fsdb_record
 from pocketmapper.lib.logs import log_to_file
@@ -53,8 +73,7 @@ from pocketmapper.lib.settings import (
 )
 from pocketmapper.parse.step import parse, parse_job_entries
 from pocketmapper.pockets.step import pockets
-from pocketmapper.steps.compare import compare
-from pocketmapper.steps.superpose import superpose
+from pocketmapper.superpose.step import superpose
 
 logger = logging.getLogger(__name__)
 

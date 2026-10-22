@@ -25,7 +25,7 @@ from pocketmapper.lib.settings import (
 )
 from pocketmapper.parse.step import parse_job_entries
 from pocketmapper.pockets.pocket_fetcher import read_pockets_file
-from pocketmapper.structure_aligner import StructureAligner
+from pocketmapper.superpose.structure_aligner import StructureAligner
 
 logger = logging.getLogger(__name__)
 

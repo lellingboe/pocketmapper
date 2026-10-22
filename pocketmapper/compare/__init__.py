@@ -1,5 +1,5 @@
 """
-Comparing pockets: scoring the overlap of two pockets mapped onto a shared alignment.
+The compare step: scoring the overlap of each aligned query/target pair's pockets on their alignment.
 
 Nothing is re-exported -- import the modules directly, as `from pocketmapper.compare.<module> import <name>`.
 """

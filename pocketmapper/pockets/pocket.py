@@ -5,7 +5,7 @@ This module imports nothing, for the same reason `lib/constants.py` gives: a sha
 and one consumer must agree on belongs beside none of them. `structure` builds a Pocket from a
 structure, `pisa` and `vdw` from interface data and coordinates respectively,
 and `pocket_comparison` synthesises one for a Foldseek-database hit -- all four then hand the same
-thing to `pocket_comparison.compare_pockets`.
+thing to `compare.pocket_comparison.compare_pockets`.
 
 Every field carries a default. A producer that legitimately cannot fill one -- a PISA pocket before
 `structure.parse_pocket_from_struct` enriches it, a synthesised database pocket with no

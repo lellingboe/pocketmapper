@@ -11,9 +11,9 @@ and not copied here.
 
 ## Where to start
 
-- `pocketmapper.py` module docstring: the steps of `search()` and what each writes under `results_dir`.
-- `steps/__init__.py`: each step's entry/core layers, settings layering, and how every step re-derives its
-  records from the entries (no records are handed on).
+- `pocketmapper.py` module docstring: the steps of `search()` and what each writes under `results_dir`;
+  each step's entry/core layers, settings layering, and how every step re-derives its records from the
+  entries (no records are handed on).
 - `cli.py`: the only module that knows about argv or exit codes; why every option defaults to None.
 - `lib/entries.py`: `failed_entries.json`, and why each failure warns once per run.
 - `parse/qt_processor.py`: the input grammar; the two tables in `QTProcessor.__init__` are the whole of it.
@@ -36,7 +36,7 @@ checks that live nowhere else.
   `SequenceAligner`), and a new walk must too. `test_core_10` covers it.
 - **`preprocess_name` is the alignment join key** (`QTProcessor.build_record`), bridged to `pocket_id` by
   `pockets.json` `chains`. Every step recomputes it (re-hashing local files), so consistency depends on the
-  inputs not changing between steps. `steps.compare.check_coverage` catches a mismatch. `test_core_9` and
+  inputs not changing between steps. `compare.step.check_coverage` catches a mismatch. `test_core_9` and
   `test_local_7` cover local-file names.
 - **`chain_info` is split only by `lib.residues.split_chain_info`.** `chain_info[0]` breaks on multi-character
   chains; the patterns reject them, but library callers bypass the patterns.
@@ -82,15 +82,14 @@ classifiers, `[tool.ruff] target-version`, README Installation; CI `compat` matr
 
 ## As a library
 
-`PocketMapper().search(...)`, a step's entry or core function in `parse.step`, `fetch.step`, `align.step`,
-`pockets.step` or `steps`, or any component directly (`parse.qt_processor`, `fetch.structure_downloader`,
-`pockets.pisa_downloader`, `align.structure_preprocessor`, `pockets.pocket_fetcher` or one builder,
-`align.sequence_aligner`, `structure_aligner`, `lib.foldseek`). No component or step takes a `Settings`; the
-entry functions take its dict as `job_file`.
+`PocketMapper().search(...)`, a step's entry or core function in `<step>.step`, or any component directly
+(`parse.qt_processor`, `fetch.structure_downloader`, `pockets.pisa_downloader`, `align.structure_preprocessor`,
+`pockets.pocket_fetcher` or one builder, `align.sequence_aligner`, `superpose.structure_aligner`,
+`lib.foldseek`). No component or step takes a `Settings`; the entry functions take its dict as `job_file`.
 
 - **Records come from `parse.step.parse_entries`**: the side checks parse makes, with no files written.
 - **Superposition can be deferred**: `search(align_count=0)`, then
-  `steps.superpose.superpose(job_file=settings)`, or `StructureAligner.align_structs` with
-  `parse_entries` of the returned settings (FSDB targets also need `fsdb_path`; `steps.superpose`
+  `superpose.step.superpose(job_file=settings)`, or `StructureAligner.align_structs` with
+  `parse_entries` of the returned settings (FSDB targets also need `fsdb_path`; `superpose.step`
   derives it). Records point at `pdb_dir`/`alphafold_dir`, which temp deletion never touches.
   `query_ids`/`target_ids`/`overwrite` exist for batching this.

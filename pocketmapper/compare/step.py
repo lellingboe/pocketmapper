@@ -9,6 +9,7 @@ from importlib.resources import files
 
 import pandas as pd
 
+from pocketmapper.compare.pocket_comparison import compare_pockets
 from pocketmapper.lib.entries import fsdb_record, require_file
 from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.files import jsonify_dict, make_dir
@@ -17,7 +18,6 @@ from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope
 from pocketmapper.lib.settings import dump_settings, input_path, layer_settings, require_setting, resolve_paths
 from pocketmapper.parse.step import parse_job_entries
-from pocketmapper.pocket_comparison import compare_pockets
 from pocketmapper.pockets.pocket_fetcher import read_pockets_file
 
 logger = logging.getLogger(__name__)

@@ -9,7 +9,7 @@ rebuilds the superpose selection via `createsubdb` + `convert2pdb`.
 - **`createsubdb` rejects `--threads`** (exits non-zero); it is the only one of the five subcommands that
   does. Hence `run_foldseek` adds no flags; each caller builds its own list.
 - `align_structs` interprets target ids once per call: given target records → `pocket_id`s mapped through
-  `preprocess_name` (PDB DB; `steps.superpose` builds them from `pockets.json` `chains`, hit names in
+  `preprocess_name` (PDB DB; `superpose.step` builds them from `pockets.json` `chains`, hit names in
   alignment order); none → entry names (other DBs). So `fsdb_structures/` never mixes the two.
 - Target pocket: `pockets.step.expand_fsdb_pdb_targets` (PDB DB; needs `--alignment`, an FSDB target
   without one is an error) or `synthesise_target_pocket` (other). **Every hit of a PDB DB is a
@@ -24,7 +24,7 @@ rebuilds the superpose selection via `createsubdb` + `convert2pdb`.
   in search before the download and in superpose); `--aligner seq` likewise (`check_fsdb_aligner`, search
   and align).
 
-**UniProt renumbering** (`offset_table.tsv`; resolved in `steps.compare`, applied in
+**UniProt renumbering** (`offset_table.tsv`; resolved in `compare.step`, applied in
 `synthesise_target_pocket`):
 - Only bundled `human_domains`, looked up by resolved DB path in `lib.foldseek.bundled_offset_table`. User
   DBs keep 0-indexed positions, logged at INFO.

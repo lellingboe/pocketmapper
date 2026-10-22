@@ -404,7 +404,7 @@ Populated only when both pockets have coordinates and at least three residues ov
 
 The rotation matrices are stored in Biopython's right-multiplying convention
 (`coords · u + t`). If you feed one to gemmi, which left-multiplies, transpose it first — or use
-`pocketmapper.pocket_comparison.parse_pocket_transform`, which does the conversion for you.
+`pocketmapper.compare.pocket_comparison.parse_pocket_transform`, which does the conversion for you.
 
 ### Examples
 
@@ -487,13 +487,12 @@ which needs no binary but produces no whole-chain transform and cannot search a 
 
 **Using PocketMapper as a library.** `PocketMapper().search(...)` runs the same workflow as the CLI and
 writes the same files; results come back through `results_dir`, not as a return value. Each step
-command is a function (`pocketmapper.parse.step.parse`, `pocketmapper.fetch.step.fetch_structures`,
-`pocketmapper.align.step.align`, `pocketmapper.pockets.step.pockets`, or `pocketmapper.steps.<step>.<step>`
-for the rest), taking its CLI options as keyword arguments;
-its `job_file` also takes a dict, such as the settings `search()` returns. The
-individual components (`parse.qt_processor`, `fetch.structure_downloader`, `pockets.pisa_downloader`,
-`align.sequence_aligner`, `structure_aligner`, `pockets.pocket_fetcher`, ...) are each usable on their own.
-Note that `search()` deletes its temporary directories on the way out.
+command is a function, `pocketmapper.<step>.step.<command>` (such as `pocketmapper.align.step.align`;
+`fetch_structures` is `pocketmapper.fetch.step.fetch_structures`), taking its CLI options as keyword
+arguments; its `job_file` also takes a dict, such as the settings `search()` returns. The individual
+components (`parse.qt_processor`, `fetch.structure_downloader`, `pockets.pisa_downloader`,
+`align.sequence_aligner`, `superpose.structure_aligner`, `pockets.pocket_fetcher`, ...) are each usable on
+their own. Note that `search()` deletes its temporary directories on the way out.
 
 Logging goes through the `pocketmapper` logger and never touches the root logger, so your own logging
 setup decides what is shown. `search()` still writes `info.log` and sets the `pocketmapper` logger's level
@@ -502,16 +501,16 @@ from `verbosity` for the length of the call. For the CLI's console format, use
 `logging.getLogger("pocketmapper")`.
 
 The last step is the one you can defer: run with `align_count=0` and no aligned structures are written,
-then run `pocketmapper.steps.superpose.superpose(job_file=settings)`. For finer control, hand
+then run `pocketmapper.superpose.step.superpose(job_file=settings)`. For finer control, hand
 `StructureAligner.align_structs` the run's entries, parsed by `pocketmapper.parse.step.parse_entries`,
 and its result files: it takes `query_ids` and
 `target_ids` to superpose only part of the run, and `overwrite=False` to leave alone what it has already
-written. (Against a Foldseek database target it also needs `fsdb_path`; `steps.superpose` handles that.)
+written. (Against a Foldseek database target it also needs `fsdb_path`; `superpose.step` handles that.)
 
 ```python
 from pocketmapper import PocketMapper
 from pocketmapper.parse.step import parse_entries
-from pocketmapper.structure_aligner import StructureAligner
+from pocketmapper.superpose.structure_aligner import StructureAligner
 
 settings = PocketMapper().search("4Q5J:A_E", "4Q5J:B_F", align_count=0, results_dir="results")
 sides, _ = parse_entries(
