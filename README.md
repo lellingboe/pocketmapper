@@ -58,7 +58,7 @@ chain E of the same entry. Under the hood, one `search` run:
 4. Aligns the query and target chains with Foldseek or the local BLOSUM62 aligner.
 5. Projects both pockets onto that alignment, scores their overlap, and superposes them on their shared
    residues.
-6. Writes `alignment.tsv`, `pocket_comparison.tsv` and the auxiliary JSON files into `--results_dir`, and
+6. Writes `alignment.tsv`, `pocket_comparison.tsv` and the auxiliary files into `--results_dir`, and
    superposed structures for the top hits into `aligned_structures/`.
 
 Downloads are cached in `--cache_dir`, so a second run over the same structures is fast. Each of these
@@ -494,25 +494,19 @@ from `verbosity` for the length of the call. For the CLI's console format, use
 
 The last step is the one you can defer: run with `align_count=0` and no aligned structures are written,
 then run `pocketmapper.superpose.step.superpose(job_file=settings)`. For finer control, hand
-`StructureAligner.align_structs` the run's entries, parsed by `pocketmapper.parse.step.parse_entries`,
-and its result files: it takes `query_ids` and
-`target_ids` to superpose only part of the run, and `overwrite=False` to leave alone what it has already
-written. (Against a Foldseek database target it also needs `fsdb_path`; `superpose.step` handles that.)
+`StructureAligner.align_structs` the run's records, read from its `entries.tsv` with
+`pocketmapper.lib.entries.entry_sides(pocketmapper.lib.entries.read_entries(path))`, and its result
+files: it takes `query_ids` and `target_ids` to superpose only part of the run, and `overwrite=False` to
+leave alone what it has already written. (Against a Foldseek database target it also needs `fsdb_path`;
+`superpose.step` handles that.)
 
 ```python
 from pocketmapper import PocketMapper
-from pocketmapper.parse.step import parse_entries
+from pocketmapper.lib.entries import entry_sides, read_entries
 from pocketmapper.superpose.structure_aligner import StructureAligner
 
 settings = PocketMapper().search("4Q5J:A_E", "4Q5J:B_F", align_count=0, results_dir="results")
-sides, _ = parse_entries(
-    settings["query"],
-    settings["target"],
-    settings["query_pocket_method"],
-    settings["target_pocket_method"],
-    settings,  # the cache directories
-    settings["work_dir"],
-)
+sides = entry_sides(read_entries(settings["entries_path"]))
 
 StructureAligner().align_structs(
     query_records=sides["query"],

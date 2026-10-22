@@ -12,10 +12,11 @@ and not copied here.
 ## Where to start
 
 - `search.py` module docstring: the steps of `search()` and what each writes under `results_dir`;
-  each step's entry/core layers, settings layering, and how every step re-derives its records from the
-  entries (no records are handed on).
+  each step's entry/core layers, settings layering, and how every later step reads its records from
+  `entries.tsv` (no records are handed on in memory).
 - `cli.py`: the only module that knows about argv or exit codes; why every option defaults to None.
-- `lib/entries.py`: `failed_entries.json`, and why each failure warns once per run.
+- `lib/entries.py`: `entries.tsv`, why a dropped entry warns only once, and why a rerun step gives the same
+  table.
 - `parse/qt_processor.py`: the input grammar; the two tables in `QTProcessor.__init__` are the whole of it.
 - `pockets/CLAUDE.md`, `lib/CLAUDE.md`: read before changing those packages.
 
@@ -35,9 +36,10 @@ checks that live nowhere else.
 - **Every chain walk reads `first_conformer()`** (`parse_pocket_from_struct`, `vdw_pockets`,
   `SequenceAligner`), and a new walk must too. `test_core_10` covers it.
 - **`preprocess_name` is the alignment join key** (`QTProcessor.build_record`), bridged to `pocket_id` by
-  `pockets.json` `chains`. Every step recomputes it (re-hashing local files), so consistency depends on the
-  inputs not changing between steps. `compare.step.check_coverage` catches a mismatch. `test_core_9` and
-  `test_local_7` cover local-file names.
+  `pockets.json` `chains`. Only parse computes it (hashing local files); later steps read it from
+  `entries.tsv`, so `align` and `pockets` must run on the same table, and a caller that re-runs
+  `parse_entries` needs unchanged inputs. `compare.step.check_coverage` catches a mismatch. `test_core_9`
+  and `test_local_7` cover local-file names.
 - **`chain_info` is split only by `lib.residues.split_chain_info`.** `chain_info[0]` breaks on multi-character
   chains; the patterns reject them, but library callers bypass the patterns.
 
@@ -88,8 +90,10 @@ classifiers, `[tool.ruff] target-version`, README Installation; CI `compat` matr
 `lib.foldseek`). No component or step takes a `Settings`; the entry functions take its dict as `job_file`.
 
 - **Records come from `parse.step.parse_entries`**: the side checks parse makes, with no files written.
+  A finished run's own records, its dropped entries left out, are
+  `lib.entries.entry_sides(lib.entries.read_entries(entries_path))`.
 - **Superposition can be deferred**: `search(align_count=0)`, then
-  `superpose.step.superpose(job_file=settings)`, or `StructureAligner.align_structs` with
-  `parse_entries` of the returned settings (FSDB targets also need `fsdb_path`; `superpose.step`
-  derives it). Records point at `pdb_dir`/`alphafold_dir`, which temp deletion never touches.
+  `superpose.step.superpose(job_file=settings)`, or `StructureAligner.align_structs` with the records of
+  the run's `entries.tsv`, as above (FSDB targets also need `fsdb_path`; `superpose.step` derives it).
+  Records point at `pdb_dir`/`alphafold_dir`, which temp deletion never touches.
   `query_ids`/`target_ids`/`overwrite` exist for batching this.
