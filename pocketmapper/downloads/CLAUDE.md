@@ -3,13 +3,11 @@
 Cross-module facts about `downloads/`, moved out of `context/project-overview.md` so they load only
 when working here.
 
-`downloads/` holds what fetches bytes over HTTP, and nothing else. `lib/foldseek.py` and
-`steps.fetch_structures.fetch_missing_fsdb` stay outside it: they download a database by shelling out to the
-`foldseek` binary, so they share none of the machinery here, and moving them would split `lib/foldseek.py`
-away from `check_foldseek` and `bundled_foldseek_dbs`, which `qt_processor` imports for reasons
-unrelated to downloading.
+`downloads/` holds the PISA downloader. The structure downloader is `fetch/structure_downloader.py`, and the
+HTTP helpers both use are `lib/download.py`. `lib/foldseek.py` and `fetch.step.fetch_missing_fsdb` use none
+of those helpers: they download a database by shelling out to the `foldseek` binary.
 
-`lib_download` offers **two entry points, not one**, because the two things the package fetches differ
+`lib.download` offers **two entry points, not one**, because the two kinds of thing it fetches differ
 in every operational respect. `download_file` is for bulk structure files: unpaced, stateless, and
 called from `download_missing_structures`' pool. `download_api` is for REST endpoints: it
 paces its requests and, on a transient failure, doubles that host's pacing and never lowers it
@@ -17,7 +15,7 @@ again. Both write through a `.part` file and share one retry test.
 
 Four consequences no single file states:
 
-- **The download pool ignores `--threads`, on purpose.** `steps.fetch_structures.fetch_missing_structures` builds
+- **The download pool ignores `--threads`, on purpose.** `fetch.step.fetch_missing_structures` builds
   `StructureDownloader` with its default width, `DOWNLOAD_WORKERS` (8), so `--threads` governs Foldseek
   alone. A worker here waits on a socket rather than on a core, so a thread count says nothing useful
   about how wide the pool should be. A library caller can still pass its own `max_workers`.

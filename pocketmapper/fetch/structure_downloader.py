@@ -11,13 +11,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tqdm import tqdm
 
-from pocketmapper.downloads.lib_download import download_file
+from pocketmapper.lib.download import DOWNLOAD_WORKERS, download_file
 from pocketmapper.lib.files import gzip_file
 
 logger = logging.getLogger(__name__)
-
-# Default pool width. Fixed rather than tied to a thread count: a worker waits on a socket, not on a core.
-DOWNLOAD_WORKERS = 8
 
 
 class StructureDownloader:

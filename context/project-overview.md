@@ -16,7 +16,7 @@ and not copied here.
   records from the entries (no records are handed on).
 - `cli.py`: the only module that knows about argv or exit codes; why every option defaults to None.
 - `lib/entries.py`: `failed_entries.json`, and why each failure warns once per run.
-- `qt_processor.py`: the input grammar; the two tables in `QTProcessor.__init__` are the whole of it.
+- `parse/qt_processor.py`: the input grammar; the two tables in `QTProcessor.__init__` are the whole of it.
 - `pockets/CLAUDE.md`, `downloads/CLAUDE.md`: read before changing those packages.
 
 ## Invariants
@@ -82,12 +82,13 @@ classifiers, `[tool.ruff] target-version`, README Installation; CI `compat` matr
 
 ## As a library
 
-`PocketMapper().search(...)`, a step's entry or core function in `steps`, or any component directly
-(`qt_processor`, `downloads.*`, `structure_preprocessor`, `pockets.pocket_fetcher` or one builder,
-`sequence_aligner`, `structure_aligner`, `lib.foldseek`). No component or step takes a `Settings`; the
+`PocketMapper().search(...)`, a step's entry or core function in `parse.step`, `fetch.step` or `steps`, or
+any component directly (`parse.qt_processor`, `fetch.structure_downloader`, `downloads.*`,
+`structure_preprocessor`, `pockets.pocket_fetcher` or one builder, `sequence_aligner`, `structure_aligner`,
+`lib.foldseek`). No component or step takes a `Settings`; the
 entry functions take its dict as `job_file`.
 
-- **Records come from `steps.parse.parse_entries`**: the side checks parse makes, with no files written.
+- **Records come from `parse.step.parse_entries`**: the side checks parse makes, with no files written.
 - **Superposition can be deferred**: `search(align_count=0)`, then
   `steps.superpose.superpose(job_file=settings)`, or `StructureAligner.align_structs` with
   `parse_entries` of the returned settings (FSDB targets also need `fsdb_path`; `steps.superpose`

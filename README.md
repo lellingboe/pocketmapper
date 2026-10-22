@@ -487,9 +487,10 @@ which needs no binary but produces no whole-chain transform and cannot search a 
 
 **Using PocketMapper as a library.** `PocketMapper().search(...)` runs the same workflow as the CLI and
 writes the same files; results come back through `results_dir`, not as a return value. Each step
-command is a function, `pocketmapper.steps.<step>.<step>`, taking its CLI options as keyword arguments;
+command is a function (`pocketmapper.parse.step.parse`, `pocketmapper.fetch.step.fetch_structures`, or
+`pocketmapper.steps.<step>.<step>` for the rest), taking its CLI options as keyword arguments;
 its `job_file` also takes a dict, such as the settings `search()` returns. The
-individual components (`qt_processor`, `downloads.structure_downloader`, `downloads.pisa_downloader`,
+individual components (`parse.qt_processor`, `fetch.structure_downloader`, `downloads.pisa_downloader`,
 `sequence_aligner`, `structure_aligner`, `pockets.pocket_fetcher`, ...) are each usable on their own.
 Note that `search()` deletes its temporary directories on the way out.
 
@@ -501,14 +502,14 @@ from `verbosity` for the length of the call. For the CLI's console format, use
 
 The last step is the one you can defer: run with `align_count=0` and no aligned structures are written,
 then run `pocketmapper.steps.superpose.superpose(job_file=settings)`. For finer control, hand
-`StructureAligner.align_structs` the run's entries, parsed by `pocketmapper.steps.parse.parse_entries`,
+`StructureAligner.align_structs` the run's entries, parsed by `pocketmapper.parse.step.parse_entries`,
 and its result files: it takes `query_ids` and
 `target_ids` to superpose only part of the run, and `overwrite=False` to leave alone what it has already
 written. (Against a Foldseek database target it also needs `fsdb_path`; `steps.superpose` handles that.)
 
 ```python
 from pocketmapper import PocketMapper
-from pocketmapper.steps.parse import parse_entries
+from pocketmapper.parse.step import parse_entries
 from pocketmapper.structure_aligner import StructureAligner
 
 settings = PocketMapper().search("4Q5J:A_E", "4Q5J:B_F", align_count=0, results_dir="results")

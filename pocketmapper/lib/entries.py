@@ -3,7 +3,7 @@ What the steps share about parsed entries and the ones they skip: the failed-ent
 over QTRecord dicts.
 
 No step hands another its records: each re-derives them from the entries
-(`steps.parse.parse_entries`). `failed_entries.json` collects every entry a step left out, with the
+(`parse.step.parse_entries`). `failed_entries.json` collects every entry a step left out, with the
 reason; nothing reads it back. Only failures reported through `report_failures` are deduplicated
 across steps; a component's own warnings (e.g. `StructurePreprocessor`'s) repeat in every step that
 meets them.

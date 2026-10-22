@@ -24,7 +24,7 @@ from pocketmapper.lib.files import make_dir
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope
 from pocketmapper.lib.settings import dump_settings, layer_settings, require_setting, resolve_paths
-from pocketmapper.qt_processor import QTProcessor
+from pocketmapper.parse.qt_processor import QTProcessor
 
 logger = logging.getLogger(__name__)
 

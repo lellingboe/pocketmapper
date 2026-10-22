@@ -27,6 +27,7 @@ import logging
 import sys
 
 from pocketmapper import __version__
+from pocketmapper.fetch.step import fetch_structures
 from pocketmapper.lib.constants import (
     CLI_COMMAND_EPILOGS,
     DEFAULT_ALIGN_COUNT,
@@ -43,11 +44,10 @@ from pocketmapper.lib.constants import (
 )
 from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.logs import format_handler
+from pocketmapper.parse.step import parse
 from pocketmapper.pocketmapper import PocketMapper
 from pocketmapper.steps.align import align
 from pocketmapper.steps.compare import compare
-from pocketmapper.steps.fetch_structures import fetch_structures
-from pocketmapper.steps.parse import parse
 from pocketmapper.steps.pockets import pockets
 from pocketmapper.steps.superpose import superpose
 

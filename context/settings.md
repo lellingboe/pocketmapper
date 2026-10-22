@@ -58,7 +58,7 @@ directory is made up front, by `lib.logs.log_to_file` (the file handler opens at
 not make its directory fails once a path option points elsewhere.
 
 **`temp_dir` is one option, three dirs** (`query_structures/`, `target_structures/`, `foldseek_tmp/`),
-named in `steps/align.py` (all three) and `steps/fetch_structures.py` (`foldseek_tmp/`, for a DB download). The two
+named in `steps/align.py` (all three) and `fetch/step.py` (`foldseek_tmp/`, for a DB download). The two
 structure dirs are made in `foldseek_preprocessing`, `foldseek_tmp/` before each Foldseek call that uses
 it (MMseqs2 makes only one level of tmp dir), so a `seq` run makes none. Ownership is
 `lib.scopes.temp_dir_scope` (search, fetch_structures, align): emptied on entry so reruns can't feed `createdb`

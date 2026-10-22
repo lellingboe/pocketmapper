@@ -1,14 +1,14 @@
 """
 PocketMapper: map and compare binding pockets across protein structures.
 
-`PocketMapper.search()` is the whole workflow. It resolves its settings, then runs the steps in
-`pocketmapper.steps` in order. Each step parses the query and target entries again from the same
-settings; what they hand each other is the cache and the files under `results_dir`:
+`PocketMapper.search()` is the whole workflow. It resolves its settings, then runs the steps in order.
+Each step parses the query and target entries again from the same settings; what they hand each other is
+the cache and the files under `results_dir`:
 
 1. `configure_workflow` -> arguments over job file; `resolve_settings` -> Settings, job_settings.json.
-2. `steps.parse` -> every entry checked before anything is fetched; failed_entries.json started
+2. `parse.step` -> every entry checked before anything is fetched; failed_entries.json started
    afresh.
-3. `steps.fetch_structures` -> structures and a bundled Foldseek database into the cache.
+3. `fetch.step` -> structures and a bundled Foldseek database into the cache.
 4. `steps.align` -> foldseek or the local sequence aligner, per `aligner` -> alignment.tsv.
 5. `steps.pockets` -> PISA interfaces into the cache, then pockets.json. Against a PDB Foldseek
    database, also a pisa pocket per interface of each hit. The Pocket shape itself is declared in
@@ -31,6 +31,7 @@ import json
 import logging
 from dataclasses import asdict, fields
 
+from pocketmapper.fetch.step import fetch_structures
 from pocketmapper.lib.entries import fsdb_record
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope, temp_dir_scope
@@ -49,10 +50,9 @@ from pocketmapper.lib.settings import (
     resolve_pisa_source,
     resolve_threads,
 )
+from pocketmapper.parse.step import parse, parse_job_entries
 from pocketmapper.steps.align import align
 from pocketmapper.steps.compare import compare
-from pocketmapper.steps.fetch_structures import fetch_structures
-from pocketmapper.steps.parse import parse, parse_job_entries
 from pocketmapper.steps.pockets import pockets
 from pocketmapper.steps.superpose import superpose
 

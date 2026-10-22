@@ -26,9 +26,8 @@ from glob import glob
 
 from tqdm import tqdm
 
-from pocketmapper.downloads.lib_download import download_api, download_file
-from pocketmapper.downloads.structure_downloader import DOWNLOAD_WORKERS
 from pocketmapper.lib.constants import DEFAULT_PISA_SOURCE, PISA_SOURCES
+from pocketmapper.lib.download import DOWNLOAD_WORKERS, download_api, download_file
 from pocketmapper.lib.exceptions import PocketMapperError
 
 logger = logging.getLogger(__name__)

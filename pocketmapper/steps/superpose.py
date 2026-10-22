@@ -6,6 +6,7 @@ import logging
 
 import pandas as pd
 
+from pocketmapper.fetch.step import fetch_missing_entries
 from pocketmapper.lib.entries import fsdb_record, require_file, split_missing_structures
 from pocketmapper.lib.foldseek import fsdb_pocket_mode
 from pocketmapper.lib.logs import log_to_file
@@ -22,9 +23,8 @@ from pocketmapper.lib.settings import (
     resolve_paths,
     resolve_threads,
 )
+from pocketmapper.parse.step import parse_job_entries
 from pocketmapper.pockets.pocket_fetcher import read_pockets_file
-from pocketmapper.steps.fetch_structures import fetch_missing_entries
-from pocketmapper.steps.parse import parse_job_entries
 from pocketmapper.structure_aligner import StructureAligner
 
 logger = logging.getLogger(__name__)

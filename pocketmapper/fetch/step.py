@@ -11,7 +11,7 @@ import os
 
 import pandas as pd
 
-from pocketmapper.downloads.structure_downloader import StructureDownloader
+from pocketmapper.fetch.structure_downloader import StructureDownloader
 from pocketmapper.lib.entries import check_fsdb_target, failed_entry, reject_fsdb_query, report_failures, unique_by
 from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.files import make_dir
@@ -27,7 +27,7 @@ from pocketmapper.lib.settings import (
     resolve_paths,
     resolve_threads,
 )
-from pocketmapper.steps.parse import parse_structure_side
+from pocketmapper.parse.step import parse_structure_side
 
 logger = logging.getLogger(__name__)
 

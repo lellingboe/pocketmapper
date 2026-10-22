@@ -1,7 +1,7 @@
 """
 Shared download machinery: retrying what is worth retrying, and writing through a `.part` file.
 
-Two entry points, because the package fetches two different kinds of thing. `download_file` is for
+Two entry points, because PocketMapper fetches two different kinds of thing. `download_file` is for
 bulk files: it is unpaced and holds no state, so many can run at once. `download_api` is for REST
 endpoints: it paces its requests and remembers, per host, how long the pacing has had to grow.
 
@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 # Timing statuses worth another attempt. Every other 4xx describes the request itself and will
 # fail identically however many times it is repeated.
 TRANSIENT_HTTP_STATUSES = frozenset({408, 425, 429})
+
+# Default width of a pool of `download_file` calls. Fixed rather than tied to a thread count: a worker
+# waits on a socket, not on a core.
+DOWNLOAD_WORKERS = 8
 
 # Seconds to wait before each request to a given host, keyed by host name. Raised by
 # `download_api` whenever a request to that host has to be retried, and never lowered, so an API

@@ -16,9 +16,9 @@ from pocketmapper.lib.foldseek import bundled_offset_table, fsdb_pocket_mode
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope
 from pocketmapper.lib.settings import dump_settings, input_path, layer_settings, require_setting, resolve_paths
+from pocketmapper.parse.step import parse_job_entries
 from pocketmapper.pocket_comparison import compare_pockets
 from pocketmapper.pockets.pocket_fetcher import read_pockets_file
-from pocketmapper.steps.parse import parse_job_entries
 
 logger = logging.getLogger(__name__)
 

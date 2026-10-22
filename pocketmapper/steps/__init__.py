@@ -1,6 +1,7 @@
 """
 The pipeline's steps, one module each, in the order `search` runs them: `parse`, `fetch_structures`,
-`align`, `pockets`, `compare` and `superpose`.
+`align`, `pockets`, `compare` and `superpose`. `parse` and `fetch_structures` are `pocketmapper.parse.step`
+and `pocketmapper.fetch.step`; the rest are modules here. What follows holds for all six.
 
 Each module has two layers. Its entry function, named after the step, is what the CLI and `search`
 call: it layers its settings, resolves its path defaults under `results_dir`, logs to `log_path` for
@@ -17,7 +18,7 @@ own, each step writes its settings to `<results_dir>/<command>_settings.json`, a
 next; inside `search` it writes none.
 
 Entries: every step parses the query and target entries its settings name, through
-`steps.parse.parse_job_entries`, and rejects what `parse` rejects. No step reads another's records;
+`parse.step.parse_job_entries`, and rejects what `parse` rejects. No step reads another's records;
 the cache and the files under `results_dir` are all the steps hand on. Every step takes the cache
 options, so a chain shares its cache by taking them from the same job file. No step rewrites its
 inputs, so every step is idempotent on rerun.

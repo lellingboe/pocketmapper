@@ -13,6 +13,7 @@ from dataclasses import asdict
 
 import pandas as pd
 
+from pocketmapper.fetch.step import fetch_missing_entries, fetch_missing_structures
 from pocketmapper.lib.entries import (
     failed_entry,
     fsdb_record,
@@ -36,11 +37,10 @@ from pocketmapper.lib.settings import (
     resolve_paths,
     resolve_pisa_source,
 )
+from pocketmapper.parse.qt_processor import QTProcessor
+from pocketmapper.parse.step import parse_job_entries, parse_listed_entries
 from pocketmapper.pockets.pisa import PisaParser, download_pisa_interfaces
 from pocketmapper.pockets.pocket_fetcher import PocketFetcher, write_pockets_file
-from pocketmapper.qt_processor import QTProcessor
-from pocketmapper.steps.fetch_structures import fetch_missing_entries, fetch_missing_structures
-from pocketmapper.steps.parse import parse_job_entries, parse_listed_entries
 
 logger = logging.getLogger(__name__)
 
