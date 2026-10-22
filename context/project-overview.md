@@ -2,6 +2,11 @@
 Cross-module and derived facts only. Anything one docstring or comment already states is left to that site
 and not copied here.
 
+## Project Status
+
+- This is an early development project, features may change or break between patches.
+- Names/location of outputs may change, but typically the underlying data should remain fairly consistent.
+
 ## Where to start
 
 - `pocketmapper.py` module docstring: the steps of `search()` and what each writes under `results_dir`.
