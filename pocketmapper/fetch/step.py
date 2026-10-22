@@ -8,7 +8,6 @@ fetched by the pockets step.
 import logging
 import os
 
-from pocketmapper.fetch.structure_downloader import download_structures
 from pocketmapper.lib.constants import TEMP_SUBDIRS
 from pocketmapper.lib.entries import failure, open_entries, report_failures, unique_by
 from pocketmapper.lib.exceptions import PocketMapperError
@@ -23,6 +22,7 @@ from pocketmapper.lib.settings import (
     resolve_step_paths,
     resolve_threads,
 )
+from pocketmapper.lib.structure_downloader import download_structures
 
 logger = logging.getLogger(__name__)
 

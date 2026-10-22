@@ -11,7 +11,7 @@ in every operational respect. `download_file` is for bulk static files: unpaced 
 host's pacing and never lowers it again. Both write through a `.part` file, create the destination's
 directory, and share one retry test.
 
-**`download_many` is the one download pool**, used by `fetch.structure_downloader.download_structures`
+**`download_many` is the one download pool**, used by `lib.structure_downloader.download_structures`
 and `PisaDownloader.download_missing_assemblies`. It skips a `DownloadJob` whose file already exists, so
 the file is the cache. **With `fetch=download_api` it runs one job at a time, whatever `max_workers`
 says**: `download_api` sleeps the host delay outside the lock, so concurrent calls would each sleep the
