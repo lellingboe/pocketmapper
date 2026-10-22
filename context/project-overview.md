@@ -68,7 +68,7 @@ classifiers, `[tool.ruff] target-version`, README Installation; CI `compat` matr
 
 ## Repo layout
 
-- No unit tests; `tests/e2e/` is the whole suite (`pocketmapper-e2e` skill).
+- No unit tests; `tests/e2e/` is the whole suite.
 - **Deliberately wrong fixture lines — don't fix them:** `invalid_residues.txt` line 2 (`4Q5J:A:9999`,
   `test_invalid_1`, asserted `pocket_not_built`); `forced_pisa_mixed.txt` line 2 (`4Q5J:A`, no partner;
   `test_invalid_8`, asserted `invalid_entry`); `fsdb_mixed_target.txt` (a DB beside a structure, also via
