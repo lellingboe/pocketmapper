@@ -23,7 +23,6 @@
 - **`os.path`, never `pathlib`.**
 - **f-strings, never `%` or `.format()`**, including in logger calls.
 - **Absolute imports** (`from pocketmapper.x import y`).
-- **No leading-underscore names**; everything is public and documented.
 - **`except Exception` only to clean up and re-raise, or to `logger.exception` and continue a
   per-item loop.** Never a bare `except:`.
 
