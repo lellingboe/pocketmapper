@@ -4,8 +4,7 @@ PocketMapper: map and compare binding pockets across protein structures.
 `PocketMapper.search()` is the whole workflow. It resolves its settings, then runs the steps in order:
 
 1. `configure_workflow` -> arguments over job file; `resolve_settings` -> Settings, job_settings.json.
-2. `parse.step` -> every entry checked before anything is fetched; failed_entries.json started
-   afresh.
+2. `parse.step` -> every entry checked before anything is fetched; entries.tsv written afresh.
 3. `fetch.step` -> structures and a bundled Foldseek database into the cache.
 4. `align.step` -> foldseek or the local sequence aligner, per `aligner` -> alignment.tsv.
 5. `pockets.step` -> PISA interfaces into the cache, then pockets.json. Against a PDB Foldseek
@@ -14,30 +13,25 @@ PocketMapper: map and compare binding pockets across protein structures.
 6. `compare.step` -> pocket_comparison.tsv.
 7. `superpose.step` -> the top align_count targets per query, superposed into aligned_structures/.
 
-Each step skips what it cannot use and lists it, with the reason, in failed_entries.json.
+Each step skips what it cannot use and marks it, with the reason, in entries.tsv.
 
 Steps: each step is a package, and `pocketmapper.<step>.step` holds its two layers. The entry function,
 named after the step's command (`parse`, `fetch_structures`, `align`, `pockets`, `compare`, `superpose`),
-is what the CLI and `search` call: it layers its settings, resolves its path defaults under
-`results_dir`, logs to `log_path` for the length of the call, validates its settings, manages its scratch
-directory and calls the core function. `search` calls it with its resolved Settings as the job file, so
-each step also runs on its own, the same way. The core function takes explicit paths and values, keeps no
-state between calls, and takes records in memory, never a records file.
+is what the CLI and `search` call: it layers its settings, logs to `log_path` for the length of the call,
+validates its settings, manages its scratch directory and calls the core function. `search` calls it
+with its resolved Settings as the job file, so each step also runs on its own, the same way. The core
+function takes explicit paths and values, keeps no state between calls, and takes records in memory.
 
 Settings: an argument given beats the job file (a JSON path, or the same already loaded as a dict), which
-beats `lib.settings.SETTING_DEFAULTS`. A job file keyed by job keys, such as a run's job_settings.json,
-works as-is; it names every path, so an argument moves only the path it names. An input defaults to the
-matching `*_path` setting (the standard file under `results_dir` unless the job file names another).
-`results_dir` is required, as an argument or in the job file, by every step but `parse` and
-`fetch_structures`, which without one write nothing but what is given a path of its own. Run on its own,
-each step writes its settings to `<results_dir>/<command>_settings.json`, a job file for the next; inside
-`search` it writes none.
+beats `lib.settings.SETTING_DEFAULTS`. Only `search` and `parse` take `cache_dir` and `results_dir` and
+derive the other paths from them; each writes its settings, every path resolved, as a job file for the
+steps after it (job_settings.json, `<results_dir>/parse_settings.json`). Every other step takes each path
+it uses from its arguments or job file, and an argument moves only the path it names.
 
-Entries: every step parses the query and target entries its settings name, through
-`parse.step.parse_job_entries`, and rejects what `parse` rejects. No step reads another's records; the
-cache and the files under `results_dir` are all the steps hand on. Every step takes the cache options, so
-a chain shares its cache by taking them from the same job file. No step rewrites its inputs, so every
-step is idempotent on rerun.
+Entries: `parse` writes entries.tsv, a row per query and target entry (`lib.entries`). Every later step
+reads its records from it, skipping the entries an earlier step dropped, and marks the ones it drops
+itself. The cache and the files under `results_dir` are all the steps hand on. A step clears its own
+marks when it starts, so every step is idempotent on rerun.
 
 This is the only module that builds a `Settings`. Entry functions take a job dict keyed by its field
 names; core functions and components take only the individual values they need, never a `Settings`, so
@@ -53,7 +47,7 @@ from dataclasses import asdict, fields
 from pocketmapper.align.step import align
 from pocketmapper.compare.step import compare
 from pocketmapper.fetch.step import fetch_structures
-from pocketmapper.lib.entries import fsdb_record
+from pocketmapper.lib.entries import entry_sides, fsdb_record, read_entries
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope, temp_dir_scope
 from pocketmapper.lib.settings import (
@@ -71,7 +65,7 @@ from pocketmapper.lib.settings import (
     resolve_pisa_source,
     resolve_threads,
 )
-from pocketmapper.parse.step import parse, parse_job_entries
+from pocketmapper.parse.step import parse
 from pocketmapper.pockets.step import pockets
 from pocketmapper.superpose.step import superpose
 
@@ -111,7 +105,7 @@ class PocketMapper:
         alignment_path=None,
         pocket_comparison_path=None,
         pockets_path=None,
-        failed_entries_path=None,
+        entries_path=None,
         job_settings_path=None,
         log_path=None,
         fsdb_dir=None,
@@ -123,7 +117,7 @@ class PocketMapper:
         to `log_path`; both are restored on return. Empties `temp_dir` on the way in and, unless
         `delete_tmp` is 0, deletes it on a clean return; a raised error leaves it in place. Each
         directory is created only when something is first written into it. Besides the results,
-        writes pockets.json, failed_entries.json and job_settings.json into `results_dir`, so any
+        writes pockets.json, entries.tsv and job_settings.json into `results_dir`, so any
         step can be rerun there on its own, with job_settings.json as its job file.
 
         Args:
@@ -174,8 +168,8 @@ class PocketMapper:
                 Defaults to <results_dir>/pocket_comparison.tsv.
             pockets_path (str, optional): Where the pockets are written.
                 Defaults to <results_dir>/pockets.json.
-            failed_entries_path (str, optional): Where the entries dropped along the way are written.
-                Defaults to <results_dir>/failed_entries.json.
+            entries_path (str, optional): Where the entries table is written, each entry dropped along
+                the way marked with the reason. Defaults to <results_dir>/entries.tsv.
             job_settings_path (str, optional): Where this run's resolved settings are dumped. Never
                 read from a job file. Defaults to <results_dir>/job_settings.json.
             log_path (str, optional): Where the run log is written.
@@ -217,7 +211,7 @@ class PocketMapper:
             "alignment_path": alignment_path,
             "pocket_comparison_path": pocket_comparison_path,
             "pockets_path": pockets_path,
-            "failed_entries_path": failed_entries_path,
+            "entries_path": entries_path,
             "job_settings_path": job_settings_path,
             "log_path": log_path,
             "fsdb_dir": fsdb_dir,
@@ -231,13 +225,13 @@ class PocketMapper:
             # Every step gets the whole run's settings; their own log and temp scopes are no-ops
             # inside these, so the log is written once and temp_dir lives for the whole run
             job = asdict(settings)
-            with temp_dir_scope(settings.temp_dir, settings.delete_tmp, [settings.cache_dir, settings.results_dir]):
+            with temp_dir_scope(settings.temp_dir, settings.delete_tmp):
                 table = parse(job_file=job)
                 logger.info(
                     f"Entries:\n{table.to_string(index=False)}", extra={"stage": "Determine Query/Target Types"}
                 )
                 # Checked before the database is downloaded
-                if fsdb_record(parse_job_entries(job, "search")["target"]) is not None:
+                if fsdb_record(entry_sides(read_entries(settings.entries_path))["target"]) is not None:
                     check_fsdb_aligner(settings.aligner)
                     check_fsdb_align_struct_method(settings.align_struct_method)
                 fetch_structures(job_file=job)

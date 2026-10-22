@@ -208,9 +208,9 @@ FETCH_MISSING_VALUES = (0, 1)
 # assembly. Both serve identical JSON.
 PISA_SOURCES = ("ftp", "api")
 
-# The structure types a structure-only parse can be forced to, and "auto", which infers one per entry.
-# A local file is inferred only: forcing it would add nothing to the path check that infers it.
-STRUCT_TYPES = ("auto", "pdb", "alphafold", "foldseek_db")
+# Use -> the scratch directory made under temp_dir for it. Only these are ever emptied or deleted, so a
+# temp_dir pointed at a directory in use loses nothing.
+TEMP_SUBDIRS = {"query": "query_structures", "target": "target_structures", "foldseek": "foldseek_tmp"}
 
 # Defaults for the settings that have a static value. Settings whose default depends on the run
 # (results_dir, threads and the derived paths) default to None and are resolved at run time.
@@ -224,7 +224,6 @@ DEFAULT_ALIGNER = "foldseek"
 DEFAULT_DELETE_TMP = 1
 DEFAULT_PISA_SOURCE = "ftp"
 DEFAULT_FETCH_MISSING = 0
-DEFAULT_STRUCT_TYPE = "auto"
 
 # The chain used when an entry names a structure but no chain at all ("4Q5J"). AlphaFold models are
 # always a single chain A, and it is the first chain of most PDB entries.
@@ -271,9 +270,9 @@ Examples:
   pocketmapper superpose --job_file ./out/job_settings.json --align_count 3 \\
       --aligned_structure_dir ./out/top3
 
-Each step parses the query and target entries its job file names, and
-reads the earlier steps' files from --results_dir. The README documents each
-step's inputs and outputs:
+Each step reads its entries from parse's entries.tsv and every path from its
+job file or arguments; only parse and search take --results_dir and
+--cache_dir. The README documents each step's inputs and outputs:
     https://github.com/lellingboe/pocketmapper
 """
 

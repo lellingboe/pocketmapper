@@ -3,9 +3,10 @@ Run configuration: the `Settings` record, the job file layered under the argumen
 validators that resolve each setting.
 
 Every command layers its settings the same way, in `layer_settings`: an argument given beats the
-job file, which beats `SETTING_DEFAULTS`; `resolve_paths` then fills in the paths still unset. A job
-file may hold any of `JOB_KEYS`: the `Settings` fields, which are search's, plus the options only
-some steps take.
+job file, which beats `SETTING_DEFAULTS`. Search and parse then fill in the paths still unset under
+`cache_dir` and `results_dir` (`resolve_paths`); every other step takes its paths resolved, as its job
+file or arguments name them (`resolve_step_paths`). A job file may hold any of `JOB_KEYS`: the
+`Settings` fields, which are search's, plus the options only some steps take.
 
 Every `resolve_*` takes the value as given -- from the command line, a job file or a library call, so
 any JSON value -- and returns it checked and normalised, or logs a critical and raises.
@@ -30,7 +31,6 @@ from pocketmapper.lib.constants import (
     DEFAULT_FETCH_MISSING,
     DEFAULT_PISA_SOURCE,
     DEFAULT_POCKET_METHOD,
-    DEFAULT_STRUCT_TYPE,
     DEFAULT_VERBOSITY,
     DELETE_TMP_VALUES,
     FETCH_MISSING_VALUES,
@@ -83,7 +83,7 @@ class Settings:
     alignment_path: str
     pocket_comparison_path: str
     pockets_path: str
-    failed_entries_path: str
+    entries_path: str
     job_settings_path: str
     log_path: str
     fsdb_dir: str
@@ -91,25 +91,19 @@ class Settings:
 
 # What a job file may hold, in Settings order: every Settings field, plus the options only some steps
 # take. `layer_settings` seeds every key.
-STEP_ONLY_KEYS = (
-    "entries",
-    "struct_type",
-    "out_dir",
-    "structures_tsv_path",
-    "pocket_method",
-    "pockets_tsv_path",
-    "entries_path",
-    "fetch_missing",
-)
+STEP_ONLY_KEYS = ("pockets_tsv_path", "fetch_missing")
 
 # Step-only paths, resolved against work_dir like every path setting
-STEP_ONLY_PATH_KEYS = ("out_dir", "structures_tsv_path", "pockets_tsv_path", "entries_path")
+STEP_ONLY_PATH_KEYS = ("pockets_tsv_path",)
 JOB_KEYS = tuple(field.name for field in fields(Settings)) + STEP_ONLY_KEYS
 
 # Job keys no longer accepted -> what replaced them, for the error a stale job file gets
 REMOVED_JOB_KEYS = {
-    "query_records_path": "steps re-derive records from query and target; rerun parse for a new job file",
-    "target_records_path": "steps re-derive records from query and target; rerun parse for a new job file",
+    key: "steps read their records from parse's entries.tsv; rerun parse for a new job file"
+    for key in ("query_records_path", "target_records_path", "entries", "struct_type", "out_dir", "structures_tsv_path")
+} | {
+    "failed_entries_path": "entries.tsv records the entries each step dropped; rerun parse for a new job file",
+    "pocket_method": "pockets builds the pocket method parse chose for each entry; rerun parse for a new job file",
 }
 
 # Setting -> its static default. The others default to None: resolved at run time, or required.
@@ -121,11 +115,9 @@ SETTING_DEFAULTS = {
     "align_struct_method": DEFAULT_ALIGN_STRUCT_METHOD,
     "query_pocket_method": DEFAULT_POCKET_METHOD,
     "target_pocket_method": DEFAULT_POCKET_METHOD,
-    "pocket_method": DEFAULT_POCKET_METHOD,
     "delete_tmp": DEFAULT_DELETE_TMP,
     "pisa_source": DEFAULT_PISA_SOURCE,
     "fetch_missing": DEFAULT_FETCH_MISSING,
-    "struct_type": DEFAULT_STRUCT_TYPE,
 }
 
 # Path setting -> its default, relative to cache_dir
@@ -144,11 +136,11 @@ RESULTS_PATH_DEFAULTS = {
     "alignment_path": "alignment.tsv",
     "pocket_comparison_path": "pocket_comparison.tsv",
     "pockets_path": "pockets.json",
-    "failed_entries_path": "failed_entries.json",
+    "entries_path": "entries.tsv",
     "log_path": "info.log",
 }
 
-# The settings dump search writes; each step writes <command>_settings.json
+# The settings dump search writes; parse writes parse_settings.json
 SEARCH_SETTINGS_NAME = "job_settings.json"
 
 
@@ -272,6 +264,8 @@ def resolve_paths(values, command):
     """
     Fill in `work_dir`, `results_dir` and any derived path left unset, and make every path absolute.
 
+    For search and parse, the commands that take `cache_dir` and `results_dir`.
+
     Args:
         values (dict): Job key -> value, with `cache_dir` set.
         command (str): The command these settings are for, which names its settings dump:
@@ -353,20 +347,31 @@ def work_path(work_dir, path):
     return os.path.normpath(os.path.join(work_dir, path)) if path is not None else None
 
 
-def input_path(values, given, key):
+def resolve_step_paths(values, required, optional=()):
     """
-    The file a step reads: the one given, else the one a path setting names.
+    Make a step's paths absolute, checking that each one it needs is set.
+
+    A step derives no path from `cache_dir` or `results_dir`: each comes resolved from its job file, such
+    as parse's settings, or from its arguments. A relative one resolves against the working directory.
 
     Args:
-        values (dict): Job key -> value, from `resolve_paths`.
-        given (str or None): The input as passed to the step, None for unset. Resolved against
-            `work_dir`.
-        key (str): The path setting it defaults to, e.g. "alignment_path".
+        values (dict): Job key -> value, from `layer_settings`.
+        required (tuple): The path settings the step needs.
+        optional (tuple, optional): The path settings it can do without. Defaults to none.
 
     Returns:
-        str: The absolute path.
+        dict: A copy of `values` with those paths absolute.
+
+    Raises:
+        PocketMapperError: If a required path is not set.
     """
-    return work_path(values["work_dir"], given) if given is not None else values[key]
+    values = dict(values)
+    for key in required:
+        require_setting(values, key)
+    for key in required + optional:
+        if values[key] is not None:
+            values[key] = os.path.abspath(values[key])
+    return values
 
 
 def cache_path(cache_dir, key, path=None):

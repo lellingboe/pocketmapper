@@ -10,6 +10,8 @@ import os
 import shutil
 from contextlib import contextmanager
 
+from pocketmapper.lib.constants import TEMP_SUBDIRS
+
 logger = logging.getLogger(__name__)
 
 # Absolute paths of the scratch directories an open temp_dir_scope holds
@@ -19,68 +21,33 @@ HELD_TEMP_DIRS = set()
 OUTER_COMMAND = []
 
 
-def is_within(path, roots):
+def empty_temp_dir(temp_dir):
     """
-    Report whether a path resolves to somewhere inside one of `roots`.
+    Delete the scratch subdirectories so that whatever uses them next starts with them empty.
 
-    Args:
-        path (str): The path to test.
-        roots (list): Candidate containing directories; only one has to match.
-
-    Returns:
-        bool: True if `path` is inside (or equal to) any of `roots`, both sides resolved with
-            `os.path.realpath` so `..` segments and symlinks cannot walk out of a root.
-    """
-    real_path = os.path.realpath(path)
-    for root in roots:
-        real_root = os.path.realpath(root)
-        # commonpath raises on a mix of absolute and relative paths; realpath has made both
-        # absolute, so the only remaining raiser is a different drive, which cannot be a match.
-        try:
-            if os.path.commonpath([real_path, real_root]) == real_root:
-                return True
-        except ValueError:
-            continue
-    return False
-
-
-def empty_temp_dir(temp_dir, roots):
-    """
-    Delete a scratch directory so that whatever uses it next starts with it empty.
-
-    Only a `temp_dir` inside one of `roots` is deleted, so a mistyped path costs a stray directory,
-    not its contents. One outside them is reused as it is, with a warning if it exists.
+    Only the subdirectories in TEMP_SUBDIRS are deleted, never `temp_dir` itself or anything else in
+    it, so a `temp_dir` pointed at a directory in use loses nothing.
 
     Args:
         temp_dir (str): The scratch directory. Not created here.
-        roots (list): The directories it may be deleted under.
 
     Returns:
         None
     """
-    log_extra = {"stage": "Configuring Workflow"}
-
-    if is_within(temp_dir, roots):
-        shutil.rmtree(temp_dir, ignore_errors=True)
-    elif os.path.exists(temp_dir):
-        logger.warning(
-            f"Reusing temp_dir {temp_dir} without emptying it: it is outside {' and '.join(roots)}. "
-            "Empty it yourself if a previous run left anything there.",
-            extra=log_extra,
-        )
+    for name in TEMP_SUBDIRS.values():
+        shutil.rmtree(os.path.join(temp_dir, name), ignore_errors=True)
 
 
-def delete_temp_dir(temp_dir, delete_tmp, roots):
+def delete_temp_dir(temp_dir, delete_tmp):
     """
     Delete a scratch directory once it is no longer needed.
 
-    Nothing is deleted if `delete_tmp` is 0, the directory was never created, or it resolves
-    outside every one of `roots` (warned about).
+    Nothing is deleted if `delete_tmp` is 0 or the directory was never created. Only the subdirectories
+    in TEMP_SUBDIRS are deleted, then `temp_dir` if that leaves it empty.
 
     Args:
         temp_dir (str): The scratch directory.
         delete_tmp (int): 1 to delete it, 0 to keep it.
-        roots (list): The directories it may be deleted under.
 
     Returns:
         None
@@ -96,29 +63,25 @@ def delete_temp_dir(temp_dir, delete_tmp, roots):
         logger.info(f"delete_tmp is 0; keeping {temp_dir}", extra=log_extra)
         return
 
-    if not is_within(temp_dir, roots):
-        logger.warning(
-            f"Not deleting temp_dir {temp_dir}: it is outside {' and '.join(roots)}. "
-            "Remove it yourself if that was intended.",
-            extra=log_extra,
-        )
-        return
-    shutil.rmtree(temp_dir)
+    empty_temp_dir(temp_dir)
+    if not os.listdir(temp_dir):
+        os.rmdir(temp_dir)
+    else:
+        logger.debug(f"Leaving {temp_dir} in place: it holds files PocketMapper did not make", extra=log_extra)
 
 
 @contextmanager
-def temp_dir_scope(temp_dir, delete_tmp, roots):
+def temp_dir_scope(temp_dir, delete_tmp):
     """
     Own a scratch directory for the length of a `with` block: empty it on entry, delete it on exit.
 
-    The emptying and deletion are `empty_temp_dir`'s and `delete_temp_dir`'s, with their guards. A
-    block that raises deletes nothing, leaving the scratch for inspection. A scope for a directory an
-    enclosing scope already holds does nothing, on entry or exit: the outer scope owns it.
+    The emptying and deletion are `empty_temp_dir`'s and `delete_temp_dir`'s. A block that raises
+    deletes nothing, leaving the scratch for inspection. A scope for a directory an enclosing scope
+    already holds does nothing, on entry or exit: the outer scope owns it.
 
     Args:
         temp_dir (str): The scratch directory.
         delete_tmp (int): 1 to delete it on exit, 0 to keep it.
-        roots (list): The directories it may be emptied or deleted under.
 
     Yields:
         None
@@ -131,9 +94,9 @@ def temp_dir_scope(temp_dir, delete_tmp, roots):
     # Released however the block ends, or a failed run would leave the next one in this process
     # neither emptying nor deleting it
     try:
-        empty_temp_dir(temp_dir, roots)
+        empty_temp_dir(temp_dir)
         yield
-        delete_temp_dir(temp_dir, delete_tmp, roots)
+        delete_temp_dir(temp_dir, delete_tmp)
     finally:
         HELD_TEMP_DIRS.discard(key)
 

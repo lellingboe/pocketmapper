@@ -41,7 +41,7 @@ FIXTURES_DIR="$SCRIPT_DIR/fixtures"
 #          case where losing one query's rows is the failure. With none of
 #          them, the run must succeed. Plus any of: `files=A,B` = each path
 #          exists under the case's results dir; `failed=REASON@POCKET_ID` =
-#          failed_entries.json lists that entry with that reason;
+#          entries.tsv marks that entry as dropped for that reason;
 #          `same=DIR` = pocket_comparison.tsv and alignment.tsv match, once
 #          sorted, those in the results dir's subdirectory DIR.
 # args     passed to `pocketmapper search` verbatim (word-split on spaces).
@@ -50,10 +50,9 @@ FIXTURES_DIR="$SCRIPT_DIR/fixtures"
 #          separated by ` ; `, run in order: every one before the last must
 #          succeed, and the last one's exit status is the run's. A `cd DIR`
 #          segment sets the working directory of the commands after it. Each
-#          command gets --verbosity
-#          and, unless it sets them, --results_dir and --cache_dir (the latter
-#          not to a step other than parse or search that has a --job_file,
-#          whose cache comes from there).
+#          command gets --verbosity. A search or parse also gets, unless it
+#          sets them, --results_dir and --cache_dir; the other steps take
+#          neither, every path coming from their --job_file.
 #          @PDB_FSDB@ expands to $POCKETMAPPER_PDB_FSDB, @CACHE@ to the shared
 #          cache dir and @OUT@ to this case's own results dir -- the last two
 #          let a case aim a path option somewhere real without hardcoding a
@@ -131,8 +130,8 @@ test_settings_6|core settings|fail|Query given both positionally and in the job 
 test_settings_7|core settings|rows|Explicit auto pocket method infers as the default does|4Q5J:A_E 4Q5J:B_F --aligner seq --query_pocket_method auto --target_pocket_method auto
 test_settings_8|core settings|fail|delete_tmp other than 1 or 0 rejected|4Q5J:A_E 4Q5J:B_F --aligner seq --delete_tmp 2
 
-test_steps_1|core local|files=failed_entries.json,parse_settings.json|parse writes its settings and starts the failed entries|parse 4Q5J:A_E 4Q5J:B_F
-test_steps_2|core local|files=parse_settings.json,failed_entries.json,fetch_structures_settings.json|fetch_structures after parse, from parse's settings|parse 4Q5J:A_E 4Q5J:B_F ; fetch_structures --job_file @OUT@/parse_settings.json
+test_steps_1|core local|files=entries.tsv,parse_settings.json|parse writes its settings and the entries table|parse 4Q5J:A_E 4Q5J:B_F
+test_steps_2|core local|files=parse_settings.json,entries.tsv|fetch_structures after parse, from parse's settings|parse 4Q5J:A_E 4Q5J:B_F ; fetch_structures --job_file @OUT@/parse_settings.json
 test_steps_3|core local|files=alignment.tsv|align after fetch_structures|parse 4Q5J:A_E 4Q5J:B_F ; fetch_structures --job_file @OUT@/parse_settings.json ; align --aligner seq --job_file @OUT@/parse_settings.json
 test_steps_4|core local|files=pockets.json|pockets after align|parse 4Q5J:A_E 4Q5J:B_F ; fetch_structures --job_file @OUT@/parse_settings.json ; align --aligner seq --job_file @OUT@/parse_settings.json ; pockets --job_file @OUT@/parse_settings.json
 test_steps_5|core local|rows|compare after pockets|parse 4Q5J:A_E 4Q5J:B_F ; fetch_structures --job_file @OUT@/parse_settings.json ; align --aligner seq --job_file @OUT@/parse_settings.json ; pockets --job_file @OUT@/parse_settings.json ; compare --job_file @OUT@/parse_settings.json
@@ -143,14 +142,14 @@ test_steps_10|core local|fail|compare rejects an alignment naming chains pockets
 test_steps_11|core local|fail|parse rejects a Foldseek database beside a structure target|parse 4Q5J:A_E fsdb_mixed_target.txt
 test_steps_12|core local|fail failed=invalid_entry@human_domains|parse rejects a Foldseek database query|parse human_domains 4Q5J:B_F
 test_steps_14|core local|rows|parse takes query and target from a job file; its settings carry them to the next steps|parse --job_file job_file_qt.json ; fetch_structures --job_file @OUT@/parse_settings.json ; align --aligner seq --job_file @OUT@/parse_settings.json ; pockets --job_file @OUT@/parse_settings.json ; compare --job_file @OUT@/parse_settings.json
-test_steps_15|core local|rows files=compare_settings.json|A step reads its inputs from another run's job_settings.json; an argument overrides it|search 4Q5J:A_E 4Q5J:B_F --aligner seq --align_count 0 --results_dir @OUT@/search ; compare --job_file @OUT@/search/job_settings.json --pocket_comparison_path @OUT@/pocket_comparison.tsv
-test_steps_16|core local|rows|A step's own settings feed the next (compare from pockets_settings.json)|parse 4Q5J:A_E 4Q5J:B_F ; fetch_structures --job_file @OUT@/parse_settings.json ; align --aligner seq --job_file @OUT@/parse_settings.json ; pockets --job_file @OUT@/parse_settings.json ; compare --job_file @OUT@/pockets_settings.json
+test_steps_15|core local|rows|A step reads its inputs from another run's job_settings.json; an argument overrides it|search 4Q5J:A_E 4Q5J:B_F --aligner seq --align_count 0 --results_dir @OUT@/search ; compare --job_file @OUT@/search/job_settings.json --pocket_comparison_path @OUT@/pocket_comparison.tsv
 test_steps_17|needs-pdb-fsdb slow|rows same=search files=aligned_structures|Chained commands give what search gives against a PDB Foldseek database|search 4Q5J:B_F @PDB_FSDB@ --target_pocket_method foldseek_db --results_dir @OUT@/search ; parse 4Q5J:B_F @PDB_FSDB@ --target_pocket_method foldseek_db ; fetch_structures --job_file @OUT@/parse_settings.json ; align --job_file @OUT@/parse_settings.json ; pockets --job_file @OUT@/parse_settings.json ; compare --job_file @OUT@/parse_settings.json ; superpose --job_file @OUT@/parse_settings.json
-test_steps_18|core local|files=structures/4Q5J.cif.gz,structures/P24941.cif.gz,structures.tsv|fetch_structures on its own, into one directory|fetch_structures 4Q5J P24941 --out_dir @OUT@/structures --structures_tsv_path @OUT@/structures.tsv
-test_steps_19|core local|files=pockets.json,pockets.tsv,pockets_settings.json|pockets on its own, from entries given|pockets 4Q5J:B_F 4Q5J:A:1101,1104 --pockets_tsv_path @OUT@/pockets.tsv
-test_steps_20|core local|files=pdb/4Q5J.cif.gz,pockets.json|pockets --fetch_missing 1 downloads a structure missing from the cache|pockets 4Q5J:B_F --pdb_dir @OUT@/pdb --fetch_missing 1
-test_steps_21|core local|files=entries.tsv,parse_settings.json|parse writes its table with --entries_path|parse 4Q5J:A_E 4Q5J:B_F --entries_path @OUT@/entries.tsv
-test_steps_22|core local|fail|fetch_structures from a job file rejects a Foldseek database beside a structure target|fetch_structures --job_file job_file_fsdb_mixed.json
+test_steps_18|core local|files=pdb/4Q5J.cif.gz,af/P24941.cif.gz|fetch_structures downloads into the cache paths parse moved|parse 4Q5J:A_E P24941:A:160 --pdb_dir @OUT@/pdb --alphafold_dir @OUT@/af ; fetch_structures --job_file @OUT@/parse_settings.json
+test_steps_19|core local|files=pockets.json,pockets.tsv|pockets writes its table with --pockets_tsv_path|parse 4Q5J:B_F 4Q5J:A:1101,1104 ; fetch_structures --job_file @OUT@/parse_settings.json ; pockets --job_file @OUT@/parse_settings.json --pockets_tsv_path @OUT@/pockets.tsv
+test_steps_20|core local|files=pdb/4Q5J.cif.gz,pockets.json|pockets --fetch_missing 1 downloads a structure missing from the cache|parse 4Q5J:B_F 4Q5J:A_E --pdb_dir @OUT@/pdb ; pockets --job_file @OUT@/parse_settings.json --fetch_missing 1
+test_steps_21|core local|files=moved/entries.tsv|A step follows the entries table parse moved with --entries_path|parse 4Q5J:A_E 4Q5J:B_F --entries_path @OUT@/moved/entries.tsv ; fetch_structures --job_file @OUT@/parse_settings.json
+test_steps_22|core local|fail|parse from a job file rejects a Foldseek database beside a structure target|parse --job_file job_file_fsdb_mixed.json
+test_steps_23|core local|rows failed=pocket_not_built@4Q5J:A:9999|Rerunning pockets clears and re-marks its own failures|parse invalid_residues.txt 4Q5J:B_F ; fetch_structures --job_file @OUT@/parse_settings.json ; align --aligner seq --job_file @OUT@/parse_settings.json ; pockets --job_file @OUT@/parse_settings.json ; pockets --job_file @OUT@/parse_settings.json ; compare --job_file @OUT@/parse_settings.json
 EOF
 
 # ---------------------------------------------------------------------------
@@ -369,13 +368,11 @@ while IFS='|' read -r name tags expect desc args; do
             continue
         fi
         extra="--verbosity $VERBOSITY"
-        case " $* " in *" --results_dir "*) ;; *) extra="$extra --results_dir $case_out" ;; esac
-        # A step chained off a job file takes its cache from there
-        case " $* " in
-            *" --cache_dir "*) ;;
-            *" --job_file "*)
-                case "$1" in search|parse) extra="$extra --cache_dir $CACHE_DIR" ;; esac ;;
-            *) extra="$extra --cache_dir $CACHE_DIR" ;;
+        # Only search and parse take the directories; a step takes every path from its job file
+        case "$1" in
+            search|parse)
+                case " $* " in *" --results_dir "*) ;; *) extra="$extra --results_dir $case_out" ;; esac
+                case " $* " in *" --cache_dir "*) ;; *) extra="$extra --cache_dir $CACHE_DIR" ;; esac ;;
         esac
         segments="$segments$cwd	$* $extra
 "
@@ -455,11 +452,11 @@ while IFS='|' read -r name tags expect desc args; do
                     done ;;
                 failed=*)
                     reason="${token#failed=}"; pocket_id="${reason#*@}"; reason="${reason%%@*}"
-                    python3 - "$case_out/failed_entries.json" "$reason" "$pocket_id" <<'PY' || problem="failed_entries.json has no $reason entry for $pocket_id"
-import json, sys
+                    python3 - "$case_out/entries.tsv" "$reason" "$pocket_id" <<'PY' || problem="entries.tsv marks no $reason for $pocket_id"
+import csv, sys
 path, reason, pocket_id = sys.argv[1:]
-entries = json.load(open(path))
-sys.exit(0 if any(e["reason"] == reason and e["pocket_id"] == pocket_id for e in entries) else 1)
+rows = csv.DictReader(open(path), delimiter="\t")
+sys.exit(0 if any(r["failed_reason"] == reason and r["pocket_id"] == pocket_id for r in rows) else 1)
 PY
                     ;;
                 same=*)

@@ -8,10 +8,6 @@ in `QTProcessor.__init__`. A caller may force a pocket method instead of the def
 `validate_pocket_method` holds a forced one to the same patterns, so no record leaves here without
 the chains and residues its method reads.
 
-`process_structure_input` and `parse_structure` resolve only an entry's structure, for fetching it:
-the chain and residue parts are ignored, and a caller may force the structure type as it may the
-pocket method.
-
 The original input string is kept verbatim as `pocket_id`, which is the identifier used throughout
 the results. This module only parses.
 """
@@ -25,7 +21,7 @@ import os
 import re
 from dataclasses import asdict, dataclass
 
-from pocketmapper.lib.constants import DEFAULT_CHAIN, DEFAULT_POCKET_METHOD, STRUCT_TYPES
+from pocketmapper.lib.constants import DEFAULT_CHAIN, DEFAULT_POCKET_METHOD
 from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.foldseek import bundled_foldseek_dbs
 from pocketmapper.lib.residues import split_chain_info
@@ -178,43 +174,6 @@ class QTProcessor:
                 records.append(asdict(record))
         return records, rejected
 
-    def process_structure_input(self, qt_input, name, struct_type="auto"):
-        """
-        Resolve the structure of each entry in one input, ignoring its chain and residue parts.
-
-        Unlike `process_qt_cmdline_input`, an entry whose pocket part fits no method is accepted.
-
-        Args:
-            qt_input (str): An entry, a bare structure id, or a path to a file of them, one per line.
-            name (str): What the input is, e.g. "query", for logging and error messages.
-            struct_type (str, optional): Structure type to force on every entry -- "pdb",
-                "alphafold" or "foldseek_db" -- or "auto" (the default) to infer it per entry.
-
-        Returns:
-            tuple: (structures, rejected) -- a dict per entry resolved, in input order, as
-                `parse_structure` returns it, and an (entry, reason) pair for each entry that could not
-                be.
-
-        Raises:
-            PocketMapperError: If `struct_type` is not one of STRUCT_TYPES, or the input file cannot
-                be read.
-        """
-        self.log_extra.update({"stage": f"Processing {name}"})
-        if struct_type not in STRUCT_TYPES:
-            msg = f"Unknown {name} structure type {struct_type!r}. Choose one of: {', '.join(STRUCT_TYPES)}."
-            logger.critical(msg, extra=self.log_extra)
-            raise PocketMapperError(msg)
-
-        structures = []
-        rejected = []
-        for entry in self.read_entries(qt_input, read_file=struct_type != "foldseek_db"):
-            structure, reason = self.parse_structure(entry, struct_type)
-            if structure is None:
-                rejected.append((entry, reason))
-            else:
-                structures.append(structure)
-        return structures, rejected
-
     def read_entries(self, qt_input, read_file):
         """
         The entries one input holds: the lines of an entries file, else the input itself.
@@ -239,43 +198,6 @@ class QTProcessor:
         except Exception as e:
             logger.critical(f"Problem reading the file {qt_input}: {e}", extra=self.log_extra)
             raise PocketMapperError(f"Problem reading the file {qt_input}: {e}") from e
-
-    def parse_structure(self, qt, struct_type="auto"):
-        """
-        Resolve the structure an entry names, without its pocket.
-
-        Args:
-            qt (str): One input entry; everything after the first ":" is ignored. A Foldseek database
-                is named whole.
-            struct_type (str, optional): Structure type to force -- "pdb", "alphafold" or
-                "foldseek_db" -- or "auto" (the default) to infer it as `parse_individual_qt` does.
-
-        Returns:
-            tuple: (structure, reason). `structure` is a dict of `pocket_id` (the entry as typed),
-                `struct_info`, `struct_type` and `struct_path`, and `reason` None. If no structure
-                can be resolved, `structure` is None and `reason` says why.
-
-        Raises:
-            PocketMapperError: If the entry names a directory, which is not supported.
-        """
-        if struct_type == "foldseek_db" or (struct_type == "auto" and qt in self.bundled_foldseek_dbs):
-            path = self.bundled_foldseek_dbs.get(qt) or self.work_path(qt)
-            return {"pocket_id": qt, "struct_info": qt, "struct_type": "foldseek_db", "struct_path": path}, None
-
-        struct_info = qt.split(":")[0]
-        if struct_type == "auto":
-            struct_type, reason = self.determine_struct_type(struct_info)
-            if struct_type is None:
-                return None, reason
-        elif not re.match({"pdb": self.pdb_regex, "alphafold": self.uniprot_regex}[struct_type], struct_info):
-            return None, f"{struct_info} is not a {struct_type} identifier"
-        struct_path = self.determine_ref_struct_path(struct_info, struct_type)
-        return {
-            "pocket_id": qt,
-            "struct_info": struct_info,
-            "struct_type": struct_type,
-            "struct_path": struct_path,
-        }, None
 
     def parse_individual_qt(self, qt, pocket_method):
         """

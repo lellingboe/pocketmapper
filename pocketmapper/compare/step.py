@@ -10,14 +10,13 @@ from importlib.resources import files
 import pandas as pd
 
 from pocketmapper.compare.pocket_comparison import compare_pockets
-from pocketmapper.lib.entries import fsdb_record, require_file
+from pocketmapper.lib.entries import fsdb_record, open_entries, require_file
 from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.files import jsonify_dict, make_dir
 from pocketmapper.lib.foldseek import bundled_offset_table, fsdb_pocket_mode
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope
-from pocketmapper.lib.settings import dump_settings, input_path, layer_settings, require_setting, resolve_paths
-from pocketmapper.parse.step import parse_job_entries
+from pocketmapper.lib.settings import layer_settings, resolve_step_paths
 from pocketmapper.pockets.pocket_fetcher import read_pockets_file
 
 logger = logging.getLogger(__name__)
@@ -29,91 +28,58 @@ BLOSUM_PATH = str(files("pocketmapper").joinpath("data", "blosum62.bla"))
 
 def compare(
     job_file=None,
-    results_dir=None,
-    work_dir=None,
-    verbosity=None,
-    log_path=None,
-    job_settings_path=None,
-    failed_entries_path=None,
-    cache_dir=None,
-    pdb_dir=None,
-    alphafold_dir=None,
-    pocket_dir=None,
-    foldseek_preprocessed_structure_dir=None,
-    fsdb_dir=None,
+    entries=None,
     alignment=None,
     pockets=None,
+    verbosity=None,
+    log_path=None,
     pocket_comparison_path=None,
 ):
     """
     Compare the pockets of every aligned query/target pair into a pocket comparison table.
 
-    Parses the entries the job file names, for whether the target is a Foldseek database. Writes
-    unknown_ids.json and incorrect_mapping.json beside `pocket_comparison_path` when either has
-    anything to report, deleting any left there by an earlier run.
+    Reads the entries table for whether the target is a Foldseek database. Writes unknown_ids.json and
+    incorrect_mapping.json beside `pocket_comparison_path` when either has anything to report, deleting
+    any left there by an earlier run.
 
     Args:
         job_file (str or dict, optional): JSON job file of job key -> value, or the same already
-            loaded, e.g. parse's settings. Any argument given overrides it. Must set query and target.
-        results_dir (str, optional): The results directory the inputs default to. Required here or
-            in `job_file`.
-        work_dir (str, optional): Directory that entries and relative paths resolve against.
-            Defaults to the working directory.
+            loaded, e.g. parse's settings. Any argument given overrides it.
+        entries (str, optional): The entries table. Defaults to the job file's entries_path.
+        alignment (str, optional): Defaults to the job file's alignment_path.
+        pockets (str, optional): Defaults to the job file's pockets_path.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
-        log_path (str, optional): Defaults to <results_dir>/info.log.
-        job_settings_path (str, optional): Where these settings are written, as a job file for later
-            steps. Defaults to <results_dir>/compare_settings.json. Not written when run inside search.
-        failed_entries_path (str, optional): Where entries rejected on parsing are listed. Defaults
-            to <results_dir>/failed_entries.json.
-        cache_dir (str, optional): Defaults to DEFAULT_CACHE_DIR.
-        pdb_dir (str, optional): Defaults to <cache_dir>/pdb_structures.
-        alphafold_dir (str, optional): Defaults to <cache_dir>/alphafold_structures.
-        pocket_dir (str, optional): Defaults to <cache_dir>/pockets.
-        foldseek_preprocessed_structure_dir (str, optional): Defaults to
-            <cache_dir>/foldseek_preprocessed_structures.
-        fsdb_dir (str, optional): Defaults to <cache_dir>/fsdb.
-        alignment (str, optional): Defaults to the job file's alignment_path, else
-            <results_dir>/alignment.tsv.
-        pockets (str, optional): As `alignment`, from pockets_path.
-        pocket_comparison_path (str, optional): Defaults to <results_dir>/pocket_comparison.tsv.
+        log_path (str, optional): Where the log is appended. Defaults to the job file's, else none.
+        pocket_comparison_path (str, optional): Defaults to the job file's.
 
     Returns:
         None
 
     Raises:
-        PocketMapperError: If the job file cannot be read, query, target or results_dir is not given,
-            the entries are rejected as `parse` rejects them, an input is missing or unreadable, or
-            the alignment names a chain the pockets file does not.
+        PocketMapperError: If the job file cannot be read, a path is not given, the entries table cannot
+            be read or leaves a side empty, an input is missing or unreadable, or the alignment names a
+            chain the pockets file does not.
     """
     values = layer_settings(
         job_file,
         {
-            "results_dir": results_dir,
-            "work_dir": work_dir,
+            "entries_path": entries,
+            "alignment_path": alignment,
+            "pockets_path": pockets,
             "verbosity": verbosity,
             "log_path": log_path,
-            "job_settings_path": job_settings_path,
-            "failed_entries_path": failed_entries_path,
-            "cache_dir": cache_dir,
-            "pdb_dir": pdb_dir,
-            "alphafold_dir": alphafold_dir,
-            "pocket_dir": pocket_dir,
-            "foldseek_preprocessed_structure_dir": foldseek_preprocessed_structure_dir,
-            "fsdb_dir": fsdb_dir,
             "pocket_comparison_path": pocket_comparison_path,
         },
     )
-    for key in ("query", "target", "results_dir"):
-        require_setting(values, key)
-    values = resolve_paths(values, "compare")
-    with run_scope("compare") as outermost, log_to_file(values["log_path"], values["verbosity"]):
-        if outermost:
-            dump_settings(values)
-        sides = parse_job_entries(values, "compare")
+    values = resolve_step_paths(
+        values, ("entries_path", "alignment_path", "pockets_path", "pocket_comparison_path"), ("log_path",)
+    )
+    with run_scope("compare"), log_to_file(values["log_path"], values["verbosity"]):
+        sides = open_entries(values["entries_path"], "compare")
         compare_aligned_pockets(
             sides["target"],
-            input_path(values, alignment, "alignment_path"),
-            input_path(values, pockets, "pockets_path"),
+            values["alignment_path"],
+            values["pockets_path"],
             values["pocket_comparison_path"],
         )
 

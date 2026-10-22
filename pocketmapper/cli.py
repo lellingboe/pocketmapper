@@ -40,7 +40,6 @@ from pocketmapper.lib.constants import (
     DEFAULT_FETCH_MISSING,
     DEFAULT_PISA_SOURCE,
     DEFAULT_POCKET_METHOD,
-    DEFAULT_STRUCT_TYPE,
     DEFAULT_VERBOSITY,
     PACKAGE_LOGGER,
 )
@@ -52,19 +51,19 @@ from pocketmapper.search import PocketMapper
 from pocketmapper.superpose.step import superpose
 
 
-def input_file(flag, name, default):
+def input_file(flag, name, key):
     """
-    The spec of an option naming a file a command reads.
+    The spec of an option naming a file a step reads.
 
     Args:
         flag (str): The option, e.g. "--alignment".
         name (str): What the file holds, for the help.
-        default (str): The default, for the help.
+        key (str): The job key it defaults to, e.g. "alignment_path", for the help.
 
     Returns:
         tuple: (flags, add_argument keyword arguments).
     """
-    return [flag], dict(default=None, metavar="PATH", help=f"The {name} to read. (default: {default})")
+    return [flag], dict(default=None, metavar="PATH", help=f"The {name} to read. (default: the job file's {key})")
 
 
 def output_file(flag, name, default):
@@ -105,24 +104,15 @@ OPTIONS = {
             "Required unless the job file sets target.",
         ),
     ),
-    "entries_fetch": (
-        ["entries"],
-        dict(
-            nargs="*",
-            default=None,
-            metavar="ENTRY",
-            help="Entries or bare structure ids to fetch (4Q5J, P12345, pdb), or files of them; chain and "
-            "residue parts are ignored. (default: the job file's entries, else its query and target)",
-        ),
-    ),
     "job_file": (
         ["-j", "--job_file"],
         dict(
             default=None,
             metavar="PATH",
-            help="JSON file of {\"option\": value}, e.g. a run's job_settings.json or a step's "
-            "<command>_settings.json. Arguments override it, but it sets every path, so pass a specific path "
-            "option to move one. (default: none)",
+            help="JSON file of {\"option\": value}, e.g. a run's job_settings.json or parse's "
+            "parse_settings.json. Arguments override it, but it sets every path, so pass a specific path "
+            "option to move one. A step other than parse takes every path it uses from here unless given. "
+            "(default: none)",
         ),
     ),
     "work_dir": (
@@ -250,23 +240,14 @@ OPTIONS = {
         dict(
             default=None,
             metavar="DIR",
-            help="Where the log, the settings and the failed entries are written. Without it, none is "
+            help="Where the log, the settings and the entries table are written. Without it, none is "
             "written unless its own path is given. (default: none)",
         ),
     ),
-    "results_dir_required": (
-        ["--results_dir"],
-        dict(
-            default=None,
-            metavar="DIR",
-            help="The results directory; inputs and outputs default to files in it. Required here or in the job file.",
-        ),
-    ),
-    "alignment": input_file("--alignment", "alignment table", "<results_dir>/alignment.tsv"),
-    "pockets": input_file("--pockets", "pockets file", "<results_dir>/pockets.json"),
-    "pocket_comparison": input_file(
-        "--pocket_comparison", "pocket comparison table", "<results_dir>/pocket_comparison.tsv"
-    ),
+    "entries": input_file("--entries", "entries table", "entries_path"),
+    "alignment": input_file("--alignment", "alignment table", "alignment_path"),
+    "pockets": input_file("--pockets", "pockets file", "pockets_path"),
+    "pocket_comparison": input_file("--pocket_comparison", "pocket comparison table", "pocket_comparison_path"),
     "aligned_structure_dir": (
         ["--aligned_structure_dir"],
         dict(
@@ -280,22 +261,13 @@ OPTIONS = {
     "pocket_comparison_path": output_file(
         "--pocket_comparison_path", "pocket comparison table", "<results_dir>/pocket_comparison.tsv"
     ),
-    "failed_entries_path": (
-        ["--failed_entries_path"],
-        dict(
-            default=None,
-            metavar="PATH",
-            help="Where the entries dropped along the way are listed, with the reason. "
-            "(default: <results_dir>/failed_entries.json)",
-        ),
-    ),
     "job_settings_path": output_file(
         "--job_settings_path", "run's resolved settings", "<results_dir>/job_settings.json"
     ),
-    "job_settings_path_step": output_file(
+    "job_settings_path_parse": output_file(
         "--job_settings_path",
-        "settings, as a job file for later steps; never read from a job file",
-        "<results_dir>/<command>_settings.json",
+        "settings, as a job file for the later steps; never read from a job file",
+        "<results_dir>/parse_settings.json",
     ),
     "log_path": (
         ["--log_path"],
@@ -319,49 +291,13 @@ OPTIONS = {
             help=f"1 deletes --temp_dir at the end of a successful run; 0 keeps it. (default: {DEFAULT_DELETE_TMP})",
         ),
     ),
-    "entries_pockets": (
-        ["entries"],
-        dict(
-            nargs="*",
-            default=None,
-            metavar="ENTRY",
-            help="Entries to build the pockets of, or files of them, all with --pocket_method; no Foldseek "
-            "database hit is expanded. (default: the job file's entries, else its query and target)",
-        ),
+    "entries_path": output_file(
+        "--entries_path",
+        "entries table: how each entry resolved, and which step dropped it and why",
+        "<results_dir>/entries.tsv",
     ),
-    "pocket_method": (
-        ["--pocket_method"],
-        dict(
-            default=None,
-            metavar="STR",
-            help="Pocket method for every ENTRY: auto (infer it from each entry), pisa, passthrough, vdw or "
-            f"whole_chain. (default: {DEFAULT_POCKET_METHOD})",
-        ),
-    ),
-    "entries_path": output_file("--entries_path", "table of how each entry resolved, also printed", "none"),
     "pockets_tsv_path": output_file(
         "--pockets_tsv_path", "table of every pocket: pocket_id, chain, res_auth_ids, method", "none"
-    ),
-    "struct_type": (
-        ["--struct_type"],
-        dict(
-            default=None,
-            metavar="STR",
-            help="Structure type to force on every entry: auto (infer it from each entry), pdb, alphafold or "
-            f"foldseek_db. (default: {DEFAULT_STRUCT_TYPE})",
-        ),
-    ),
-    "out_dir": (
-        ["--out_dir"],
-        dict(
-            default=None,
-            metavar="DIR",
-            help="One directory to write every structure and database to, in place of the cache "
-            "directories. (default: the cache)",
-        ),
-    ),
-    "structures_tsv_path": output_file(
-        "--structures_tsv_path", "table of every structure: id, struct_type, path, ok", "none"
     ),
     "fetch_missing": (
         ["--fetch_missing"],
@@ -417,37 +353,16 @@ COMMANDS = {
             ),
             (
                 "out options",
-                ["results_dir_optional", "entries_path", "failed_entries_path", "job_settings_path_step", "log_path"],
+                ["results_dir_optional", "entries_path", "job_settings_path_parse", "log_path"],
             ),
         ],
     ),
     "fetch_structures": (
-        "Download the structures and Foldseek databases some entries name, or the query and target need.",
+        "Download the structures and Foldseek databases the entries table names.",
         [
-            (None, ["entries_fetch", "job_file", "verbosity", "struct_type", "threads"]),
-            ("in options", ["work_dir"]),
-            (
-                "cache options",
-                [
-                    "cache_dir",
-                    "pdb_dir",
-                    "alphafold_dir",
-                    "pocket_dir",
-                    "foldseek_preprocessed_structure_dir",
-                    "fsdb_dir",
-                ],
-            ),
-            (
-                "out options",
-                [
-                    "results_dir_optional",
-                    "out_dir",
-                    "structures_tsv_path",
-                    "failed_entries_path",
-                    "job_settings_path_step",
-                    "log_path",
-                ],
-            ),
+            (None, ["job_file", "verbosity", "threads"]),
+            ("in options", ["entries"]),
+            ("out options", ["log_path"]),
             ("temp options", ["temp_dir", "delete_tmp"]),
         ],
     ),
@@ -455,58 +370,19 @@ COMMANDS = {
         "Align the query chains against the target chains.",
         [
             (None, ["job_file", "verbosity", "aligner", "threads", "fetch_missing"]),
-            ("in options", ["work_dir"]),
-            (
-                "cache options",
-                [
-                    "cache_dir",
-                    "pdb_dir",
-                    "alphafold_dir",
-                    "pocket_dir",
-                    "foldseek_preprocessed_structure_dir",
-                    "fsdb_dir",
-                ],
-            ),
-            (
-                "out options",
-                [
-                    "results_dir_required",
-                    "alignment_path",
-                    "failed_entries_path",
-                    "job_settings_path_step",
-                    "log_path",
-                ],
-            ),
+            ("in options", ["entries"]),
+            ("cache options", ["foldseek_preprocessed_structure_dir"]),
+            ("out options", ["alignment_path", "log_path"]),
             ("temp options", ["temp_dir", "delete_tmp"]),
         ],
     ),
     "pockets": (
-        "Build the pocket of some entries, or of every query and target entry.",
+        "Build the pocket of every query and target entry.",
         [
-            (None, ["entries_pockets", "job_file", "verbosity", "pocket_method", "fetch_missing"]),
-            ("in options", ["work_dir", "alignment"]),
-            (
-                "cache options",
-                [
-                    "cache_dir",
-                    "pdb_dir",
-                    "alphafold_dir",
-                    "pocket_dir",
-                    "foldseek_preprocessed_structure_dir",
-                    "fsdb_dir",
-                ],
-            ),
-            (
-                "out options",
-                [
-                    "results_dir_required",
-                    "pockets_path",
-                    "pockets_tsv_path",
-                    "failed_entries_path",
-                    "job_settings_path_step",
-                    "log_path",
-                ],
-            ),
+            (None, ["job_file", "verbosity", "fetch_missing"]),
+            ("in options", ["entries", "alignment"]),
+            ("cache options", ["pdb_dir", "alphafold_dir", "pocket_dir", "fsdb_dir"]),
+            ("out options", ["pockets_path", "pockets_tsv_path", "log_path"]),
             ("advanced options", ["pisa_source"]),
         ],
     ),
@@ -514,57 +390,17 @@ COMMANDS = {
         "Compare the pockets of every aligned query/target pair.",
         [
             (None, ["job_file", "verbosity"]),
-            ("in options", ["work_dir", "alignment", "pockets"]),
-            (
-                "cache options",
-                [
-                    "cache_dir",
-                    "pdb_dir",
-                    "alphafold_dir",
-                    "pocket_dir",
-                    "foldseek_preprocessed_structure_dir",
-                    "fsdb_dir",
-                ],
-            ),
-            (
-                "out options",
-                [
-                    "results_dir_required",
-                    "pocket_comparison_path",
-                    "failed_entries_path",
-                    "job_settings_path_step",
-                    "log_path",
-                ],
-            ),
+            ("in options", ["entries", "alignment", "pockets"]),
+            ("out options", ["pocket_comparison_path", "log_path"]),
         ],
     ),
     "superpose": (
         "Superpose the top targets of each query onto it.",
         [
             (None, ["job_file", "verbosity", "threads", "fetch_missing"]),
-            ("in options", ["work_dir", "pocket_comparison", "alignment", "pockets"]),
+            ("in options", ["entries", "pocket_comparison", "alignment", "pockets"]),
             ("aligned structure options", ["align_count", "align_struct_method"]),
-            (
-                "cache options",
-                [
-                    "cache_dir",
-                    "pdb_dir",
-                    "alphafold_dir",
-                    "pocket_dir",
-                    "foldseek_preprocessed_structure_dir",
-                    "fsdb_dir",
-                ],
-            ),
-            (
-                "out options",
-                [
-                    "results_dir_required",
-                    "aligned_structure_dir",
-                    "failed_entries_path",
-                    "job_settings_path_step",
-                    "log_path",
-                ],
-            ),
+            ("out options", ["aligned_structure_dir", "log_path"]),
         ],
     ),
     "search": (
@@ -604,7 +440,7 @@ COMMANDS = {
                     "alignment_path",
                     "pocket_comparison_path",
                     "pockets_path",
-                    "failed_entries_path",
+                    "entries_path",
                     "job_settings_path",
                     "log_path",
                 ],

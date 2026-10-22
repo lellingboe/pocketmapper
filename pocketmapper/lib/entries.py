@@ -1,25 +1,43 @@
 """
-What the steps share about parsed entries and the ones they skip: the failed-entries log and helpers
-over QTRecord dicts.
+What the steps share about parsed entries: the entries table and helpers over QTRecord dicts.
 
-No step hands another its records: each re-derives them from the entries
-(`parse.step.parse_entries`). `failed_entries.json` collects every entry a step left out, with the
-reason; nothing reads it back. Only failures reported through `report_failures` are deduplicated
-across steps; a component's own warnings (e.g. `StructurePreprocessor`'s) repeat in every step that
-meets them.
+`parse` writes the entries table, `entries.tsv`: a row per query and target entry, holding its QTRecord
+fields, the input it came from and, once a step has dropped it, which step, why and how. Every later step
+reads its records from the table (`open_entries`) and marks the ones it drops (`report_failures`), so no
+step parses the entries again or meets a failure an earlier step already reported.
 
-Also derives what the target records say about the run: whether the target is a Foldseek database.
+A step clears its own and every later step's marks when it opens the table, so rerunning a step gives the
+table it gave the first time.
 """
 
-import json
 import logging
 import os
+
+import pandas as pd
 
 from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.files import make_dir
 from pocketmapper.lib.scopes import outer_command
 
 logger = logging.getLogger(__name__)
+
+# The fields of `parse.qt_processor.QTRecord`, in its order; a record dict holds exactly these
+RECORD_FIELDS = (
+    "pocket_id",
+    "struct_info",
+    "chain_info",
+    "residue_info",
+    "struct_type",
+    "struct_path",
+    "preprocess_name",
+    "pocket_method",
+)
+
+# The entries table's columns. The failed_* columns are empty until a step drops the entry.
+ENTRY_COLUMNS = ("side",) + RECORD_FIELDS + ("source", "failed_step", "failed_reason", "failed_detail")
+
+# The steps in the order they run; a step clears the marks of itself and every step after it
+STEP_ORDER = ("parse", "fetch_structures", "align", "pockets", "compare", "superpose")
 
 
 def require_file(path, what):
@@ -42,37 +60,40 @@ def require_file(path, what):
         raise PocketMapperError(msg)
 
 
-def read_json(path, what):
+def entry_row(side, record, source, failed_step=None, failed_reason=None, failed_detail=None):
     """
-    Read a JSON file a step needs as input.
+    Build one row of the entries table.
 
     Args:
-        path (str): The file.
-        what (str): What the file holds, for the error message, e.g. "query records".
+        side (str): "query" or "target".
+        record (dict): A QTRecord dict, or for an entry that never became a record, one holding only
+            its `pocket_id`.
+        source (str): The input or entries file the entry was read from.
+        failed_step (str, optional): The step that dropped it. Defaults to None, for not dropped.
+        failed_reason (str, optional): Why, e.g. "invalid_entry". Defaults to None.
+        failed_detail (str, optional): A human-readable explanation. Defaults to None.
 
     Returns:
-        The parsed JSON.
-
-    Raises:
-        PocketMapperError: If the file is missing or is not JSON.
+        dict: Column -> value, for every one of ENTRY_COLUMNS.
     """
-    require_file(path, what)
-    try:
-        with open(path) as f:
-            return json.load(f)
-    except ValueError as e:
-        msg = f"Could not read the {what} file {path}: {e}"
-        logger.critical(msg)
-        raise PocketMapperError(msg) from e
+    row = {"side": side}
+    row |= {key: record.get(key) for key in RECORD_FIELDS}
+    row |= {
+        "source": source,
+        "failed_step": failed_step,
+        "failed_reason": failed_reason,
+        "failed_detail": failed_detail,
+    }
+    return row
 
 
-def write_json(value, path):
+def write_entries(rows, path):
     """
-    Write a value as JSON, creating the file's directory.
+    Write the entries table, creating its directory.
 
     Args:
-        value: Anything `json.dump` accepts.
-        path (str): The file to write.
+        rows (list): Rows from `entry_row`.
+        path (str or None): The table, tab-separated, or None to write none.
 
     Returns:
         None
@@ -80,128 +101,159 @@ def write_json(value, path):
     Raises:
         PocketMapperError: If the directory cannot be created.
     """
+    if path is None:
+        return
     make_dir(os.path.dirname(path), {"stage": "Writing Files"})
-    with open(path, "w") as f:
-        json.dump(value, f, indent=4)
+    pd.DataFrame(rows, columns=list(ENTRY_COLUMNS)).to_csv(path, sep="\t", index=False)
 
 
-def failed_entry(pocket_id, step, reason, source, record=None, detail=None):
+def read_entries(path):
     """
-    Build one `failed_entries.json` entry.
+    Read the entries table.
 
     Args:
-        pocket_id (str): The entry as typed.
-        step (str): The step that dropped it, e.g. "fetch_structures".
+        path (str): The table.
+
+    Returns:
+        list: A row dict per entry, in table order, None for each empty cell.
+
+    Raises:
+        PocketMapperError: If the file is missing, unreadable or lacks a column.
+    """
+    require_file(path, "entries")
+    try:
+        table = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
+    except ValueError as e:
+        msg = f"Could not read the entries file {path}: {e}"
+        logger.critical(msg)
+        raise PocketMapperError(msg) from e
+    missing = [column for column in ENTRY_COLUMNS if column not in table.columns]
+    if missing:
+        msg = f"The entries file {path} lacks the column(s) {', '.join(missing)}; rerun parse to rewrite it"
+        logger.critical(msg)
+        raise PocketMapperError(msg)
+    return [
+        {column: (row[column] if row[column] != "" else None) for column in ENTRY_COLUMNS}
+        for row in table.to_dict("records")
+    ]
+
+
+def entry_sides(rows):
+    """
+    The records of the entries no step has dropped, by side.
+
+    Args:
+        rows (list): Rows of the entries table.
+
+    Returns:
+        dict: "query" and "target" -> that side's QTRecord dicts, in table order.
+    """
+    sides = {"query": [], "target": []}
+    for row in rows:
+        if row["failed_step"] is None:
+            sides[row["side"]].append({key: row[key] for key in RECORD_FIELDS})
+    return sides
+
+
+def open_entries(path, step):
+    """
+    Read the records a step works on from the entries table.
+
+    Clears the marks of `step` and of every step after it, rewriting the table if any was set, so a
+    rerun starts from what the earlier steps left.
+
+    Args:
+        path (str): The entries table.
+        step (str): The step opening it, one of STEP_ORDER.
+
+    Returns:
+        dict: "query" and "target" -> the QTRecord dicts of the entries no earlier step dropped.
+
+    Raises:
+        PocketMapperError: If the table cannot be read, or a side has no entry left.
+    """
+    log_extra = {"stage": "Reading Entries"}
+
+    rows = read_entries(path)
+    cleared = STEP_ORDER[STEP_ORDER.index(step) :]
+    reset = [row for row in rows if row["failed_step"] in cleared]
+    for row in reset:
+        row["failed_step"] = row["failed_reason"] = row["failed_detail"] = None
+    if reset:
+        write_entries(rows, path)
+
+    sides = entry_sides(rows)
+    errors = []
+    for name, records in sides.items():
+        if not records:
+            logger.critical(f"No {name} entries left in {path}", extra=log_extra)
+            errors.append(f"no {name} entries left")
+    if errors:
+        raise PocketMapperError("; ".join(errors))
+    return sides
+
+
+def failure(side, record, reason, detail=None):
+    """
+    Describe one entry a step drops.
+
+    Args:
+        side (str or None): The record's side, or None for a record that is no entry (a Foldseek hit),
+            which is logged but not marked.
+        record (dict): The QTRecord dict.
         reason (str): Why, e.g. "structure_not_found".
-        source (str): The query/target input the entry was parsed from, or the file it was read
-            from.
-        record (dict, optional): The dropped record, whose fields are appended. Defaults to None,
-            for an entry that never became a record.
-        detail (str, optional): A human-readable explanation. Defaults to None, which adds none.
+        detail (str, optional): A human-readable explanation. Defaults to None.
 
     Returns:
-        dict: The entry.
+        dict: "side", "pocket_id", "reason" and "detail".
     """
-    entry = {"pocket_id": pocket_id, "step": step, "reason": reason, "source": source}
-    if detail is not None:
-        entry["detail"] = detail
-    if record is not None:
-        entry |= {key: value for key, value in record.items() if key not in entry}
-    return entry
+    return {"side": side, "pocket_id": record["pocket_id"], "reason": reason, "detail": detail}
 
 
-def start_failed_entries(path):
+def report_failures(path, step, failures, log_extra, message=None):
     """
-    Start a fresh `failed_entries.json`, holding an empty list.
+    Log the entries a step drops as warnings, and mark them in the entries table.
+
+    Each entry's rows are marked only if no step has marked them yet, so the first reason stands.
 
     Args:
-        path (str): The failed-entries file.
-
-    Returns:
-        None
-    """
-    write_json([], path)
-
-
-def append_failed_entries(path, entries):
-    """
-    Add entries to `failed_entries.json`, creating it if missing, skipping any already listed.
-
-    An entry is already listed when the file, or an earlier entry in `entries`, holds its
-    `(pocket_id, reason)`: a chain of steps that each re-parse the entries meets each failure once per
-    step.
-
-    Args:
-        path (str): The failed-entries file.
-        entries (list): Entries from `failed_entry`. Nothing is written when none is new.
-
-    Returns:
-        list: The entries that were new, in order.
-    """
-    existing = read_json(path, "failed entries") if os.path.isfile(path) else []
-    new = unlisted(entries, existing)
-    if new:
-        write_json(existing + new, path)
-        logger.info(f"{len(new)} entries skipped; see {path}")
-    return new
-
-
-def unlisted(entries, listed):
-    """
-    The failure entries not already listed.
-
-    Args:
-        entries (list): Entries from `failed_entry`.
-        listed (list): Entries already recorded.
-
-    Returns:
-        list: Each entry of `entries` whose `(pocket_id, reason)` is neither in `listed` nor on an
-            earlier entry of `entries`, in order.
-    """
-    seen = {(entry["pocket_id"], entry["reason"]) for entry in listed}
-    new = []
-    for entry in entries:
-        key = (entry["pocket_id"], entry["reason"])
-        if key not in seen:
-            seen.add(key)
-            new.append(entry)
-    return new
-
-
-def report_failures(path, entries, log_extra, message=None):
-    """
-    Add entries to the failed-entries file and log them: new ones as warnings, ones already listed at DEBUG.
-
-    Args:
-        path (str or None): The failed-entries file, or None to write none, every entry then being
-            new unless it repeats an earlier one.
-        entries (list): Entries from `failed_entry`.
+        path (str or None): The entries table, or None to mark nothing.
+        step (str): The step dropping them.
+        failures (list): Entries from `failure`. Nothing is written when empty.
         log_extra (dict): Logging `extra` for the messages.
         message (str, optional): What the entries have in common, logged once ahead of their
             pocket_ids. Defaults to None, which logs each entry's own `detail`.
 
     Returns:
-        list: The entries that were new, in order.
+        None
+
+    Raises:
+        PocketMapperError: If the table cannot be read.
     """
-    new = append_failed_entries(path, entries) if path is not None else unlisted(entries, [])
-    new_ids = {id(entry) for entry in new}
-    repeats = [entry for entry in entries if id(entry) not in new_ids]
-    for level, group, suffix in (
-        (logging.WARNING, new, ""),
-        (logging.DEBUG, repeats, " (already listed as failed)"),
-    ):
-        if not group:
-            continue
-        if message is None:
-            for entry in group:
-                logger.log(level, f"{entry['detail']}; skipping this entry{suffix}", extra=log_extra)
-        else:
-            pocket_ids = ", ".join(dict.fromkeys(entry["pocket_id"] for entry in group))
-            logger.log(level, f"{message}{suffix}: {pocket_ids}", extra=log_extra)
-    return new
+    if not failures:
+        return
+    if message is None:
+        for entry in failures:
+            logger.warning(f"{entry['detail']}; skipping this entry", extra=log_extra)
+    else:
+        pocket_ids = ", ".join(dict.fromkeys(entry["pocket_id"] for entry in failures))
+        logger.warning(f"{message}: {pocket_ids}", extra=log_extra)
+
+    marks = {(entry["side"], entry["pocket_id"]): entry for entry in failures if entry["side"] is not None}
+    if path is None or not marks:
+        return
+    rows = read_entries(path)
+    for row in rows:
+        entry = marks.get((row["side"], row["pocket_id"]))
+        if entry is not None and row["failed_step"] is None:
+            row["failed_step"] = step
+            row["failed_reason"] = entry["reason"]
+            row["failed_detail"] = entry["detail"]
+    write_entries(rows, path)
+    logger.info(f"{len(marks)} entries skipped; see {path}", extra=log_extra)
 
 
-def split_missing_structures(records, step, source, failed_entries_path, log_extra):
+def split_missing_structures(records, side, step, entries_path, log_extra):
     """
     Set aside the records whose structure, or Foldseek database, is not on disk.
 
@@ -210,9 +262,9 @@ def split_missing_structures(records, step, source, failed_entries_path, log_ext
 
     Args:
         records (list): One side's QTRecord dicts.
-        step (str): The step skipping them, for the failure entries.
-        source (str): The input they were parsed from, for the failure entries.
-        failed_entries_path (str): The failed-entries file, appended to.
+        side (str): Which side they are, "query" or "target".
+        step (str): The step skipping them.
+        entries_path (str): The entries table, marked.
         log_extra (dict): Logging `extra` for the messages.
 
     Returns:
@@ -224,53 +276,10 @@ def split_missing_structures(records, step, source, failed_entries_path, log_ext
         if os.path.exists(record["struct_path"]):
             kept.append(record)
         else:
-            failures.append(failed_entry(record["pocket_id"], step, "structure_not_found", source, record))
+            failures.append(failure(side, record, "structure_not_found"))
     hint = "" if outer_command() == "search" else "; run fetch_structures first, or pass --fetch_missing 1"
-    report_failures(failed_entries_path, failures, log_extra, f"No structure on disk, skipping{hint}")
+    report_failures(entries_path, step, failures, log_extra, f"No structure on disk, skipping{hint}")
     return kept
-
-
-def reject_fsdb_query(records, step, source):
-    """
-    Set aside the Foldseek databases among the query records: a database can only be searched.
-
-    Args:
-        records (list): The query side's QTRecord or structure dicts.
-        step (str): The step rejecting them, for the failure entries.
-        source (str): The input they were parsed from, for the failure entries.
-
-    Returns:
-        tuple: (the records left, an `invalid_entry` failure entry per database).
-    """
-    kept = []
-    failures = []
-    for record in records:
-        if record["struct_type"] != "foldseek_db":
-            kept.append(record)
-            continue
-        reason = f"A Foldseek database cannot be a query entry: {record['pocket_id']}"
-        failures.append(failed_entry(record["pocket_id"], step, "invalid_entry", source, record, reason))
-    return kept, failures
-
-
-def check_fsdb_target(records, log_extra):
-    """
-    Check that a Foldseek-database target is the only target entry.
-
-    Args:
-        records (list): The target side's QTRecord or structure dicts.
-        log_extra (dict): Logging `extra` for the failure message.
-
-    Returns:
-        None
-
-    Raises:
-        PocketMapperError: If a Foldseek database is among several target entries.
-    """
-    if fsdb_record(records) is not None and len(records) > 1:
-        msg = f"A Foldseek database target must be the only target entry, but {len(records)} target entries were given"
-        logger.critical(msg, extra=log_extra)
-        raise PocketMapperError(msg)
 
 
 def unique_by(records, *fields):

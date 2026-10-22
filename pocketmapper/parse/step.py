@@ -1,26 +1,16 @@
 """
 Step 1: parse the query and target inputs, checking each entry against its pocket method.
 
-A dry run: no network, and nothing downstream reads its table of how each entry resolved. Every
-later step parses the entries again, from its own settings, through `parse_entries`; parse is the
-cheap check before anything is fetched, and its settings dump is the job file the rest of a chain
-takes.
+A dry run: no network. Writes the entries table every later step reads its records from (see
+`lib.entries`), and its settings dump is the job file the rest of a chain takes.
 """
 
 import logging
-import os
 
 import pandas as pd
 
-from pocketmapper.lib.entries import (
-    check_fsdb_target,
-    failed_entry,
-    reject_fsdb_query,
-    report_failures,
-    start_failed_entries,
-)
+from pocketmapper.lib.entries import ENTRY_COLUMNS, entry_row, entry_sides, fsdb_record, write_entries
 from pocketmapper.lib.exceptions import PocketMapperError
-from pocketmapper.lib.files import make_dir
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope
 from pocketmapper.lib.settings import dump_settings, layer_settings, require_setting, resolve_paths
@@ -38,7 +28,6 @@ def parse(
     verbosity=None,
     log_path=None,
     job_settings_path=None,
-    failed_entries_path=None,
     query_pocket_method=None,
     target_pocket_method=None,
     cache_dir=None,
@@ -52,9 +41,10 @@ def parse(
     """
     Parse the query and target inputs, checking each entry against its pocket method. No network.
 
-    Starts `failed_entries_path` afresh with the entries that could not be parsed. Without a
-    `results_dir`, writes no log, settings or failed entries unless that file's own path is given.
-    Logs nothing about the table it returns: printing it is the caller's business.
+    Writes the entries table afresh, the entries that could not be parsed marked as dropped, even when
+    the entries are then rejected. Without a `results_dir`, writes no log, settings or entries table
+    unless that file's own path is given. Logs nothing about the table it returns: printing it is the
+    caller's business.
 
     Args:
         query (str, optional): Query entry, or a file of one entry per line. Required here or in
@@ -62,15 +52,14 @@ def parse(
         target (str, optional): Target entry, a file of them, or a Foldseek database. As `query`.
         job_file (str or dict, optional): JSON job file of job key -> value, or the same
             already loaded. Any argument given overrides it.
-        results_dir (str, optional): Where the log, the settings and the failed entries go by
-            default. Defaults to None, for none.
+        results_dir (str, optional): Where the log, the settings and the entries table go by default.
+            Defaults to None, for none.
         work_dir (str, optional): Directory that entries and relative paths resolve against.
             Defaults to the working directory.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
         log_path (str, optional): Defaults to <results_dir>/info.log.
         job_settings_path (str, optional): Where these settings are written, as a job file for later
             steps. Defaults to <results_dir>/parse_settings.json. Not written when run inside search.
-        failed_entries_path (str, optional): Defaults to <results_dir>/failed_entries.json.
         query_pocket_method (str, optional): Pocket method to force on every query entry, or "auto"
             (the default) to infer it per entry.
         target_pocket_method (str, optional): As `query_pocket_method`, for the target side.
@@ -81,11 +70,12 @@ def parse(
         foldseek_preprocessed_structure_dir (str, optional): Defaults to
             <cache_dir>/foldseek_preprocessed_structures.
         fsdb_dir (str, optional): Defaults to <cache_dir>/fsdb.
-        entries_path (str, optional): Where the table returned is also written, tab-separated.
-            Defaults to None, for nowhere.
+        entries_path (str, optional): Where the entries table is written. Defaults to
+            <results_dir>/entries.tsv.
 
     Returns:
-        pandas.DataFrame: How each entry resolved, as `entries_table` builds it.
+        pandas.DataFrame: The entries table, a row per entry with the columns of
+            `lib.entries.ENTRY_COLUMNS`.
 
     Raises:
         PocketMapperError: If the job file cannot be read, query or target is given both ways or
@@ -102,7 +92,6 @@ def parse(
             "verbosity": verbosity,
             "log_path": log_path,
             "job_settings_path": job_settings_path,
-            "failed_entries_path": failed_entries_path,
             "query_pocket_method": query_pocket_method,
             "target_pocket_method": target_pocket_method,
             "cache_dir": cache_dir,
@@ -120,136 +109,16 @@ def parse(
     with run_scope("parse") as outermost, log_to_file(values["log_path"], values["verbosity"]):
         if outermost:
             dump_settings(values)
-        sides, failures = parse_inputs(
+        _, rows = parse_entries(
             values["query"],
             values["target"],
             values["query_pocket_method"],
             values["target_pocket_method"],
             values,
             values["work_dir"],
-            values["failed_entries_path"],
+            values["entries_path"],
         )
-        table = entries_table(sides, failures)
-        if values["entries_path"] is not None:
-            make_dir(os.path.dirname(values["entries_path"]), {"stage": "Determine Query/Target Types"})
-            table.to_csv(values["entries_path"], sep="\t", index=False)
-        return table
-
-
-def parse_inputs(
-    query,
-    target,
-    query_pocket_method,
-    target_pocket_method,
-    cache_dirs,
-    work_dir,
-    failed_entries_path,
-):
-    """
-    Parse both sides' input, starting `failed_entries_path` afresh with the entries that fail.
-
-    Every entry that could not be parsed and every Foldseek-database query entry is listed as
-    `invalid_entry`.
-
-    Args:
-        query (str): Query entry, or a file of one entry per line.
-        target (str): Target entry, a file of them, or a Foldseek database.
-        query_pocket_method (str): Pocket method to force on every query entry, or "auto".
-        target_pocket_method (str): As `query_pocket_method`, for the target side.
-        cache_dirs (dict): Holds "pdb_dir", "alphafold_dir" and "fsdb_dir".
-        work_dir (str): Directory that entries files, local structure files, a user Foldseek
-            database and relative cache directories resolve against.
-        failed_entries_path (str or None): The failed-entries file, or None to write none.
-
-    Returns:
-        tuple: (sides, failures), as `parse_entries` returns them.
-
-    Raises:
-        PocketMapperError: If a pocket method is unknown, either side has no valid entries, or a
-            Foldseek-database target is not the only target entry.
-    """
-    log_extra = {"stage": "Determine Query/Target Types"}
-
-    if failed_entries_path is not None:
-        start_failed_entries(failed_entries_path)
-    sides, failures = parse_entries(
-        query,
-        target,
-        query_pocket_method,
-        target_pocket_method,
-        cache_dirs,
-        work_dir,
-        failed_entries_path=failed_entries_path,
-    )
-    logger.info(f"Parsed {len(sides['query'])} query and {len(sides['target'])} target entries", extra=log_extra)
-    return sides, failures
-
-
-def entries_table(sides, failures):
-    """
-    Tabulate how each entry resolved: a row per record parsed, then a row per entry rejected.
-
-    Args:
-        sides (dict): Side name -> QTRecord dicts, as `parse_entries` returns them.
-        failures (dict): Side name -> failure entries, as `parse_entries` returns them.
-
-    Returns:
-        pandas.DataFrame: Columns side, entry, struct_type, pocket_method, struct_path and reason,
-            which is empty for an entry that resolved and says why for one rejected.
-    """
-    rows = []
-    for name in sides:
-        for record in sides[name]:
-            rows.append(
-                {
-                    "side": name,
-                    "entry": record["pocket_id"],
-                    "struct_type": record["struct_type"],
-                    "pocket_method": record["pocket_method"],
-                    "struct_path": record["struct_path"],
-                    "reason": "",
-                }
-            )
-        for failure in failures[name]:
-            rows.append(
-                {
-                    "side": name,
-                    "entry": failure["pocket_id"],
-                    "struct_type": failure.get("struct_type"),
-                    "pocket_method": failure.get("pocket_method"),
-                    "struct_path": failure.get("struct_path"),
-                    "reason": failure.get("detail", failure["reason"]),
-                }
-            )
-    return pd.DataFrame(rows, columns=["side", "entry", "struct_type", "pocket_method", "struct_path", "reason"])
-
-
-def parse_job_entries(values, step):
-    """
-    Parse both sides' entries as a step's settings name them, adding failures to its failed-entries file.
-
-    Args:
-        values (dict): Job key -> value, from `lib.settings.resolve_paths`. Reads query, target, both
-            pocket methods, the cache directories, `work_dir` and `failed_entries_path`.
-        step (str): The step parsing them, named in the failure entries.
-
-    Returns:
-        dict: "query" and "target" -> that side's QTRecord dicts.
-
-    Raises:
-        PocketMapperError: As `parse_entries`.
-    """
-    sides, _ = parse_entries(
-        values["query"],
-        values["target"],
-        values["query_pocket_method"],
-        values["target_pocket_method"],
-        values,
-        values["work_dir"],
-        step=step,
-        failed_entries_path=values["failed_entries_path"],
-    )
-    return sides
+        return pd.DataFrame(rows, columns=list(ENTRY_COLUMNS))
 
 
 def parse_entries(
@@ -259,16 +128,14 @@ def parse_entries(
     target_pocket_method,
     cache_dirs,
     work_dir,
-    step="parse",
-    failed_entries_path=None,
+    entries_path=None,
 ):
     """
     Parse both sides' entries into records, and check that the two sides make a search.
 
-    Every entry that could not be parsed, and every Foldseek-database query entry, is a failure,
-    `invalid_entry`, reported through `lib.entries.report_failures` (a warning, or DEBUG for one already
-    in `failed_entries_path`) before the sides are checked, so it is listed even when the check
-    fails.
+    Every entry that could not be parsed, and every Foldseek-database query entry, is marked as dropped,
+    `invalid_entry`, and logged as a warning. The entries table is written before the sides are
+    checked, so it lists them even when the check fails.
 
     Args:
         query (str or list): Query entry, a file of one entry per line, or a list of either.
@@ -279,15 +146,13 @@ def parse_entries(
             records' structure paths.
         work_dir (str): Directory that entries files, local structure files, a user Foldseek
             database and relative cache directories resolve against.
-        step (str, optional): The step parsing them, named in the failure entries. Defaults to
-            "parse".
-        failed_entries_path (str, optional): The failed-entries file, appended to. Defaults to None,
-            which writes none and warns about every failure.
+        entries_path (str, optional): Where the entries table is written. Defaults to None, for
+            nowhere.
 
     Returns:
-        tuple: (sides, failures). `sides` is "query" and "target" -> that side's QTRecord dicts, in
-            input order; `failures` the same keys -> the failure entries for that side's entries left
-            out.
+        tuple: (sides, rows). `sides` is "query" and "target" -> the QTRecord dicts of that side's
+            entries kept, in input order; `rows` the entries table, as `lib.entries.entry_row` builds
+            it, every entry included.
 
     Raises:
         PocketMapperError: If a pocket method is unknown, an entries file cannot be read, either side
@@ -295,21 +160,25 @@ def parse_entries(
     """
     log_extra = {"stage": "Determine Query/Target Types"}
 
-    sides = {}
-    failures = {}
+    rows = []
     for name, entries, pocket_method in (
         ("query", query, query_pocket_method),
         ("target", target, target_pocket_method),
     ):
-        sides[name], rejected = parse_side(entries, name, pocket_method, cache_dirs, work_dir)
-        failures[name] = [
-            failed_entry(entry, step, "invalid_entry", source, detail=reason) for entry, reason, source in rejected
-        ]
+        rows += parse_side(entries, name, pocket_method, cache_dirs, work_dir)
+    for row in rows:
+        # A database can only be searched
+        if row["side"] == "query" and row["struct_type"] == "foldseek_db" and row["failed_step"] is None:
+            row["failed_step"] = "parse"
+            row["failed_reason"] = "invalid_entry"
+            row["failed_detail"] = f"A Foldseek database cannot be a query entry: {row['pocket_id']}"
+    for row in rows:
+        if row["failed_step"] is not None:
+            logger.warning(f"{row['failed_detail']}; skipping this entry", extra=log_extra)
+    write_entries(rows, entries_path)
 
-    sides["query"], databases = reject_fsdb_query(sides["query"], step, query)
-    failures["query"] += databases
-    report_failures(failed_entries_path, failures["query"] + failures["target"], log_extra)
-
+    sides = entry_sides(rows)
+    logger.info(f"Parsed {len(sides['query'])} query and {len(sides['target'])} target entries", extra=log_extra)
     errors = []
     for name, records in sides.items():
         if not records:
@@ -318,84 +187,23 @@ def parse_entries(
     if errors:
         raise PocketMapperError("; ".join(errors))
 
-    check_fsdb_target(sides["target"], log_extra)
-    return sides, failures
-
-
-def parse_listed_entries(entries, pocket_method, cache_dirs, work_dir, step, failed_entries_path):
-    """
-    Parse a list of entries as one side, reporting the entries rejected.
-
-    Args:
-        entries (list): Entries, or files of them.
-        pocket_method (str): Pocket method to force on every entry, or "auto".
-        cache_dirs (dict): Holds "pdb_dir", "alphafold_dir" and "fsdb_dir".
-        work_dir (str): Directory that entries files, local structure files, a user Foldseek
-            database and relative cache directories resolve against.
-        step (str): The step parsing them, named in the failure entries.
-        failed_entries_path (str or None): The failed-entries file, appended to, or None for none.
-
-    Returns:
-        list: The QTRecord dicts parsed, in input order.
-
-    Raises:
-        PocketMapperError: If `pocket_method` is unknown, an entries file cannot be read, or no entry
-            is valid.
-    """
-    log_extra = {"stage": "Determine Query/Target Types"}
-
-    records, rejected = parse_side(entries, "entries", pocket_method, cache_dirs, work_dir)
-    failures = [failed_entry(entry, step, "invalid_entry", source, detail=reason) for entry, reason, source in rejected]
-    report_failures(failed_entries_path, failures, log_extra)
-    if not records:
-        logger.critical("No valid entries after processing", extra=log_extra)
-        raise PocketMapperError("no valid entries")
-    return records
-
-
-def parse_structure_side(entries, name, struct_type, cache_dirs, work_dir):
-    """
-    Resolve the structure of each of one side's entries, ignoring their chain and residue parts.
-
-    Args:
-        entries (str or list): An entry or bare structure id, a file of them, or a list of either.
-        name (str): Which side this is, e.g. "query", for the log and error messages.
-        struct_type (str): Structure type to force on every entry, or "auto".
-        cache_dirs (dict): Holds "pdb_dir", "alphafold_dir" and "fsdb_dir", which give the
-            structure paths.
-        work_dir (str): Directory that entries files, local structure files, a user Foldseek
-            database and relative cache directories resolve against.
-
-    Returns:
-        tuple: (structures, rejected). `structures` holds a dict per entry resolved, as
-            `QTProcessor.parse_structure` returns it, in input order; `rejected` an
-            (entry, reason, source) triple for each entry that could not be.
-
-    Raises:
-        PocketMapperError: If `struct_type` is unknown or an entries file cannot be read.
-    """
-    qtprocessor = QTProcessor(
-        pdb_dir=cache_dirs["pdb_dir"],
-        alphafold_dir=cache_dirs["alphafold_dir"],
-        fsdb_dir=cache_dirs["fsdb_dir"],
-        work_dir=work_dir,
-    )
-    structures = []
-    rejected = []
-    for source in [entries] if isinstance(entries, str) else entries:
-        resolved, failed = qtprocessor.process_structure_input(source, name, struct_type)
-        structures += resolved
-        rejected += [(entry, reason, source) for entry, reason in failed]
-    return structures, rejected
+    if fsdb_record(sides["target"]) is not None and len(sides["target"]) > 1:
+        msg = (
+            "A Foldseek database target must be the only target entry, but "
+            f"{len(sides['target'])} target entries were given"
+        )
+        logger.critical(msg, extra=log_extra)
+        raise PocketMapperError(msg)
+    return sides, rows
 
 
 def parse_side(entries, name, pocket_method, cache_dirs, work_dir):
     """
-    Parse one side's entries into records.
+    Parse one side's entries into rows of the entries table.
 
     Args:
         entries (str or list): An entry, a file of one entry per line, or a list of either.
-        name (str): Which side this is, e.g. "query", for the log and error messages.
+        name (str): Which side this is, "query" or "target".
         pocket_method (str): Pocket method to force on every entry, or "auto".
         cache_dirs (dict): Holds "pdb_dir", "alphafold_dir" and "fsdb_dir", which give the
             records' structure paths.
@@ -403,9 +211,8 @@ def parse_side(entries, name, pocket_method, cache_dirs, work_dir):
             database and relative cache directories resolve against.
 
     Returns:
-        tuple: (records, rejected). `records` holds the QTRecord dicts parsed, in input order;
-            `rejected` an (entry, reason, source) triple for each entry that could not be, `source`
-            being the entry or file it came from.
+        list: A row per entry, in input order; one that could not be parsed is marked as dropped by
+            parse, `invalid_entry`, its record fields empty.
 
     Raises:
         PocketMapperError: If `pocket_method` is unknown or an entries file cannot be read.
@@ -416,10 +223,14 @@ def parse_side(entries, name, pocket_method, cache_dirs, work_dir):
         fsdb_dir=cache_dirs["fsdb_dir"],
         work_dir=work_dir,
     )
-    records = []
-    rejected = []
+    rows = []
     for source in [entries] if isinstance(entries, str) else entries:
-        parsed, failed = qtprocessor.process_qt_cmdline_input(qt_input=source, name=name, pocket_method=pocket_method)
-        records += parsed
-        rejected += [(entry, reason, source) for entry, reason in failed]
-    return records, rejected
+        records, rejected = qtprocessor.process_qt_cmdline_input(
+            qt_input=source, name=name, pocket_method=pocket_method
+        )
+        rows += [entry_row(name, record, source) for record in records]
+        rows += [
+            entry_row(name, {"pocket_id": entry}, source, "parse", "invalid_entry", reason)
+            for entry, reason in rejected
+        ]
+    return rows
