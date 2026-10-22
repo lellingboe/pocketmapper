@@ -9,7 +9,7 @@ the cache and the files under `results_dir`:
 2. `parse.step` -> every entry checked before anything is fetched; failed_entries.json started
    afresh.
 3. `fetch.step` -> structures and a bundled Foldseek database into the cache.
-4. `steps.align` -> foldseek or the local sequence aligner, per `aligner` -> alignment.tsv.
+4. `align.step` -> foldseek or the local sequence aligner, per `aligner` -> alignment.tsv.
 5. `steps.pockets` -> PISA interfaces into the cache, then pockets.json. Against a PDB Foldseek
    database, also a pisa pocket per interface of each hit. The Pocket shape itself is declared in
    `pockets/pocket.py`.
@@ -31,6 +31,7 @@ import json
 import logging
 from dataclasses import asdict, fields
 
+from pocketmapper.align.step import align
 from pocketmapper.fetch.step import fetch_structures
 from pocketmapper.lib.entries import fsdb_record
 from pocketmapper.lib.logs import log_to_file
@@ -51,7 +52,6 @@ from pocketmapper.lib.settings import (
     resolve_threads,
 )
 from pocketmapper.parse.step import parse, parse_job_entries
-from pocketmapper.steps.align import align
 from pocketmapper.steps.compare import compare
 from pocketmapper.steps.pockets import pockets
 from pocketmapper.steps.superpose import superpose

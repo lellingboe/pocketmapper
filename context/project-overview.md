@@ -82,10 +82,10 @@ classifiers, `[tool.ruff] target-version`, README Installation; CI `compat` matr
 
 ## As a library
 
-`PocketMapper().search(...)`, a step's entry or core function in `parse.step`, `fetch.step` or `steps`, or
-any component directly (`parse.qt_processor`, `fetch.structure_downloader`, `downloads.*`,
-`structure_preprocessor`, `pockets.pocket_fetcher` or one builder, `sequence_aligner`, `structure_aligner`,
-`lib.foldseek`). No component or step takes a `Settings`; the
+`PocketMapper().search(...)`, a step's entry or core function in `parse.step`, `fetch.step`, `align.step`
+or `steps`, or any component directly (`parse.qt_processor`, `fetch.structure_downloader`, `downloads.*`,
+`align.structure_preprocessor`, `pockets.pocket_fetcher` or one builder, `align.sequence_aligner`,
+`structure_aligner`, `lib.foldseek`). No component or step takes a `Settings`; the
 entry functions take its dict as `job_file`.
 
 - **Records come from `parse.step.parse_entries`**: the side checks parse makes, with no files written.

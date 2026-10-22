@@ -8,6 +8,8 @@ database target is searched as it is; its hits' pockets are the pockets step's b
 import logging
 import os
 
+from pocketmapper.align.sequence_aligner import SequenceAligner
+from pocketmapper.align.structure_preprocessor import StructurePreprocessor
 from pocketmapper.fetch.step import fetch_missing_entries, fetch_missing_fsdb
 from pocketmapper.lib.constants import FOLDSEEK_FORMAT_OUTPUT
 from pocketmapper.lib.entries import failed_entry, fsdb_record, report_failures, split_missing_structures, unique_by
@@ -29,8 +31,6 @@ from pocketmapper.lib.settings import (
     resolve_threads,
 )
 from pocketmapper.parse.step import parse_job_entries
-from pocketmapper.sequence_aligner import SequenceAligner
-from pocketmapper.structure_preprocessor import StructurePreprocessor
 
 logger = logging.getLogger(__name__)
 

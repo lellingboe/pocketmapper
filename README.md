@@ -487,11 +487,12 @@ which needs no binary but produces no whole-chain transform and cannot search a 
 
 **Using PocketMapper as a library.** `PocketMapper().search(...)` runs the same workflow as the CLI and
 writes the same files; results come back through `results_dir`, not as a return value. Each step
-command is a function (`pocketmapper.parse.step.parse`, `pocketmapper.fetch.step.fetch_structures`, or
-`pocketmapper.steps.<step>.<step>` for the rest), taking its CLI options as keyword arguments;
+command is a function (`pocketmapper.parse.step.parse`, `pocketmapper.fetch.step.fetch_structures`,
+`pocketmapper.align.step.align`, or `pocketmapper.steps.<step>.<step>` for the rest), taking its CLI
+options as keyword arguments;
 its `job_file` also takes a dict, such as the settings `search()` returns. The
 individual components (`parse.qt_processor`, `fetch.structure_downloader`, `downloads.pisa_downloader`,
-`sequence_aligner`, `structure_aligner`, `pockets.pocket_fetcher`, ...) are each usable on their own.
+`align.sequence_aligner`, `structure_aligner`, `pockets.pocket_fetcher`, ...) are each usable on their own.
 Note that `search()` deletes its temporary directories on the way out.
 
 Logging goes through the `pocketmapper` logger and never touches the root logger, so your own logging
