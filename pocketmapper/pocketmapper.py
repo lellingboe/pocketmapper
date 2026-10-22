@@ -31,10 +31,10 @@ import json
 import logging
 from dataclasses import asdict, fields
 
-from pocketmapper.entries import fsdb_record
+from pocketmapper.lib.entries import fsdb_record
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope, temp_dir_scope
-from pocketmapper.settings import (
+from pocketmapper.lib.settings import (
     Settings,
     check_fsdb_align_struct_method,
     check_fsdb_aligner,

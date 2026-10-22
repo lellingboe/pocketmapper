@@ -15,7 +15,7 @@ import logging
 import os
 from dataclasses import asdict
 
-from pocketmapper.exceptions import PocketMapperError
+from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.pockets.pisa import pisa_pockets
 from pocketmapper.pockets.pocket import Pocket, PocketResidue
 from pocketmapper.pockets.structure import passthrough_pockets, whole_chain_pockets

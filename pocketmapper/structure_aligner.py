@@ -20,10 +20,10 @@ import gemmi
 import numpy as np
 import pandas as pd
 
-from pocketmapper.constants import RESOLVED_ALIGN_STRUCT_METHODS
-from pocketmapper.exceptions import PocketMapperError
-from pocketmapper.foldseek import extract_fsdb_structures
+from pocketmapper.lib.constants import RESOLVED_ALIGN_STRUCT_METHODS
+from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.files import safe_filename
+from pocketmapper.lib.foldseek import extract_fsdb_structures
 from pocketmapper.lib.residues import split_chain_info
 from pocketmapper.pocket_comparison import parse_pocket_transform
 

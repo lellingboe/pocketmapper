@@ -11,10 +11,10 @@ through. The pipeline itself stays importable without a terminal.
 for `--help`. Three parsing details are load-bearing, each for a reason the code alone would not show:
 
 - `search`'s and `parse`'s query and target are optional positionals; there are no
-  `--query`/`--target` options. A job file may supply them instead, and `settings.layer_settings`
-  and `settings.require_setting` require each from exactly one of the two.
+  `--query`/`--target` options. A job file may supply them instead, and `lib.settings.layer_settings`
+  and `lib.settings.require_setting` require each from exactly one of the two.
 - Every option defaults to None, for unset: an argument given beats the job file, and the defaults
-  (`settings.SETTING_DEFAULTS`, or resolved at run time) apply only after it, so a real default here
+  (`lib.settings.SETTING_DEFAULTS`, or resolved at run time) apply only after it, so a real default here
   would hide every job-file value. The help still states each default.
 - No `choices=` anywhere. The same values arrive from the job file and from library calls, which
   never pass through this parser, so validation lives downstream where every path reaches it.
@@ -27,7 +27,7 @@ import logging
 import sys
 
 from pocketmapper import __version__
-from pocketmapper.constants import (
+from pocketmapper.lib.constants import (
     CLI_COMMAND_EPILOGS,
     DEFAULT_ALIGN_COUNT,
     DEFAULT_ALIGN_STRUCT_METHOD,
@@ -41,7 +41,7 @@ from pocketmapper.constants import (
     DEFAULT_VERBOSITY,
     PACKAGE_LOGGER,
 )
-from pocketmapper.exceptions import PocketMapperError
+from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.logs import format_handler
 from pocketmapper.pocketmapper import PocketMapper
 from pocketmapper.steps.align import align

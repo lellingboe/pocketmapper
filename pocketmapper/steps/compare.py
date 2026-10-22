@@ -5,24 +5,26 @@ Step 5: compare the pockets of every aligned query/target pair into a pocket com
 import json
 import logging
 import os
+from importlib.resources import files
 
 import pandas as pd
 
-from pocketmapper.entries import fsdb_record, require_file
-from pocketmapper.exceptions import PocketMapperError
-from pocketmapper.foldseek import bundled_offset_table, fsdb_pocket_mode
+from pocketmapper.lib.entries import fsdb_record, require_file
+from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.files import jsonify_dict, make_dir
+from pocketmapper.lib.foldseek import bundled_offset_table, fsdb_pocket_mode
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope
+from pocketmapper.lib.settings import dump_settings, input_path, layer_settings, require_setting, resolve_paths
 from pocketmapper.pocket_comparison import compare_pockets
 from pocketmapper.pockets.pocket_fetcher import read_pockets_file
-from pocketmapper.settings import dump_settings, input_path, layer_settings, require_setting, resolve_paths
 from pocketmapper.steps.parse import parse_job_entries
 
 logger = logging.getLogger(__name__)
 
-# The packaged BLAST-format similarity matrix the comparison scores with
-BLOSUM_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "blosum62.bla")
+# The packaged BLAST-format similarity matrix the comparison scores with. Anchored on the parent package:
+# `data` has no __init__.py, and importlib.resources only resolves a namespace package from 3.12
+BLOSUM_PATH = str(files("pocketmapper").joinpath("data", "blosum62.bla"))
 
 
 def compare(

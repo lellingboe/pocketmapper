@@ -19,7 +19,7 @@ import os
 from dataclasses import dataclass, fields
 from datetime import datetime
 
-from pocketmapper.constants import (
+from pocketmapper.lib.constants import (
     ALIGN_STRUCT_METHODS,
     ALIGNERS,
     DEFAULT_ALIGN_COUNT,
@@ -37,8 +37,8 @@ from pocketmapper.constants import (
     FOLDSEEK_INSTALL_HINT,
     PISA_SOURCES,
 )
-from pocketmapper.exceptions import PocketMapperError
-from pocketmapper.foldseek import check_foldseek
+from pocketmapper.lib.exceptions import PocketMapperError
+from pocketmapper.lib.foldseek import check_foldseek
 
 logger = logging.getLogger(__name__)
 

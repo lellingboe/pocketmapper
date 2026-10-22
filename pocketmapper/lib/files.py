@@ -9,7 +9,7 @@ import os
 import re
 import shutil
 
-from pocketmapper.exceptions import PocketMapperError
+from pocketmapper.lib.exceptions import PocketMapperError
 
 logger = logging.getLogger(__name__)
 

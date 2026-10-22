@@ -15,7 +15,7 @@ import json
 import logging
 import os
 
-from pocketmapper.exceptions import PocketMapperError
+from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.files import make_dir
 from pocketmapper.lib.scopes import outer_command
 

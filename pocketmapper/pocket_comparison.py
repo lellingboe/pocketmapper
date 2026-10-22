@@ -3,7 +3,7 @@ Pocket comparison: map two pockets onto a shared alignment and score their overl
 
 Takes an alignment table and the Pockets on its chains, and returns one comparison row per pocket
 pair. Each alignment row is unpacked by position into an AlignmentRow, so the column order declared
-as constants.ALIGNMENT_COLUMNS is a contract.
+as lib.constants.ALIGNMENT_COLUMNS is a contract.
 
 Nothing here mutates the Pockets it is given. Each side's projection onto the alignment is returned
 as a MappedPocket instead, so the same Pocket is read on every alignment row without a copy.
@@ -22,8 +22,8 @@ from tqdm import tqdm
 
 from pocketmapper.compare.offsets import read_offset_table, seq_to_uniprot_map
 from pocketmapper.compare.similarity import binary_similarity, full_similarity, read_blast_similarity_matrix
-from pocketmapper.constants import ALIGNMENT_COLUMNS
-from pocketmapper.exceptions import PocketMapperError
+from pocketmapper.lib.constants import ALIGNMENT_COLUMNS
+from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.pockets.pocket import Pocket, PocketResidue
 
 logger = logging.getLogger(__name__)
@@ -535,7 +535,7 @@ def compare_pockets(
         preproc_to_ids (dict): preprocess_name -> the pocket_ids sitting on that chain; bridges the
             alignment's keys to the pockets'.
         blosum_path (str): Path to a BLAST-format similarity matrix. The packaged one is
-            os.path.join(os.path.dirname(pocketmapper.__file__), "blosum62.bla").
+            `files("pocketmapper").joinpath("data", "blosum62.bla")`.
         synthesise_target_pockets (bool): Build a whole-chain pseudo-pocket per alignment row instead
             of looking the target up in `pocket_dict`, for a Foldseek database with no target records.
         offset_table_path (str or None): Path to the offset table shipped with that database, which

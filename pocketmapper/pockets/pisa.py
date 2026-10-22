@@ -15,8 +15,8 @@ import os
 
 from tqdm import tqdm
 
-from pocketmapper.constants import DEFAULT_PISA_SOURCE
 from pocketmapper.downloads.pisa_downloader import PisaDownloader
+from pocketmapper.lib.constants import DEFAULT_PISA_SOURCE
 from pocketmapper.lib.residues import one_letter_code, split_chain_info
 from pocketmapper.pockets.pocket import Pocket, PocketResidue
 from pocketmapper.pockets.structure import parse_pocket_from_struct

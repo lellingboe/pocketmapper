@@ -3,9 +3,9 @@
 Cross-module facts about `downloads/`, moved out of `context/project-overview.md` so they load only
 when working here.
 
-`downloads/` holds what fetches bytes over HTTP, and nothing else. `foldseek.py` and
+`downloads/` holds what fetches bytes over HTTP, and nothing else. `lib/foldseek.py` and
 `steps.fetch_structures.fetch_missing_fsdb` stay outside it: they download a database by shelling out to the
-`foldseek` binary, so they share none of the machinery here, and moving them would split `foldseek.py`
+`foldseek` binary, so they share none of the machinery here, and moving them would split `lib/foldseek.py`
 away from `check_foldseek` and `bundled_foldseek_dbs`, which `qt_processor` imports for reasons
 unrelated to downloading.
 

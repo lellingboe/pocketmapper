@@ -15,7 +15,7 @@ and not copied here.
 - `steps/__init__.py`: each step's entry/core layers, settings layering, and how every step re-derives its
   records from the entries (no records are handed on).
 - `cli.py`: the only module that knows about argv or exit codes; why every option defaults to None.
-- `entries.py`: `failed_entries.json`, and why each failure warns once per run.
+- `lib/entries.py`: `failed_entries.json`, and why each failure warns once per run.
 - `qt_processor.py`: the input grammar; the two tables in `QTProcessor.__init__` are the whole of it.
 - `pockets/CLAUDE.md`, `downloads/CLAUDE.md`: read before changing those packages.
 
@@ -29,7 +29,7 @@ checks that live nowhere else.
   compared with itself gives `overlap_count == pocket_len`.
 - **`res_auth_ids` ascending** in every producer (`Pocket`); nothing checks it. `pockets.json` round-trips
   this order and `seq_pos` (`read_pockets_file`).
-- **Residue letters mirror Foldseek, not gemmi** (`constants.FOLDSEEK_AA_CODES`). They compare
+- **Residue letters mirror Foldseek, not gemmi** (`lib.constants.FOLDSEEK_AA_CODES`). They compare
   case-insensitively (`compare_pockets`), because Foldseek lowercases some residues; 4ER4, 2ER6 and 2ER9
   are lowercased wholesale.
 - **Every chain walk reads `first_conformer()`** (`parse_pocket_from_struct`, `vdw_pockets`,
@@ -46,7 +46,7 @@ run and diff old vs new output. Nothing else covers it.
 
 ## Logging and errors
 
-- The package never touches the root logger: `__init__` gives `constants.PACKAGE_LOGGER` a `NullHandler`.
+- The package never touches the root logger: `__init__` gives `lib.constants.PACKAGE_LOGGER` a `NullHandler`.
 - Handlers are added only in `cli()` (stdout) and `lib.logs.log_to_file` (`info.log`, for `search` and every
   step), each removed in a `finally`.
 - Errors go through `PocketMapperError`, which `cli()` turns into exit 1. Foldseek runs through
@@ -84,7 +84,7 @@ classifiers, `[tool.ruff] target-version`, README Installation; CI `compat` matr
 
 `PocketMapper().search(...)`, a step's entry or core function in `steps`, or any component directly
 (`qt_processor`, `downloads.*`, `structure_preprocessor`, `pockets.pocket_fetcher` or one builder,
-`sequence_aligner`, `structure_aligner`, `foldseek`). No component or step takes a `Settings`; the
+`sequence_aligner`, `structure_aligner`, `lib.foldseek`). No component or step takes a `Settings`; the
 entry functions take its dict as `job_file`.
 
 - **Records come from `steps.parse.parse_entries`**: the side checks parse makes, with no files written.

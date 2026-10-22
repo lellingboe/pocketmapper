@@ -25,9 +25,9 @@ import os
 import re
 from dataclasses import asdict, dataclass
 
-from pocketmapper.constants import DEFAULT_CHAIN, DEFAULT_POCKET_METHOD, STRUCT_TYPES
-from pocketmapper.exceptions import PocketMapperError
-from pocketmapper.foldseek import bundled_foldseek_dbs
+from pocketmapper.lib.constants import DEFAULT_CHAIN, DEFAULT_POCKET_METHOD, STRUCT_TYPES
+from pocketmapper.lib.exceptions import PocketMapperError
+from pocketmapper.lib.foldseek import bundled_foldseek_dbs
 from pocketmapper.lib.residues import split_chain_info
 
 logger = logging.getLogger(__name__)

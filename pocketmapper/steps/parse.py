@@ -12,19 +12,19 @@ import os
 
 import pandas as pd
 
-from pocketmapper.entries import (
+from pocketmapper.lib.entries import (
     check_fsdb_target,
     failed_entry,
     reject_fsdb_query,
     report_failures,
     start_failed_entries,
 )
-from pocketmapper.exceptions import PocketMapperError
+from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.files import make_dir
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope
+from pocketmapper.lib.settings import dump_settings, layer_settings, require_setting, resolve_paths
 from pocketmapper.qt_processor import QTProcessor
-from pocketmapper.settings import dump_settings, layer_settings, require_setting, resolve_paths
 
 logger = logging.getLogger(__name__)
 
@@ -229,7 +229,7 @@ def parse_job_entries(values, step):
     Parse both sides' entries as a step's settings name them, adding failures to its failed-entries file.
 
     Args:
-        values (dict): Job key -> value, from `settings.resolve_paths`. Reads query, target, both
+        values (dict): Job key -> value, from `lib.settings.resolve_paths`. Reads query, target, both
             pocket methods, the cache directories, `work_dir` and `failed_entries_path`.
         step (str): The step parsing them, named in the failure entries.
 
@@ -266,7 +266,7 @@ def parse_entries(
     Parse both sides' entries into records, and check that the two sides make a search.
 
     Every entry that could not be parsed, and every Foldseek-database query entry, is a failure,
-    `invalid_entry`, reported through `entries.report_failures` (a warning, or DEBUG for one already
+    `invalid_entry`, reported through `lib.entries.report_failures` (a warning, or DEBUG for one already
     in `failed_entries_path`) before the sides are checked, so it is listed even when the check
     fails.
 

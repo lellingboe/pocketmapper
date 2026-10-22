@@ -12,13 +12,13 @@ import os
 import pandas as pd
 
 from pocketmapper.downloads.structure_downloader import StructureDownloader
-from pocketmapper.entries import check_fsdb_target, failed_entry, reject_fsdb_query, report_failures, unique_by
-from pocketmapper.exceptions import PocketMapperError
-from pocketmapper.foldseek import run_foldseek
+from pocketmapper.lib.entries import check_fsdb_target, failed_entry, reject_fsdb_query, report_failures, unique_by
+from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.files import make_dir
+from pocketmapper.lib.foldseek import run_foldseek
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope, temp_dir_scope
-from pocketmapper.settings import (
+from pocketmapper.lib.settings import (
     dump_settings,
     layer_settings,
     require_foldseek,
@@ -161,7 +161,7 @@ def resolve_job_structures(values):
     Resolve the structures a fetch_structures run's settings name, reporting the entries rejected.
 
     Args:
-        values (dict): Job key -> value, from `settings.resolve_paths`.
+        values (dict): Job key -> value, from `lib.settings.resolve_paths`.
 
     Returns:
         tuple: (sides, sources). `sides` maps "entries", or "query" and "target", to that side's

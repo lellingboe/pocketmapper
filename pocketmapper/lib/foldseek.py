@@ -18,7 +18,7 @@ from importlib.resources import files
 
 import pandas as pd
 
-from pocketmapper.exceptions import PocketMapperError
+from pocketmapper.lib.exceptions import PocketMapperError
 
 logger = logging.getLogger(__name__)
 
@@ -136,17 +136,17 @@ def extract_fsdb_structures(db_path, entry_names, out_dir, threads, log_extra=No
 
 def bundled_human_domains_path(filename):
     """
-    Resolve a file shipped in the package's `human_domains` directory.
+    Resolve a file shipped in the package's `data/human_domains` directory.
 
     Args:
-        filename (str): Name of the file within the `human_domains` directory.
+        filename (str): Name of the file within the `data/human_domains` directory.
 
     Returns:
         str: Absolute path to that file.
     """
-    # Anchored on the parent package: `human_domains` has no __init__.py, and importlib.resources only
-    # resolves a namespace package from 3.12
-    return str(files("pocketmapper").joinpath("human_domains", filename))
+    # Anchored on the parent package: `data` has no __init__.py, and importlib.resources only resolves a
+    # namespace package from 3.12
+    return str(files("pocketmapper").joinpath("data", "human_domains", filename))
 
 
 # The bundled human-domains Foldseek DB. Versioned here and nowhere else -- bump it on a DB refresh.

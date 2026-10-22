@@ -6,7 +6,7 @@ import logging
 import os
 from contextlib import contextmanager
 
-from pocketmapper.constants import LOG_FORMAT, PACKAGE_LOGGER
+from pocketmapper.lib.constants import LOG_FORMAT, PACKAGE_LOGGER
 from pocketmapper.lib.files import make_dir
 
 

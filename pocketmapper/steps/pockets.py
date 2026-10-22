@@ -13,7 +13,7 @@ from dataclasses import asdict
 
 import pandas as pd
 
-from pocketmapper.entries import (
+from pocketmapper.lib.entries import (
     failed_entry,
     fsdb_record,
     preproc_to_ids,
@@ -21,16 +21,13 @@ from pocketmapper.entries import (
     require_file,
     split_missing_structures,
 )
-from pocketmapper.exceptions import PocketMapperError
-from pocketmapper.foldseek import fsdb_pocket_mode, parse_foldseek_pdb_entry_name
+from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.files import make_dir
+from pocketmapper.lib.foldseek import fsdb_pocket_mode, parse_foldseek_pdb_entry_name
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.residues import split_chain_info
 from pocketmapper.lib.scopes import run_scope
-from pocketmapper.pockets.pisa import PisaParser, download_pisa_interfaces
-from pocketmapper.pockets.pocket_fetcher import PocketFetcher, write_pockets_file
-from pocketmapper.qt_processor import QTProcessor
-from pocketmapper.settings import (
+from pocketmapper.lib.settings import (
     dump_settings,
     input_path,
     layer_settings,
@@ -39,6 +36,9 @@ from pocketmapper.settings import (
     resolve_paths,
     resolve_pisa_source,
 )
+from pocketmapper.pockets.pisa import PisaParser, download_pisa_interfaces
+from pocketmapper.pockets.pocket_fetcher import PocketFetcher, write_pockets_file
+from pocketmapper.qt_processor import QTProcessor
 from pocketmapper.steps.fetch_structures import fetch_missing_entries, fetch_missing_structures
 from pocketmapper.steps.parse import parse_job_entries, parse_listed_entries
 

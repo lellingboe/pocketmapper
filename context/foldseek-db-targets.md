@@ -3,7 +3,7 @@
 How a `foldseek_db` target record is aligned, pocketed and renumbered, and how the bundled DB is kept.
 Moved out of `context/project-overview.md` so it loads only when working on Foldseek-DB targets.
 
-With a `foldseek_db` target record, no target structures are fetched; `foldseek.extract_fsdb_structures`
+With a `foldseek_db` target record, no target structures are fetched; `lib.foldseek.extract_fsdb_structures`
 rebuilds the superpose selection via `createsubdb` + `convert2pdb`.
 
 - **`createsubdb` rejects `--threads`** (exits non-zero); it is the only one of the five subcommands that
@@ -20,13 +20,13 @@ rebuilds the superpose selection via `createsubdb` + `convert2pdb`.
 - **Pockets come from the AU, Foldseek's `tseq` from the assembly.** Verified to agree normally (4Q5J
   self-comparison: `overlap_count == pocket_len`, identity 1.0, RMSD ~1e-14); a populated
   `incorrect_mapping.json` signals divergent numbering.
-- `--align_struct_method pocket` is rejected for any FSDB target (`settings.check_fsdb_align_struct_method`,
+- `--align_struct_method pocket` is rejected for any FSDB target (`lib.settings.check_fsdb_align_struct_method`,
   in search before the download and in superpose); `--aligner seq` likewise (`check_fsdb_aligner`, search
   and align).
 
 **UniProt renumbering** (`offset_table.tsv`; resolved in `steps.compare`, applied in
 `synthesise_target_pocket`):
-- Only bundled `human_domains`, looked up by resolved DB path in `foldseek.bundled_offset_table`. User
+- Only bundled `human_domains`, looked up by resolved DB path in `lib.foldseek.bundled_offset_table`. User
   DBs keep 0-indexed positions, logged at INFO.
 - Only `target_overlap_ids` changes — verified against a same-environment baseline.
 - Missing entry or short spec aborts the run (no per-row fallback: it would mix coordinate systems in one

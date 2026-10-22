@@ -13,7 +13,7 @@ import pandas as pd
 from Bio import Align
 from Bio.Align import substitution_matrices
 
-from pocketmapper.constants import ALIGNMENT_COLUMNS
+from pocketmapper.lib.constants import ALIGNMENT_COLUMNS
 from pocketmapper.lib.residues import one_letter_code, split_chain_info
 
 

@@ -2,7 +2,7 @@
 Residue naming: one-letter codes and the chain_info field of an input entry.
 """
 
-from pocketmapper.constants import FOLDSEEK_AA_CODES
+from pocketmapper.lib.constants import FOLDSEEK_AA_CODES
 
 
 def one_letter_code(res_name):

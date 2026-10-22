@@ -26,10 +26,10 @@ from glob import glob
 
 from tqdm import tqdm
 
-from pocketmapper.constants import DEFAULT_PISA_SOURCE, PISA_SOURCES
 from pocketmapper.downloads.lib_download import download_api, download_file
 from pocketmapper.downloads.structure_downloader import DOWNLOAD_WORKERS
-from pocketmapper.exceptions import PocketMapperError
+from pocketmapper.lib.constants import DEFAULT_PISA_SOURCE, PISA_SOURCES
+from pocketmapper.lib.exceptions import PocketMapperError
 
 logger = logging.getLogger(__name__)
 

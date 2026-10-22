@@ -3,24 +3,24 @@
 How settings, job keys and options are layered, resolved and dumped, and where a new option goes. Moved
 out of `context/project-overview.md` so it loads only when working on settings or options.
 
-`Settings` (`settings.py`) is built only by search. **Every `Settings` field is reachable from the CLI**;
-the job file sets nothing the CLI can't. Layering is `settings.layer_settings` for every command
+`Settings` (`lib/settings.py`) is built only by search. **Every `Settings` field is reachable from the CLI**;
+the job file sets nothing the CLI can't. Layering is `lib.settings.layer_settings` for every command
 (arguments not None over job file over `SETTING_DEFAULTS`, then `resolve_paths`); search's resolution is
 in `resolve_settings` (`resolve_*`). `Settings` has no defaults and is built once. Pocket methods keep
 `"auto"` (inferred per entry); `align_struct_method` is resolved per run. The steps take a job dict (or
-file) keyed by job keys, never a `Settings`, and call the same `settings.resolve_*` validators.
+file) keyed by job keys, never a `Settings`, and call the same `lib.settings.resolve_*` validators.
 
-**Job keys are separate from `Settings`.** `settings.JOB_KEYS` = `fields(Settings)` + `STEP_ONLY_KEYS`
+**Job keys are separate from `Settings`.** `lib.settings.JOB_KEYS` = `fields(Settings)` + `STEP_ONLY_KEYS`
 (options only some steps take; `STEP_ONLY_PATH_KEYS` among them resolve against `work_dir` in
 `resolve_paths`) is what a job file may hold and what `layer_settings` seeds. Unknown
 keys are rejected; one in `REMOVED_JOB_KEYS` gets its replacement named. Search drops keys `Settings`
 lacks before building one.
 
 **`work_dir`** (default cwd) is stored absolute by `resolve_paths`, which joins every path setting onto
-it; step input arguments (`--alignment`, ...) resolve against it through `settings.input_path`. So
+it; step input arguments (`--alignment`, ...) resolve against it through `lib.settings.input_path`. So
 every resolved path is absolute, and a step run from a dump elsewhere resolves as the first did.
 
-**Settings dumps.** `settings.dump_settings` writes every command's values, minus `job_settings_path`,
+**Settings dumps.** `lib.settings.dump_settings` writes every command's values, minus `job_settings_path`,
 to `job_settings_path`: search's resolved `Settings` to `job_settings.json`, a step's layered values
 (paths resolved, before its validators) to `<results_dir>/<command>_settings.json` (the default comes
 from `resolve_paths(values, command)`, not `RESULTS_PATH_DEFAULTS`). `layer_settings` drops
@@ -38,10 +38,10 @@ inert beside it all the same: it is a `temp_dir` emptying root.
 
 A new option goes in **four hand-maintained places per command**: the function signature and its
 `layer_settings` arguments dict (for search also `Settings`; for a step-only option
-`settings.STEP_ONLY_KEYS` instead), `OPTIONS` plus the command's `COMMANDS` row
+`lib.settings.STEP_ONLY_KEYS` instead), `OPTIONS` plus the command's `COMMANDS` row
 in `cli.py`, and README Options (for a step, its row in the step table). A fifth for an option with a
-static default: `settings.SETTING_DEFAULTS` (from `constants.DEFAULT_*`, which the help also quotes).
-Signature and parser defaults are all None. Path defaults are `settings.CACHE_PATH_DEFAULTS` /
+static default: `lib.settings.SETTING_DEFAULTS` (from `lib.constants.DEFAULT_*`, which the help also quotes).
+Signature and parser defaults are all None. Path defaults are `lib.settings.CACHE_PATH_DEFAULTS` /
 `RESULTS_PATH_DEFAULTS` (`cache_path`, `results_path`). `cli()` passes parsed args straight through its
 dispatch table, so there is no kwarg block. Miss one → argparse fails or the option is silently
 ignored. Check, per command: `inspect.signature(steps.<x>.<x>)` == subparser `_actions` dests; for
