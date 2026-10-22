@@ -47,8 +47,8 @@ from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.logs import format_handler
 from pocketmapper.parse.step import parse
 from pocketmapper.pocketmapper import PocketMapper
+from pocketmapper.pockets.step import pockets
 from pocketmapper.steps.compare import compare
-from pocketmapper.steps.pockets import pockets
 from pocketmapper.steps.superpose import superpose
 
 

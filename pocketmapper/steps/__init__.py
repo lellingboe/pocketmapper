@@ -1,8 +1,8 @@
 """
 The pipeline's steps, one module each, in the order `search` runs them: `parse`, `fetch_structures`,
-`align`, `pockets`, `compare` and `superpose`. `parse`, `fetch_structures` and `align` are
-`pocketmapper.parse.step`, `pocketmapper.fetch.step` and `pocketmapper.align.step`; the rest are modules
-here. What follows holds for all six.
+`align`, `pockets`, `compare` and `superpose`. `parse`, `fetch_structures`, `align` and `pockets` are
+`pocketmapper.parse.step`, `pocketmapper.fetch.step`, `pocketmapper.align.step` and
+`pocketmapper.pockets.step`; the rest are modules here. What follows holds for all six.
 
 Each module has two layers. Its entry function, named after the step, is what the CLI and `search`
 call: it layers its settings, resolves its path defaults under `results_dir`, logs to `log_path` for

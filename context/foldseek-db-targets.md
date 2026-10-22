@@ -11,7 +11,7 @@ rebuilds the superpose selection via `createsubdb` + `convert2pdb`.
 - `align_structs` interprets target ids once per call: given target records → `pocket_id`s mapped through
   `preprocess_name` (PDB DB; `steps.superpose` builds them from `pockets.json` `chains`, hit names in
   alignment order); none → entry names (other DBs). So `fsdb_structures/` never mixes the two.
-- Target pocket: `steps.pockets.expand_fsdb_pdb_targets` (PDB DB; needs `--alignment`, an FSDB target
+- Target pocket: `pockets.step.expand_fsdb_pdb_targets` (PDB DB; needs `--alignment`, an FSDB target
   without one is an error) or `synthesise_target_pocket` (other). **Every hit of a PDB DB is a
   `chains` key**: `[]` for a non-PDB name, no interface or only unspellable pairs; a hit whose
   structure download failed lists its pocket_ids with `null` pockets.

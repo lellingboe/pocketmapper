@@ -17,7 +17,7 @@ and not copied here.
 - `cli.py`: the only module that knows about argv or exit codes; why every option defaults to None.
 - `lib/entries.py`: `failed_entries.json`, and why each failure warns once per run.
 - `parse/qt_processor.py`: the input grammar; the two tables in `QTProcessor.__init__` are the whole of it.
-- `pockets/CLAUDE.md`, `downloads/CLAUDE.md`: read before changing those packages.
+- `pockets/CLAUDE.md`, `lib/CLAUDE.md`: read before changing those packages.
 
 ## Invariants
 
@@ -78,14 +78,14 @@ classifiers, `[tool.ruff] target-version`, README Installation; CI `compat` matr
   only in `job_settings.json` (5 wins) — check by hand.
 - **Delete `build/` before building or testing a wheel.** Stale, gitignored, but setuptools reuses
   `build/lib/`, so `pip install .` ships dead modules (`align.py`, `local_aligner.py`, a 3.12-only
-  `pisa.py`, top-level `structure_fetcher.py`/`pisa_downloader.py` shadowing `downloads/`). Never edit it.
+  `pisa.py`, top-level `structure_fetcher.py`/`pisa_downloader.py`). Never edit it.
 
 ## As a library
 
-`PocketMapper().search(...)`, a step's entry or core function in `parse.step`, `fetch.step`, `align.step`
-or `steps`, or any component directly (`parse.qt_processor`, `fetch.structure_downloader`, `downloads.*`,
-`align.structure_preprocessor`, `pockets.pocket_fetcher` or one builder, `align.sequence_aligner`,
-`structure_aligner`, `lib.foldseek`). No component or step takes a `Settings`; the
+`PocketMapper().search(...)`, a step's entry or core function in `parse.step`, `fetch.step`, `align.step`,
+`pockets.step` or `steps`, or any component directly (`parse.qt_processor`, `fetch.structure_downloader`,
+`pockets.pisa_downloader`, `align.structure_preprocessor`, `pockets.pocket_fetcher` or one builder,
+`align.sequence_aligner`, `structure_aligner`, `lib.foldseek`). No component or step takes a `Settings`; the
 entry functions take its dict as `job_file`.
 
 - **Records come from `parse.step.parse_entries`**: the side checks parse makes, with no files written.

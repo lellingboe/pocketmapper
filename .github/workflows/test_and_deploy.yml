@@ -62,9 +62,9 @@ jobs:
       # Imported from the installed package, not the checkout, so this exercises
       # what the wheel actually ships -- including the bundled Foldseek DB path,
       # which qt_processor resolves with importlib.resources at construction time.
-      # walk_packages, not iter_modules: iter_modules stops at the top level, so once
-      # downloads became a subpackage it would import that package's __init__ and
-      # silently skip the modules underneath it. onerror re-raises because
+      # walk_packages, not iter_modules: iter_modules stops at the top level, so for
+      # each subpackage it would import that package's __init__ and silently skip
+      # the modules underneath it. onerror re-raises because
       # walk_packages swallows import errors by default, which would turn the failure
       # this step exists to catch into a silent pass. The count is a tripwire for the
       # same class of regression.
