@@ -5,6 +5,9 @@ Three stages, each cached on disk so a rerun costs nothing: entry summaries, fet
 give the assembly ids, one file per assembly gives its interfaces, and those are flattened into a single
 `<pdb_code>.json` per entry keyed by sorted chain pair -- the shape `PisaParser` reads.
 
+`PisaDownloader` names the cache's contents under the `pisa_dir` it is given: `summaries/`,
+`assemblies/`, `interface_pairs/` and `errors.json`.
+
 The per-assembly files come from one of two sources serving identical JSON, so both share one cache:
 the EBI FTP server, fetched concurrently, or the PDBe API, one request per assembly.
 
@@ -21,16 +24,50 @@ import json
 import logging
 import os
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from glob import glob
 
 from tqdm import tqdm
 
 from pocketmapper.lib.constants import DEFAULT_PISA_SOURCE, PISA_SOURCES
-from pocketmapper.lib.download import DOWNLOAD_WORKERS, download_api, download_file
+from pocketmapper.lib.download import DOWNLOAD_WORKERS, DownloadJob, download_api, download_file, download_many
 from pocketmapper.lib.exceptions import PocketMapperError
 
 logger = logging.getLogger(__name__)
+
+
+def ftp_assembly_url(pdb_code, asm):
+    """
+    The EBI FTP address of one assembly's interfaces.
+
+    Args:
+        pdb_code (str): Lower-cased PDB code.
+        asm (str): Assembly id.
+
+    Returns:
+        str: The URL.
+    """
+    return (
+        "https://ftp.ebi.ac.uk/pub/databases/msd/pdb-assemblies-analysis/split/"
+        f"{pdb_code[1:3]}/{pdb_code}_assembly{asm}_interfaces.json"
+    )
+
+
+def api_assembly_url(pdb_code, asm):
+    """
+    The PDBe API address of one assembly's interfaces.
+
+    Args:
+        pdb_code (str): Lower-cased PDB code.
+        asm (str): Assembly id.
+
+    Returns:
+        str: The URL.
+    """
+    return f"https://www.ebi.ac.uk/pdbe/api/pisa/interfaces/{pdb_code}/{asm}"
+
+
+# Keys match lib.constants.PISA_SOURCES
+ASSEMBLY_SOURCES = {"ftp": (ftp_assembly_url, download_file), "api": (api_assembly_url, download_api)}
 
 
 class PisaDownloader:
@@ -38,34 +75,30 @@ class PisaDownloader:
     Fetches PISA interfaces from the EBI FTP server or the PDBe API into a local cache.
 
     `download_missing_interfaces` is the entry point; the remaining methods are its stages and are
-    separately usable, though each expects its directory to exist already. Every stage returns what
-    it could not handle instead of raising, so one dead entry does not abort a large batch.
-    Responses are written through a `.part` file, so an interrupted run cannot leave a truncated
-    response for a later run to trust.
+    separately usable. Only `parse_assemblies` expects its output directory, `interface_dir`, to exist
+    already. Every stage returns what it could not handle instead of raising, so one dead entry does not
+    abort a large batch. Responses are written through a `.part` file, so an interrupted run cannot leave
+    a truncated response for a later run to trust.
     """
 
     def __init__(
         self,
+        pisa_dir,
         source=DEFAULT_PISA_SOURCE,
-        max_retries=5,
-        base_delay=0.25,
-        max_delay=30.0,
         summary_batch_size=50,
         max_workers=DOWNLOAD_WORKERS,
     ):
         """
-        Configure where assembly interfaces come from and the retry behaviour shared by every request.
+        Lay out the cache under `pisa_dir` and configure where assembly interfaces come from.
 
         Args:
-            source (str): Where assembly interfaces are fetched from: "ftp" or "api". Summaries always
-                come from the API. Defaults to DEFAULT_PISA_SOURCE.
-            max_retries (int): Attempts per URL before giving up. Defaults to 5.
-            base_delay (float): Seconds between API requests, before any backoff; for FTP downloads,
-                the wait after the first failed attempt. Defaults to 0.25.
-            max_delay (float): Ceiling on the doubling backoff delay. Defaults to 30.0.
-            summary_batch_size (int): Entries per summary request. The API fails with a 500 somewhere
-                above 800, so keep it well below that. Defaults to 50.
-            max_workers (int): Concurrent FTP downloads. Defaults to DOWNLOAD_WORKERS.
+            pisa_dir (str): Cache directory. Holds `summaries/`, `assemblies/`, `interface_pairs/` (the
+                per-entry files `PisaParser` reads) and the failure report `errors.json`.
+            source (str, optional): Where assembly interfaces are fetched from: "ftp" or "api". Summaries
+                always come from the API. Defaults to DEFAULT_PISA_SOURCE.
+            summary_batch_size (int, optional): Entries per summary request. The API fails with a 500
+                somewhere above 800, so keep it well below that. Defaults to 50.
+            max_workers (int, optional): Concurrent FTP downloads. Defaults to DOWNLOAD_WORKERS.
 
         Raises:
             PocketMapperError: If `source` is not one of PISA_SOURCES.
@@ -76,48 +109,23 @@ class PisaDownloader:
             logger.critical(msg, extra=self.log_extra)
             raise PocketMapperError(msg)
         self.source = source
-        self.max_retries = max_retries
-        self.base_delay = base_delay
-        self.max_delay = max_delay
         self.summary_batch_size = summary_batch_size
         self.max_workers = max_workers
+        self.summary_dir = os.path.join(pisa_dir, "summaries")
+        self.asm_dir = os.path.join(pisa_dir, "assemblies")
+        self.interface_dir = os.path.join(pisa_dir, "interface_pairs")
+        self.error_path = os.path.join(pisa_dir, "errors.json")
 
-    def fetch_with_backoff(self, url, out_fname, data=None):
-        """
-        Download `url` to `out_fname` under this instance's pacing and retry settings.
-
-        Args:
-            url (str): Address to fetch.
-            out_fname (str): Path to write the response to.
-            data (bytes, optional): Request body. Given, the request is a POST. Defaults to None.
-
-        Returns:
-            bool: True on success, False once the attempts are exhausted.
-        """
-        return download_api(
-            url,
-            out_fname,
-            max_retries=self.max_retries,
-            base_delay=self.base_delay,
-            max_delay=self.max_delay,
-            log_extra=self.log_extra,
-            data=data,
-        )
-
-    def download_missing_interfaces(self, pdb_list, summary_dir, asm_dir, interface_dir, error_path):
+    def download_missing_interfaces(self, pdb_list):
         """
         Populate the interface cache for a list of PDB entries.
 
-        Entries already in `interface_dir` cost no requests. For the rest, creates the three
-        directories if needed, caches the summaries and assembly responses, writes one
-        `<pdb_code>.json` per entry into `interface_dir`, and writes `error_path` if anything failed.
+        Entries already in `interface_dir` cost no requests. For the rest, caches the summaries and
+        assembly responses, writes one `<pdb_code>.json` per entry into `interface_dir`, and writes
+        `error_path` if anything failed.
 
         Args:
             pdb_list (list): PDB codes, in any case.
-            summary_dir (str): Cache directory for entry summaries.
-            asm_dir (str): Cache directory for per-assembly interface responses.
-            interface_dir (str): Output directory for the flattened per-entry files.
-            error_path (str): Path for the failure report, written only if something failed.
 
         Returns:
             dict: Stage name -> the ids that stage could not handle, keyed `summary_downloading`,
@@ -125,53 +133,53 @@ class PisaDownloader:
                 nothing to report is absent, so an empty dict means a clean run.
         """
 
-        existing_files = glob(r"*.json", root_dir=interface_dir)
+        existing_files = glob(r"*.json", root_dir=self.interface_dir)
         missing_pdbs = [x.lower() for x in pdb_list if f"{x.lower()}.json" not in existing_files]
         local_count = len(pdb_list) - len(missing_pdbs)
         logger.info(f"{local_count}/{len(pdb_list)} interfaces found locally", extra=self.log_extra)
 
         all_failures = {}
         if len(missing_pdbs) > 0:
-            os.makedirs(summary_dir, exist_ok=True)
-            os.makedirs(asm_dir, exist_ok=True)
-            os.makedirs(interface_dir, exist_ok=True)
+            # The only directory written with `open` before anything has been downloaded into it; it also
+            # makes `pisa_dir` for `error_path`. The download directories are made by their downloads.
+            os.makedirs(self.interface_dir, exist_ok=True)
 
-            success, sd_failures = self.download_missing_summaries(missing_pdbs, summary_dir)
+            success, sd_failures = self.download_missing_summaries(missing_pdbs)
             if sd_failures:
                 all_failures["summary_downloading"] = sd_failures
-            assembly_dict, sp_failures = self.parse_summaries(success, summary_dir)
+            assembly_dict, sp_failures = self.parse_summaries(success)
             if sp_failures:
                 all_failures["summary_parsing"] = sp_failures
 
-            success, ad_failures = self.download_missing_assemblies(assembly_dict, asm_dir)
+            success, ad_failures = self.download_missing_assemblies(assembly_dict)
             if ad_failures:
                 all_failures["assembly_downloading"] = ad_failures
-            ap_failures = self.parse_assemblies(success, asm_dir, interface_dir)
+            ap_failures = self.parse_assemblies(success)
             if ap_failures:
                 all_failures["assembly_parsing"] = ap_failures
 
             if all_failures:
-                with open(error_path, "w") as f:
+                with open(self.error_path, "w") as f:
                     json.dump(all_failures, f)
                 logger.warning(
-                    f"See {error_path} for details of {sum(len(v) for v in all_failures.values())} PISA failures",
+                    f"See {self.error_path} for details of {sum(len(v) for v in all_failures.values())} PISA failures",
                     extra=self.log_extra,
                 )
 
         return all_failures
 
-    def download_missing_summaries(self, pdb_codes, summary_dir):
+    def download_missing_summaries(self, pdb_codes):
         """
-        Download the PDBe entry summary for each code, which names its assemblies.
+        Download the PDBe entry summary for each code into `summary_dir`, which names its assemblies.
 
-        Codes are requested `summary_batch_size` at a time. Each batch response is written to
-        `_batch.json` in `summary_dir`, split into one `<pdb_code>.json` per entry, and deleted. The API
-        silently omits an entry it has no summary for, so a code absent from its batch's response
-        counts as a failure, as does every code in a batch whose request failed.
+        Codes already there are not refetched. The rest are requested `summary_batch_size` at a time.
+        Each batch response is written to `_batch.json` in `summary_dir`, which creates the directory,
+        split into one `<pdb_code>.json` per entry, and deleted. The API silently omits an entry it has
+        no summary for, so a code absent from its batch's response counts as a failure, as does every
+        code in a batch whose request failed.
 
         Args:
             pdb_codes (list): Lower-cased PDB codes to fetch.
-            summary_dir (str): Directory to cache summaries in; already-present files are not refetched.
 
         Returns:
             tuple: (list of codes whose summary is now on disk, list of codes that could not be
@@ -182,18 +190,18 @@ class PisaDownloader:
         failure = []
         to_fetch = []
         for pdb_code in dict.fromkeys(pdb_codes):
-            if os.path.exists(os.path.join(summary_dir, f"{pdb_code}.json")):
+            if os.path.exists(os.path.join(self.summary_dir, f"{pdb_code}.json")):
                 success.append(pdb_code)
             else:
                 to_fetch.append(pdb_code)
 
         url = "https://www.ebi.ac.uk/pdbe/api/v2/pdb/entry/summary/"
-        batch_fname = os.path.join(summary_dir, "_batch.json")
+        batch_fname = os.path.join(self.summary_dir, "_batch.json")
         for start in tqdm(range(0, len(to_fetch), self.summary_batch_size)):
             end = start + self.summary_batch_size
             batch = to_fetch[start:end]
             try:
-                if not self.fetch_with_backoff(url, batch_fname, data=",".join(batch).encode()):
+                if not download_api(url, batch_fname, log_extra=self.log_extra, data=",".join(batch).encode()):
                     failure.extend(batch)
                     continue
                 with open(batch_fname) as f:
@@ -202,7 +210,7 @@ class PisaDownloader:
                     if pdb_code not in data:
                         failure.append(pdb_code)
                         continue
-                    out_fname = os.path.join(summary_dir, f"{pdb_code}.json")
+                    out_fname = os.path.join(self.summary_dir, f"{pdb_code}.json")
                     with open(f"{out_fname}.part", "w") as f:
                         json.dump({pdb_code: data[pdb_code]}, f)
                     os.replace(f"{out_fname}.part", out_fname)
@@ -214,13 +222,12 @@ class PisaDownloader:
             logger.warning(f"Failed to download {len(failure)} summaries", extra=self.log_extra)
         return success, failure
 
-    def parse_summaries(self, pdb_codes, summary_dir):
+    def parse_summaries(self, pdb_codes):
         """
-        Read cached summaries and collect each entry's assembly ids.
+        Read cached summaries from `summary_dir` and collect each entry's assembly ids.
 
         Args:
             pdb_codes (list): Codes whose summaries are cached.
-            summary_dir (str): Directory holding them.
 
         Returns:
             tuple: (defaultdict of pdb_code -> list of assembly ids, list of codes whose summary
@@ -232,7 +239,7 @@ class PisaDownloader:
         failure = []
         for pdb_code in tqdm(pdb_codes):
             try:
-                fname = os.path.join(summary_dir, f"{pdb_code}.json")
+                fname = os.path.join(self.summary_dir, f"{pdb_code}.json")
                 with open(fname) as f:
                     data = json.load(f)
                 logger.debug(f"Summary data for {pdb_code}: {data}", extra=self.log_extra)
@@ -247,126 +254,54 @@ class PisaDownloader:
             logger.warning(f"Failed to parse {len(failure)} PISA summaries", extra=self.log_extra)
         return asm_dict, failure
 
-    def download_missing_assemblies(self, asm_dict, asm_dir):
+    def download_missing_assemblies(self, asm_dict):
         """
-        Download the PISA interfaces for every assembly of every entry, from this instance's source.
+        Download the PISA interfaces for every assembly of every entry into `asm_dir`, from this source.
 
-        Writes one file per assembly into `asm_dir`. An assembly already there counts as a success
-        without costing a request, whichever source wrote it.
+        Writes one file per assembly. An assembly already there counts as a success without costing a
+        request, whichever source wrote it. FTP files are fetched `max_workers` at a time, and one the
+        server does not have (404) is not retried; API requests are paced, one at a time.
 
         Args:
             asm_dict (dict): pdb_code -> list of assembly ids, as returned by `parse_summaries`.
-            asm_dir (str): Directory to cache the responses in.
 
         Returns:
             tuple: (defaultdict of pdb_code -> list of the assembly ids now on disk, list of
-                `<pdb_code>_<assembly_id>` that could not be fetched).
+                `<pdb_code>_<assembly_id>` that could not be fetched), both in `asm_dict` order.
         """
         logger.info(
             f"Downloading {sum(len(v) for v in asm_dict.values())} PISA assemblies from {self.source}",
             extra=self.log_extra,
         )
-        if self.source == "ftp":
-            success, failure = self.download_missing_ftp_assemblies(asm_dict, asm_dir)
-        else:
-            success, failure = self.download_missing_api_assemblies(asm_dict, asm_dir)
+        url_for, fetch = ASSEMBLY_SOURCES[self.source]
+        jobs = {
+            (pdb_code, asm): DownloadJob(url_for(pdb_code, asm), os.path.join(self.asm_dir, f"{pdb_code}_{asm}.json"))
+            for pdb_code, assemblies in asm_dict.items()
+            for asm in assemblies
+        }
+        fetched = download_many(jobs, fetch, self.max_workers, self.log_extra)
+
+        failure = []
+        success = defaultdict(list)
+        for (pdb_code, asm), ok in fetched.items():
+            if ok:
+                success[pdb_code].append(asm)
+            else:
+                failure.append(f"{pdb_code}_{asm}")
         if len(failure) > 0:
             logger.warning(f"Failed to download {len(failure)} assemblies", extra=self.log_extra)
         return success, failure
 
-    def download_missing_api_assemblies(self, asm_dict, asm_dir):
+    def parse_assemblies(self, asm_dict):
         """
-        Download each assembly's interfaces from the PDBe API, one paced request at a time.
+        Flatten each entry's assemblies in `asm_dir` into one interface file keyed by chain pair.
+
+        Writes `<pdb_code>.json` into `interface_dir`, which must already exist, for each entry with at
+        least one usable interface: every assembly's interfaces merged into one dict keyed by the two
+        chain ids sorted and joined by a comma (e.g. "A,B-2"), a later assembly winning on a repeated pair.
 
         Args:
             asm_dict (dict): pdb_code -> list of assembly ids.
-            asm_dir (str): Directory to cache the responses in.
-
-        Returns:
-            tuple: As `download_missing_assemblies`.
-        """
-        failure = []
-        success = defaultdict(list)
-        for pdb_code, assemblies in tqdm(asm_dict.items()):
-            for asm in assemblies:
-                out_fname = os.path.join(asm_dir, f"{pdb_code}_{asm}.json")
-                url = f"https://www.ebi.ac.uk/pdbe/api/pisa/interfaces/{pdb_code}/{asm}"
-                if os.path.exists(out_fname) or self.fetch_with_backoff(url, out_fname):
-                    success[pdb_code].append(asm)
-                else:
-                    failure.append(f"{pdb_code}_{asm}")
-        return success, failure
-
-    def download_missing_ftp_assemblies(self, asm_dict, asm_dir):
-        """
-        Download each assembly's interfaces from the EBI FTP server, `max_workers` at a time.
-
-        A file the server does not have (404) is not retried.
-
-        Args:
-            asm_dict (dict): pdb_code -> list of assembly ids.
-            asm_dir (str): Directory to cache the files in.
-
-        Returns:
-            tuple: As `download_missing_assemblies`.
-        """
-        jobs = [(pdb_code, asm) for pdb_code, assemblies in asm_dict.items() for asm in assemblies]
-        with ThreadPoolExecutor(max_workers=self.max_workers) as e:
-            futures = {
-                e.submit(self.download_ftp_assembly, pdb_code, asm, asm_dir): (pdb_code, asm) for pdb_code, asm in jobs
-            }
-            fetched = {futures[f]: f.result() for f in tqdm(as_completed(futures), total=len(futures))}
-
-        # Collected in input order, so the result does not depend on completion order
-        failure = []
-        success = defaultdict(list)
-        for pdb_code, asm in jobs:
-            if fetched[(pdb_code, asm)]:
-                success[pdb_code].append(asm)
-            else:
-                failure.append(f"{pdb_code}_{asm}")
-        return success, failure
-
-    def download_ftp_assembly(self, pdb_code, asm, asm_dir):
-        """
-        Download one assembly's interfaces from the EBI FTP server, unless already cached.
-
-        Args:
-            pdb_code (str): Lower-cased PDB code.
-            asm (str): Assembly id.
-            asm_dir (str): Directory to cache the file in.
-
-        Returns:
-            bool: True if the file is now on disk.
-        """
-        out_fname = os.path.join(asm_dir, f"{pdb_code}_{asm}.json")
-        if os.path.exists(out_fname):
-            return True
-        url = (
-            "https://ftp.ebi.ac.uk/pub/databases/msd/pdb-assemblies-analysis/split/"
-            f"{pdb_code[1:3]}/{pdb_code}_assembly{asm}_interfaces.json"
-        )
-        return download_file(
-            url,
-            out_fname,
-            max_retries=self.max_retries,
-            base_delay=self.base_delay,
-            max_delay=self.max_delay,
-            log_extra=self.log_extra,
-        )
-
-    def parse_assemblies(self, asm_dict, asm_dir, interface_dir):
-        """
-        Flatten each entry's assemblies into one interface file keyed by chain pair.
-
-        Writes `<pdb_code>.json` into `interface_dir` for each entry with at least one usable interface:
-        every assembly's interfaces merged into one dict keyed by the two chain ids sorted and joined
-        by a comma (e.g. "A,B-2"), a later assembly winning on a repeated pair.
-
-        Args:
-            asm_dict (dict): pdb_code -> list of assembly ids.
-            asm_dir (str): Directory holding the cached assembly responses.
-            interface_dir (str): Output directory for the per-entry files.
 
         Returns:
             list: What did not make it into a file -- `<pdb_code>_<assembly_id>` for an assembly that
@@ -384,7 +319,7 @@ class PisaDownloader:
             for asm_id in assemblies:
                 try:
                     # Opening assembly file
-                    asm_fname = os.path.join(asm_dir, f"{pdb_code}_{asm_id}.json")
+                    asm_fname = os.path.join(self.asm_dir, f"{pdb_code}_{asm_id}.json")
                     with open(asm_fname) as f:
                         data = json.load(f)
 
@@ -419,7 +354,7 @@ class PisaDownloader:
                     failure.append(f"{pdb_code}_{asm_id}_parse_error")
 
             if len(pdb_interfaces) > 0:
-                interface_fname = os.path.join(interface_dir, f"{pdb_code}.json")
+                interface_fname = os.path.join(self.interface_dir, f"{pdb_code}.json")
                 with open(interface_fname, "w") as out_f:
                     json.dump(pdb_interfaces, out_f)
         if len(failure) > 0:

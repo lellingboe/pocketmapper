@@ -4,6 +4,7 @@ Shared download machinery: retrying what is worth retrying, and writing through 
 Two entry points, because PocketMapper fetches two different kinds of thing. `download_file` is for
 bulk files: it is unpaced and holds no state, so many can run at once. `download_api` is for REST
 endpoints: it paces its requests and remembers, per host, how long the pacing has had to grow.
+`download_many` runs a set of either, skipping files already in place.
 
 Every response lands on `<out_fpath>.part` and is moved onto its final name only once it is
 complete, so an interrupted download cannot leave a truncated file under a name a cache would
@@ -17,11 +18,15 @@ cached global opener, which costs a rebuilt handler chain per request and races 
 import logging
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.client import HTTPException
 from time import sleep
+from typing import NamedTuple
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
+
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +34,7 @@ logger = logging.getLogger(__name__)
 # fail identically however many times it is repeated.
 TRANSIENT_HTTP_STATUSES = frozenset({408, 425, 429})
 
-# Default width of a pool of `download_file` calls. Fixed rather than tied to a thread count: a worker
+# Default `max_workers` of `download_many`. Fixed rather than tied to a thread count: a worker
 # waits on a socket, not on a core.
 DOWNLOAD_WORKERS = 8
 
@@ -38,6 +43,16 @@ DOWNLOAD_WORKERS = 8
 # that has asked to be slowed down stays slowed for the life of the process.
 _HOST_DELAYS = {}
 _HOST_DELAYS_LOCK = threading.Lock()
+
+
+class DownloadJob(NamedTuple):
+    """
+    One file for `download_many` to fetch: its address, its final path, and an optional `transform`.
+    """
+
+    url: str
+    out_fpath: str
+    transform: object = None
 
 
 def discard_partial(fpath):
@@ -121,10 +136,11 @@ def write_through_part(url, out_fpath, transform, log_extra, data=None):
     """
     Fetch `url` and place it at `out_fpath`, writing through a `.part` file.
 
-    The response is written beside the destination and moved onto it with `os.replace` only once
-    it is complete, so a failed fetch leaves nothing under the final name. With a `transform`, the
-    response goes to a second scratch file and only the transform's output is placed. Every
-    scratch file is removed before returning, whether or not the fetch succeeded.
+    Creates the parent directory of `out_fpath` if it is missing. The response is written beside the
+    destination and moved onto it with `os.replace` only once it is complete, so a failed fetch leaves
+    nothing under the final name. With a `transform`, the response goes to a second scratch file and
+    only the transform's output is placed. Every scratch file is removed before returning, whether or
+    not the fetch succeeded.
 
     Args:
         url (str): Address to fetch.
@@ -139,8 +155,11 @@ def write_through_part(url, out_fpath, transform, log_extra, data=None):
         None
 
     Raises:
-        Exception: Whatever the fetch or the transform raised.
+        Exception: Whatever creating the directory, the fetch or the transform raised.
     """
+    out_dir = os.path.dirname(out_fpath)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
     part_fpath = f"{out_fpath}.part"
     raw_fpath = f"{out_fpath}.raw.part" if transform else part_fpath
     try:
@@ -196,7 +215,9 @@ def download_file(url, out_fpath, transform=None, max_retries=5, base_delay=0.25
     return False
 
 
-def download_api(url, out_fpath, max_retries=5, base_delay=0.25, max_delay=30.0, log_extra=None, data=None):
+def download_api(
+    url, out_fpath, max_retries=5, base_delay=0.25, max_delay=30.0, log_extra=None, data=None, transform=None
+):
     """
     Download a REST response to `out_fpath`, pacing requests to the host it came from.
 
@@ -215,6 +236,8 @@ def download_api(url, out_fpath, max_retries=5, base_delay=0.25, max_delay=30.0,
         log_extra (dict, optional): `extra` mapping for the log records. Defaults to None, which
             logs them under this function's own name.
         data (bytes, optional): Request body. Given, the request is a POST. Defaults to None.
+        transform (callable, optional): Called as `transform(src_fpath, dst_fpath)` to convert the
+            response before it is placed. Defaults to None, which places it unchanged.
 
     Returns:
         bool: True once the response is in place, False if every attempt failed.
@@ -222,7 +245,7 @@ def download_api(url, out_fpath, max_retries=5, base_delay=0.25, max_delay=30.0,
     for attempt in range(1, max_retries + 1):
         sleep(get_host_delay(url, base_delay))
         try:
-            write_through_part(url, out_fpath, None, log_extra, data=data)
+            write_through_part(url, out_fpath, transform, log_extra, data=data)
             return True
         except Exception as e:
             if attempt == max_retries or not is_transient_error(e):
@@ -235,3 +258,36 @@ def download_api(url, out_fpath, max_retries=5, base_delay=0.25, max_delay=30.0,
                 extra=log_extra,
             )
     return False
+
+
+def download_many(jobs, fetch=download_file, max_workers=DOWNLOAD_WORKERS, log_extra=None):
+    """
+    Fetch every job whose file is not already in place, `max_workers` at a time.
+
+    A job whose `out_fpath` exists is not fetched and counts as a success. With `fetch=download_api` the
+    jobs run one at a time, whatever `max_workers` says. The progress bar counts every job, skipped ones
+    included.
+
+    Args:
+        jobs (dict): Key -> `DownloadJob`.
+        fetch (callable, optional): `download_file` or `download_api`, called by keyword. Defaults to
+            `download_file`.
+        max_workers (int, optional): Downloads to run concurrently. Defaults to `DOWNLOAD_WORKERS`.
+        log_extra (dict, optional): `extra` mapping for the log records. Defaults to None, which logs them
+            under `fetch`'s own name.
+
+    Returns:
+        dict: Key -> True if the file is in place, False if its download failed, in the order of `jobs`.
+    """
+    results = {key: True for key, job in jobs.items() if os.path.exists(job.out_fpath)}
+    to_fetch = {key: job for key, job in jobs.items() if key not in results}
+    # `download_api` sleeps the host delay outside the lock, so concurrent calls would not be paced
+    workers = 1 if fetch is download_api else max_workers
+    with ThreadPoolExecutor(max_workers=workers) as e:
+        futures = {
+            e.submit(fetch, job.url, job.out_fpath, transform=job.transform, log_extra=log_extra): key
+            for key, job in to_fetch.items()
+        }
+        for f in tqdm(as_completed(futures), total=len(jobs), initial=len(results)):
+            results[futures[f]] = f.result()
+    return {key: results[key] for key in jobs}

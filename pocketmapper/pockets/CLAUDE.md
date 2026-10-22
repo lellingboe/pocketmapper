@@ -9,7 +9,7 @@ Facts about `pockets/`, moved out of `context/project-overview.md` so they load 
 - Records are dicts, not DataFrames. The fetcher builds every record it is given.
 - **`expand_fsdb_pdb_targets` lives in `step.py`, not beside the builders** (it builds records and
   downloads). It shares `pocket_dir/pisa/` with `pisa_pockets`; both go through
-  `pockets.pisa.pisa_cache_layout`, the one place the cache layout is spelled out.
+  `pockets.pisa.download_pisa_interfaces`, which picks `pisa/`, and `PisaDownloader` names its contents.
 
 ## PISA
 
@@ -18,11 +18,12 @@ Facts about `pockets/`, moved out of `context/project-overview.md` so they load 
 
 **PISA assembly interfaces have two sources, one cache.** `source="ftp"` (the default) fetches
 `ftp.ebi.ac.uk/.../pdb-assemblies-analysis/split/<code[1:3]>/<code>_assembly<asm>_interfaces.json`
-through `download_file` in a `DOWNLOAD_WORKERS` pool, since those are static files; `source="api"` keeps
-the paced `download_api` loop. Summaries, which give the assembly ids, come from the API
-either way. Both write `assemblies/<code>_<asm>.json`, because the two serve the same JSON (checked on
-2026-09-29: 6rkw assembly 1 byte-for-byte, 4q5j and 12 4dx9 assemblies equal as parsed JSON). So a
-cached file is source-agnostic, and with a warm cache the toggle fetches nothing. **If the formats ever
+with `download_file`, since those are static files; `source="api"` uses the paced `download_api`. Both
+are one `download_many` call over `ASSEMBLY_SOURCES`, pooled `max_workers` wide for FTP and serial for
+the API. Summaries, which give the assembly ids, come from the API either way. Both write
+`assemblies/<code>_<asm>.json`, because the two serve the same JSON (checked on 2026-09-29: 6rkw
+assembly 1 byte-for-byte, 4q5j and 12 4dx9 assemblies equal as parsed JSON). So a cached file is
+source-agnostic, and with a warm cache the toggle fetches nothing. **If the formats ever
 diverge, the caches must split.** An assembly the FTP lacks is a 404, not retried, and is reported
 under `assembly_downloading` like an API failure; there is no fallback to the API.
 

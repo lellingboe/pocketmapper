@@ -1,178 +1,80 @@
 """
 Retrieval of mmCIF structures from the wwPDB and AlphaFold.
 
-Downloads are concurrent -- the pool width is a constructor argument -- and land as gzipped mmCIF at
-each record's `struct_path`, which doubles as the on-disk cache between runs.
+`STRUCTURE_SOURCES` maps each downloadable `struct_type` to its URL builder and the transform its response
+needs; a new source is one row. Structures land as gzipped mmCIF at each record's `struct_path`, which
+doubles as the on-disk cache between runs.
 """
 
 import logging
-import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from tqdm import tqdm
-
-from pocketmapper.lib.download import DOWNLOAD_WORKERS, download_file
+from pocketmapper.lib.download import DOWNLOAD_WORKERS, DownloadJob, download_many
 from pocketmapper.lib.files import gzip_file
 
 logger = logging.getLogger(__name__)
 
 
-class StructureDownloader:
+def pdb_url(pdb_code):
     """
-    Downloads PDB and AlphaFold structures to the paths their records name.
+    Build the wwPDB address of a PDB entry's divided mmCIF, which is served already gzipped.
 
-    Each record carries its own destination, so there is no shared output directory and no call
-    order to observe. A destination's parent directory is created when a download needs it.
+    Args:
+        pdb_code (str): The 4-character PDB code, in any case.
 
-    How many downloads run at once is fixed at construction, in `max_workers`.
+    Returns:
+        str: The download URL.
     """
+    code = pdb_code.lower()
+    return f"https://files.wwpdb.org/pub/pdb/data/structures/divided/mmCIF/{code[1:3]}/{code}.cif.gz"
 
-    def __init__(self, max_workers=DOWNLOAD_WORKERS, max_retries=5, base_delay=0.25, max_delay=30.0):
-        """
-        Store the pool width and the retry budget shared by every download this instance makes.
 
-        Args:
-            max_workers (int): Downloads to run concurrently. Defaults to DOWNLOAD_WORKERS.
-            max_retries (int): Attempts per download before giving up. Defaults to 5.
-            base_delay (float): Seconds to wait after the first failed attempt. Defaults to 0.25.
-            max_delay (float): Ceiling on the doubling backoff delay. Defaults to 30.0.
-        """
-        self.max_workers = max_workers
-        self.max_retries = max_retries
-        self.base_delay = base_delay
-        self.max_delay = max_delay
-        self.log_extra = {"stage": "Downloading Structures"}
+def alphafold_url(uniprot_acc):
+    """
+    Build the AlphaFold DB address of a UniProt accession's v6 model, which is served as plain mmCIF.
 
-    def download_missing_structures(self, records):
-        """
-        Concurrently fetch the structures a list of records names.
+    Args:
+        uniprot_acc (str): The UniProt accession.
 
-        Writes each structure to its record's `struct_path`, unless a file is already there.
+    Returns:
+        str: The download URL.
+    """
+    return f"https://alphafold.ebi.ac.uk/files/AF-{uniprot_acc}-F1-model_v6.cif"
 
-        Args:
-            records (list of dict): A list of dictionaries, where each dict has:
-                - "struct_type" (str): Type of the structure (e.g., "alphafold", "pdb").
-                - "struct_info" (str): Identifier for the structure (e.g., "P12345", "1ABC").
-                - "struct_path" (str): Destination file path, read for the downloading types only.
 
-        Returns:
-            dict: A mapping of the structure identifier to a boolean status indicating
-                  whether the fetch was successful (True) or not (False).
-        """
-        with ThreadPoolExecutor(max_workers=self.max_workers) as e:
-            futures = [e.submit(self.download_missing_structure, record) for record in records]
-            results = [f.result() for f in tqdm(as_completed(futures), total=len(futures))]
-        return dict(results)
+# struct_type -> (URL builder, transform). AlphaFold is gzipped on the way in to match the cache.
+STRUCTURE_SOURCES = {"pdb": (pdb_url, None), "alphafold": (alphafold_url, gzip_file)}
+# Types already on disk, or fetched elsewhere
+NOT_DOWNLOADED = ("local_file", "foldseek_db")
 
-    def download_missing_structure(self, record):
-        """
-        Fetch a single structure, dispatching on its type.
 
-        Local-file and Foldseek-database records are assumed already on disk and report success without
-        downloading anything.
+def download_structures(records, max_workers=DOWNLOAD_WORKERS):
+    """
+    Concurrently fetch the structures a list of records names.
 
-        Args:
-            record (dict): Describes the structure to fetch; reads `struct_type`, `struct_info` and,
-                for the downloading types, `struct_path`.
+    Writes each structure to its record's `struct_path`, unless a file is already there. Records whose
+    type is in `NOT_DOWNLOADED` report True without fetching; any other type warns and reports
+    False.
 
-        Returns:
-            tuple: (struct_info, succeeded).
-        """
-        match record["struct_type"]:
-            case "alphafold":
-                return self.download_alphafold(record["struct_info"], record["struct_path"])
-            case "pdb":
-                return self.download_mmcif(record["struct_info"], record["struct_path"])
-            case "local_file":
-                return (record["struct_info"], True)
-            case "foldseek_db":
-                # Not fetched here
-                return (record["struct_info"], True)
-            case _:
-                logger.warning(
-                    f"Unknown structure type {record['struct_type']} for struct_info {record['struct_info']}",
-                    extra=self.log_extra,
-                )
-                return (record["struct_info"], False)
+    Args:
+        records (list of dict): Records, each with `struct_type`, `struct_info` and, for the downloading
+            types, `struct_path`.
+        max_workers (int, optional): Downloads to run concurrently. Defaults to DOWNLOAD_WORKERS.
 
-    def make_parent_dir(self, out_fpath):
-        """
-        Create the directory a download will be written into, if it is missing.
-
-        Args:
-            out_fpath (str): Destination path of the download.
-
-        Returns:
-            bool: Whether the directory exists now. A bare filename's directory is the working
-                directory and always does.
-        """
-        out_dir = os.path.dirname(out_fpath)
-        if not out_dir:
-            return True
-        try:
-            os.makedirs(out_dir, exist_ok=True)
-        except OSError as e:
-            logger.warning(f"Could not create directory {out_dir}: {e}", extra=self.log_extra)
-            return False
-        return True
-
-    def download_alphafold(self, uniprot_acc, out_fpath, version="v6"):
-        """
-        Download an AlphaFold model in mmCIF format and compress it to gzip.
-
-        Args:
-            uniprot_acc (str): The UniProt accession number for the target structure.
-            out_fpath (str): Destination path for the gzipped mmCIF. An existing file here is
-                treated as cached and nothing is fetched.
-            version (str, optional): The AlphaFold database version. Defaults to "v6".
-
-        Returns:
-            tuple: A pair containing the Uniprot accession (str) and a boolean
-                   indicating success (True) or failure (False).
-        """
-        if not os.path.exists(out_fpath):
-            if not self.make_parent_dir(out_fpath):
-                return (uniprot_acc, False)
-            url = f"https://alphafold.ebi.ac.uk/files/AF-{uniprot_acc}-F1-model_{version}.cif"
-            # AlphaFold serves plain mmCIF; the cache holds it gzipped, so it is compressed on the
-            # way in rather than stored twice.
-            if not download_file(
-                url,
-                out_fpath,
-                transform=gzip_file,
-                max_retries=self.max_retries,
-                base_delay=self.base_delay,
-                max_delay=self.max_delay,
-                log_extra=self.log_extra,
-            ):
-                return (uniprot_acc, False)
-        return (uniprot_acc, True)
-
-    def download_mmcif(self, pdb_code, out_fpath):
-        """
-        Download a PDB structure, which the wwPDB already serves as gzipped mmCIF.
-
-        Args:
-            pdb_code (str): The 4-character PDB code for the target structure.
-            out_fpath (str): Destination path for the gzipped mmCIF. An existing file here is
-                treated as cached and nothing is fetched.
-
-        Returns:
-            tuple: A pair containing the PDB code (str) and a boolean indicating
-                   success (True) or failure (False).
-        """
-        pdb_code_lowered = pdb_code.lower()
-        if not os.path.exists(out_fpath):
-            if not self.make_parent_dir(out_fpath):
-                return (pdb_code, False)
-            url = f"https://files.wwpdb.org/pub/pdb/data/structures/divided/mmCIF/{pdb_code_lowered[1:3]}/{pdb_code_lowered}.cif.gz"
-            if not download_file(
-                url,
-                out_fpath,
-                max_retries=self.max_retries,
-                base_delay=self.base_delay,
-                max_delay=self.max_delay,
-                log_extra=self.log_extra,
-            ):
-                return (pdb_code, False)
-        return (pdb_code, True)
+    Returns:
+        dict: struct_info -> whether its structure is available.
+    """
+    log_extra = {"stage": "Downloading Structures"}
+    found = {}
+    jobs = {}
+    for record in records:
+        struct_type, struct_info = record["struct_type"], record["struct_info"]
+        if struct_type in STRUCTURE_SOURCES:
+            url_for, transform = STRUCTURE_SOURCES[struct_type]
+            jobs[struct_info] = DownloadJob(url_for(struct_info), record["struct_path"], transform)
+        elif struct_type in NOT_DOWNLOADED:
+            found[struct_info] = True
+        else:
+            logger.warning(f"Unknown structure type {struct_type} for struct_info {struct_info}", extra=log_extra)
+            found[struct_info] = False
+    found.update(download_many(jobs, max_workers=max_workers, log_extra=log_extra))
+    return found

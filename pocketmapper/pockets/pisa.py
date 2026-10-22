@@ -6,7 +6,8 @@ the pipeline expects. This is the `pisa` pocket method, available for PDB entrie
 AlphaFold models and local files have no PISA data.
 
 `pisa_pockets` is the method's builder: download, parse, then add coordinates from the structure.
-`pisa_cache_layout` owns the cache layout under `pocket_dir/pisa/`.
+`download_pisa_interfaces` places the PISA cache at `pocket_dir/pisa/`; `PisaDownloader` names what is
+inside it.
 """
 
 import json
@@ -160,26 +161,6 @@ class PisaParser:
         return pockets
 
 
-def pisa_cache_layout(pocket_dir):
-    """
-    The PISA cache's locations under a pocket cache directory.
-
-    Args:
-        pocket_dir (str): Pocket cache directory.
-
-    Returns:
-        dict: "summary_dir", "asm_dir", "interface_dir" and "error_path", each under `pocket_dir/pisa/`.
-            `interface_dir` holds the per-entry interface files `PisaParser` reads.
-    """
-    pisa_dir = os.path.join(pocket_dir, "pisa")
-    return {
-        "summary_dir": os.path.join(pisa_dir, "summaries"),
-        "asm_dir": os.path.join(pisa_dir, "assemblies"),
-        "interface_dir": os.path.join(pisa_dir, "interface_pairs"),
-        "error_path": os.path.join(pisa_dir, "errors.json"),
-    }
-
-
 def download_pisa_interfaces(pdb_list, pocket_dir, pisa_source):
     """
     Populate the PISA interface cache under `pocket_dir/pisa/` for a list of PDB entries.
@@ -194,9 +175,9 @@ def download_pisa_interfaces(pdb_list, pocket_dir, pisa_source):
     Returns:
         str: The directory of per-entry interface files, for `PisaParser`.
     """
-    layout = pisa_cache_layout(pocket_dir)
-    PisaDownloader(source=pisa_source).download_missing_interfaces(pdb_list=pdb_list, **layout)
-    return layout["interface_dir"]
+    downloader = PisaDownloader(os.path.join(pocket_dir, "pisa"), source=pisa_source)
+    downloader.download_missing_interfaces(pdb_list)
+    return downloader.interface_dir
 
 
 def pisa_pockets(records, pocket_dir, pisa_source=DEFAULT_PISA_SOURCE):
