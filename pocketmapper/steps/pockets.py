@@ -22,14 +22,11 @@ from pocketmapper.entries import (
     split_missing_structures,
 )
 from pocketmapper.exceptions import PocketMapperError
-from pocketmapper.lib import (
-    fsdb_pocket_mode,
-    log_to_file,
-    make_dir,
-    parse_foldseek_pdb_entry_name,
-    run_scope,
-    split_chain_info,
-)
+from pocketmapper.foldseek import fsdb_pocket_mode, parse_foldseek_pdb_entry_name
+from pocketmapper.lib.files import make_dir
+from pocketmapper.lib.logs import log_to_file
+from pocketmapper.lib.residues import split_chain_info
+from pocketmapper.lib.scopes import run_scope
 from pocketmapper.pockets.pisa import PisaParser, download_pisa_interfaces
 from pocketmapper.pockets.pocket_fetcher import PocketFetcher, write_pockets_file
 from pocketmapper.qt_processor import QTProcessor

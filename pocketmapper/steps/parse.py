@@ -20,7 +20,9 @@ from pocketmapper.entries import (
     start_failed_entries,
 )
 from pocketmapper.exceptions import PocketMapperError
-from pocketmapper.lib import log_to_file, make_dir, run_scope
+from pocketmapper.lib.files import make_dir
+from pocketmapper.lib.logs import log_to_file
+from pocketmapper.lib.scopes import run_scope
 from pocketmapper.qt_processor import QTProcessor
 from pocketmapper.settings import dump_settings, layer_settings, require_setting, resolve_paths
 

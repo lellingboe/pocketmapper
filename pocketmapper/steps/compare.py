@@ -10,8 +10,10 @@ import pandas as pd
 
 from pocketmapper.entries import fsdb_record, require_file
 from pocketmapper.exceptions import PocketMapperError
-from pocketmapper.foldseek import bundled_offset_table
-from pocketmapper.lib import fsdb_pocket_mode, jsonify_dict, log_to_file, make_dir, run_scope
+from pocketmapper.foldseek import bundled_offset_table, fsdb_pocket_mode
+from pocketmapper.lib.files import jsonify_dict, make_dir
+from pocketmapper.lib.logs import log_to_file
+from pocketmapper.lib.scopes import run_scope
 from pocketmapper.pocket_comparison import compare_pockets
 from pocketmapper.pockets.pocket_fetcher import read_pockets_file
 from pocketmapper.settings import dump_settings, input_path, layer_settings, require_setting, resolve_paths

@@ -20,15 +20,10 @@ from numpy import array
 from numpy import linalg as LA
 from tqdm import tqdm
 
+from pocketmapper.compare.offsets import read_offset_table, seq_to_uniprot_map
+from pocketmapper.compare.similarity import binary_similarity, full_similarity, read_blast_similarity_matrix
 from pocketmapper.constants import ALIGNMENT_COLUMNS
 from pocketmapper.exceptions import PocketMapperError
-from pocketmapper.lib import (
-    binary_similarity,
-    full_similarity,
-    read_blast_similarity_matrix,
-    read_offset_table,
-    seq_to_uniprot_map,
-)
 from pocketmapper.pockets.pocket import Pocket, PocketResidue
 
 logger = logging.getLogger(__name__)
@@ -400,7 +395,7 @@ def score_overlap(aln, overlap_positions, similarity_matrix):
     Args:
         aln (AlignmentRow): The row, read for `qaln` and `taln`.
         overlap_positions (list): Alignment positions shared by both pockets.
-        similarity_matrix (dict): BLOSUM62, as returned by `lib.read_blast_similarity_matrix`.
+        similarity_matrix (dict): BLOSUM62, as returned by `compare.similarity.read_blast_similarity_matrix`.
 
     Returns:
         dict: The two overlap sequences plus the identity and similarity columns.

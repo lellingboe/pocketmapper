@@ -12,7 +12,9 @@ from pocketmapper.constants import FOLDSEEK_FORMAT_OUTPUT
 from pocketmapper.entries import failed_entry, fsdb_record, report_failures, split_missing_structures, unique_by
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import run_foldseek
-from pocketmapper.lib import log_to_file, make_dir, run_scope, temp_dir_scope
+from pocketmapper.lib.files import make_dir
+from pocketmapper.lib.logs import log_to_file
+from pocketmapper.lib.scopes import run_scope, temp_dir_scope
 from pocketmapper.sequence_aligner import SequenceAligner
 from pocketmapper.settings import (
     check_fsdb_aligner,

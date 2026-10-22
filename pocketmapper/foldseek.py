@@ -5,10 +5,14 @@ Foldseek is an optional external dependency. `run_foldseek` is the single point 
 runs a subcommand, so the binary name, the debug log and the failure convention are written once
 (`check_foldseek`'s probe is the one other invocation, and reports rather than raises). Callers build
 their own argument lists: the subcommands share no shape worth abstracting over.
+
+The entry names of Foldseek's PDB database are parsed here too, since they decide how the pockets of a
+Foldseek-database search are resolved.
 """
 
 import logging
 import os
+import re
 import subprocess
 from importlib.resources import files
 
@@ -186,3 +190,42 @@ def bundled_offset_table(db_path):
     """
     offset_tables = {os.path.realpath(BUNDLED_HUMAN_DOMAINS_DB): BUNDLED_HUMAN_DOMAINS_OFFSET_TABLE}
     return offset_tables.get(os.path.realpath(db_path))
+
+
+# Foldseek's PDB database names its entries "<pdbid>-assembly<N>_<chain>", with a "-<copy>" suffix on
+# chains duplicated within an assembly (e.g. "5ian-assembly1_B-2").
+FOLDSEEK_PDB_ENTRY = re.compile(r"^(?P<pdb>[0-9A-Za-z]{4})-assembly(?P<assembly>\d+)_(?P<chain>.+)$")
+
+
+def parse_foldseek_pdb_entry_name(name):
+    """
+    Resolve a Foldseek PDB-database entry name into the PDB ID and chain it came from.
+
+    Args:
+        name (str): A Foldseek database entry name.
+
+    Returns:
+        tuple: (pdb_id, chain), with pdb_id upper-cased and the assembly number and any chain-copy
+            suffix discarded -- "5ian-assembly1_B-2" and "5ian-assembly2_B" both give ("5IAN", "B").
+            None for a name that is not PDB-style.
+    """
+    match = FOLDSEEK_PDB_ENTRY.match(name)
+    if match is None:
+        return None
+    return match.group("pdb").upper(), match.group("chain").split("-")[0]
+
+
+def fsdb_pocket_mode(hit_names):
+    """
+    How the target pockets of a Foldseek-database search are resolved, decided by its hits.
+
+    Args:
+        hit_names (iterable): The database entry names the search hit, e.g. an alignment's `target`
+            column.
+
+    Returns:
+        str: "pisa" when any hit name is PDB-style, so its pockets come from PISA interfaces;
+            "whole_chain" otherwise, including for no hits, so each hit's pocket is synthesised from
+            the alignment.
+    """
+    return "pisa" if any(parse_foldseek_pdb_entry_name(name) is not None for name in hit_names) else "whole_chain"

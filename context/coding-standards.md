@@ -34,7 +34,7 @@ Mechanism: `project-overview.md` "Logging and errors".
   and never mutates it; elsewhere build it per function. A declared `stage` is the Title Case step name.
 - **Fail with `logger.critical(...)` then `raise PocketMapperError(...)`.** No `exit()`/`sys.exit()`
   outside `cli()`.
-- **A writer into a configurable path makes its own directory**: `lib.make_dir` in the pipeline,
+- **A writer into a configurable path makes its own directory**: `lib.files.make_dir` in the pipeline,
   `os.makedirs` in components.
 
 ## Formatting

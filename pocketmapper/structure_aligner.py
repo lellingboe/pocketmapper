@@ -23,7 +23,8 @@ import pandas as pd
 from pocketmapper.constants import RESOLVED_ALIGN_STRUCT_METHODS
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import extract_fsdb_structures
-from pocketmapper.lib import safe_filename, split_chain_info
+from pocketmapper.lib.files import safe_filename
+from pocketmapper.lib.residues import split_chain_info
 from pocketmapper.pocket_comparison import parse_pocket_transform
 
 logger = logging.getLogger(__name__)
@@ -435,7 +436,7 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
         """
         Superpose the best targets of a finished pocket comparison onto each query.
 
-        Writes one PDB per query into `out_dir`, named by `lib.safe_filename` of the query's
+        Writes one PDB per query into `out_dir`, named by `lib.files.safe_filename` of the query's
         `pocket_id` -- so a file is identified by the `MOLECULE` records inside it, not by its name.
         A query whose targets all turn out to be unusable is skipped rather than written empty.
 

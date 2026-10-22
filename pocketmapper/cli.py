@@ -42,7 +42,7 @@ from pocketmapper.constants import (
     PACKAGE_LOGGER,
 )
 from pocketmapper.exceptions import PocketMapperError
-from pocketmapper.lib import format_handler
+from pocketmapper.lib.logs import format_handler
 from pocketmapper.pocketmapper import PocketMapper
 from pocketmapper.steps.align import align
 from pocketmapper.steps.compare import compare

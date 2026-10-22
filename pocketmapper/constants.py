@@ -154,7 +154,7 @@ FOLDSEEK_AA_CODES = {
 PACKAGE_LOGGER = "pocketmapper"
 
 # The format of every handler the package builds. `stage` is not a stock LogRecord attribute, so a
-# handler using this format needs lib.StageFilter.
+# handler using this format needs lib.logs.StageFilter.
 LOG_FORMAT = "%(levelname)s: %(stage)s - %(msg)s"
 
 

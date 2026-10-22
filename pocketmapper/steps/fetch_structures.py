@@ -15,7 +15,9 @@ from pocketmapper.downloads.structure_downloader import StructureDownloader
 from pocketmapper.entries import check_fsdb_target, failed_entry, reject_fsdb_query, report_failures, unique_by
 from pocketmapper.exceptions import PocketMapperError
 from pocketmapper.foldseek import run_foldseek
-from pocketmapper.lib import log_to_file, make_dir, run_scope, temp_dir_scope
+from pocketmapper.lib.files import make_dir
+from pocketmapper.lib.logs import log_to_file
+from pocketmapper.lib.scopes import run_scope, temp_dir_scope
 from pocketmapper.settings import (
     dump_settings,
     layer_settings,

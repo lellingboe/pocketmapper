@@ -496,7 +496,7 @@ Note that `search()` deletes its temporary directories on the way out.
 Logging goes through the `pocketmapper` logger and never touches the root logger, so your own logging
 setup decides what is shown. `search()` still writes `info.log` and sets the `pocketmapper` logger's level
 from `verbosity` for the length of the call. For the CLI's console format, use
-`pocketmapper.lib.format_handler(logging.StreamHandler())` and add the handler to
+`pocketmapper.lib.logs.format_handler(logging.StreamHandler())` and add the handler to
 `logging.getLogger("pocketmapper")`.
 
 The last step is the one you can defer: run with `align_count=0` and no aligned structures are written,

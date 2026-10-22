@@ -38,7 +38,7 @@ checks that live nowhere else.
   `pockets.json` `chains`. Every step recomputes it (re-hashing local files), so consistency depends on the
   inputs not changing between steps. `steps.compare.check_coverage` catches a mismatch. `test_core_9` and
   `test_local_7` cover local-file names.
-- **`chain_info` is split only by `lib.split_chain_info`.** `chain_info[0]` breaks on multi-character
+- **`chain_info` is split only by `lib.residues.split_chain_info`.** `chain_info[0]` breaks on multi-character
   chains; the patterns reject them, but library callers bypass the patterns.
 
 **Changing the comparison without changing behaviour**: capture `compare_pockets`' arguments from a real
@@ -47,7 +47,7 @@ run and diff old vs new output. Nothing else covers it.
 ## Logging and errors
 
 - The package never touches the root logger: `__init__` gives `constants.PACKAGE_LOGGER` a `NullHandler`.
-- Handlers are added only in `cli()` (stdout) and `lib.log_to_file` (`info.log`, for `search` and every
+- Handlers are added only in `cli()` (stdout) and `lib.logs.log_to_file` (`info.log`, for `search` and every
   step), each removed in a `finally`.
 - Errors go through `PocketMapperError`, which `cli()` turns into exit 1. Foldseek runs through
   `run_foldseek` so its failures raise it too.

@@ -7,7 +7,9 @@ import logging
 import pandas as pd
 
 from pocketmapper.entries import fsdb_record, require_file, split_missing_structures
-from pocketmapper.lib import fsdb_pocket_mode, log_to_file, run_scope
+from pocketmapper.foldseek import fsdb_pocket_mode
+from pocketmapper.lib.logs import log_to_file
+from pocketmapper.lib.scopes import run_scope
 from pocketmapper.pockets.pocket_fetcher import read_pockets_file
 from pocketmapper.settings import (
     check_fsdb_align_struct_method,

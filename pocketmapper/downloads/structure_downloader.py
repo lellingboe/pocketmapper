@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
 from pocketmapper.downloads.lib_download import download_file
-from pocketmapper.lib import gzip_file
+from pocketmapper.lib.files import gzip_file
 
 logger = logging.getLogger(__name__)
 

@@ -25,8 +25,8 @@ to `job_settings_path`: search's resolved `Settings` to `job_settings.json`, a s
 (paths resolved, before its validators) to `<results_dir>/<command>_settings.json` (the default comes
 from `resolve_paths(values, command)`, not `RESULTS_PATH_DEFAULTS`). `layer_settings` drops
 `job_settings_path` from a job file, so a step chained off another's dump never overwrites it. A step
-nested in search writes none: `lib.run_scope` records the outermost command and nested scopes yield
-False (`lib.outer_command()` reads it).
+nested in search writes none: `lib.scopes.run_scope` records the outermost command and nested scopes yield
+False (`lib.scopes.outer_command()` reads it).
 
 **`results_dir` is optional for parse and fetch_structures**: `resolve_paths` then leaves every
 results path not given None (`temp_dir` → `<cache_dir>/tmp`), and `log_to_file(None)`,
@@ -54,20 +54,20 @@ heading there would take the `#advanced-options` anchor). A file a command reads
 `_path`. A new path setting picks a group in both.
 
 **Every directory is made by its first writer**; there is no bulk creation step. Only the log's
-directory is made up front, by `lib.log_to_file` (the file handler opens at once). A writer that does
+directory is made up front, by `lib.logs.log_to_file` (the file handler opens at once). A writer that does
 not make its directory fails once a path option points elsewhere.
 
 **`temp_dir` is one option, three dirs** (`query_structures/`, `target_structures/`, `foldseek_tmp/`),
 named in `steps/align.py` (all three) and `steps/fetch_structures.py` (`foldseek_tmp/`, for a DB download). The two
 structure dirs are made in `foldseek_preprocessing`, `foldseek_tmp/` before each Foldseek call that uses
 it (MMseqs2 makes only one level of tmp dir), so a `seq` run makes none. Ownership is
-`lib.temp_dir_scope` (search, fetch_structures, align): emptied on entry so reruns can't feed `createdb`
+`lib.scopes.temp_dir_scope` (search, fetch_structures, align): emptied on entry so reruns can't feed `createdb`
 stale structures, deleted on a clean exit unless `delete_tmp` is 0. Scopes nest: search's owns temp
 for the whole run and the steps' are no-ops inside it, so `search --delete_tmp 0` keeps every step's
 scratch. The held dir is released in a `finally`, else a failed library run leaves the next one in that
-process neither emptying nor deleting it. Emptying is `lib.is_within`-guarded against `cache_dir` and
+process neither emptying nor deleting it. Emptying is `lib.scopes.is_within`-guarded against `cache_dir` and
 `results_dir`, creation is not. It runs after the log is open so the skip warning reaches `info.log`.
-`lib.delete_temp_dir` does nothing if it was never made.
+`lib.scopes.delete_temp_dir` does nothing if it was never made.
 
 `search --help` is generated from `help=` strings; `CLI_SEARCH_EPILOG` holds only examples. Resolution
 order, the `aligner` check and tri-state `align_struct_method`: `Settings` docstring and `# 4b.`/`# 4c.` in
