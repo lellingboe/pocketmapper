@@ -6,6 +6,8 @@ and not copied here.
 
 - This is an early development project, features may change or break between patches.
 - Names/location of outputs may change, but typically the underlying data should remain fairly consistent.
+- The project is currently going through refactoring and reorganization, some things may be inconsistent
+  while this process is happening
 
 ## Where to start
 
