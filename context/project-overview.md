@@ -11,7 +11,7 @@ and not copied here.
 
 ## Where to start
 
-- `pocketmapper.py` module docstring: the steps of `search()` and what each writes under `results_dir`;
+- `search.py` module docstring: the steps of `search()` and what each writes under `results_dir`;
   each step's entry/core layers, settings layering, and how every step re-derives its records from the
   entries (no records are handed on).
 - `cli.py`: the only module that knows about argv or exit codes; why every option defaults to None.
