@@ -4,9 +4,15 @@ Facts about `pockets/`, moved out of `context/project-overview.md` so they load 
 
 - **`POCKET_BUILDERS` in `pocket_fetcher` is the whole method table.** Builders live beside their
   primitive and all take `(records, pocket_dir)`, plus keyword options the caller passes per method
-  through `fetch_pockets(builder_options=...)` (pisa's `pisa_source` and `bsa_threshold` today). A new
-  method = one row + one builder.
-- Records are dicts, not DataFrames. The fetcher builds every record it is given.
+  through the module function `fetch_pockets(builder_options=...)` (pisa's `pisa_source` and
+  `bsa_threshold` today). A new method = one row + one builder.
+- **One builder contract.** A builder returns pocket_id -> Pocket for the pockets it built only. A record
+  it cannot build (missing structure or chain, unusable residue, unresolved interface) is left out with a
+  warning, never mapped to None; the step then marks it `pocket_not_built` in `entries.tsv`. A pocket
+  built but empty (pisa with no residue under the rule, vdw with no contacts) is kept, with
+  `pocket_exists=False`. Each builder reads every structure once per call (`records_by_structure`).
+- Records are dicts, not DataFrames. The fetcher passes every record it is given to its method's
+  builder, so a caller filters out records whose structure is unavailable first.
 - **`expand_fsdb_pdb_targets` lives in `step.py`, not beside the builders** (it builds records and
   downloads). It shares `pocket_dir/pisa/` with `pisa_pockets`; both go through
   `pockets.pisa.download_pisa_interfaces`, which picks `pisa/`, and `PisaDownloader` names its contents.
@@ -14,7 +20,9 @@ Facts about `pockets/`, moved out of `context/project-overview.md` so they load 
 ## PISA
 
 `pisa_downloader` fetches through `lib.download`; its pacing, retry and `.part` behaviour is in
-`lib/CLAUDE.md`.
+`lib/CLAUDE.md`. The files it writes itself (the split summaries, `interface_pairs/<code>.json` and
+`errors.json`) go through `write_json`, which also writes a `.part` file and moves it into place, so an
+interrupted run cannot leave a truncated interface file that a later run takes as cached.
 
 **PISA assembly interfaces have two sources, one cache.** `source="ftp"` (the default) fetches
 `ftp.ebi.ac.uk/.../pdb-assemblies-analysis/split/<code[1:3]>/<code>_assembly<asm>_interfaces.json`
@@ -63,7 +71,7 @@ Two things that file does not say about itself:
 
 **The cache lives under `pocket_dir/pisa/`; an existing `pocket_dir/pisa_responses/` is dead** and can
 be deleted. Nothing migrates it, so the first run after the move refetches every entry from PISA. Its
-`interfaces/` held files keyed by concatenated chain ids (`"BF"`), which the parser no longer reads, and
+`interfaces/` held files keyed by concatenated chain ids (`"BF"`), which `load_interfaces` does not read, and
 the flattened cache keeps the name `interface_pairs/` so it can never be mistaken for one.
 
 **A pisa pocket is the domain chain's bonded residues, or with `bsa_threshold` its buried ones.** The
@@ -76,4 +84,6 @@ cache every bonded residue has ASA > 0 and BSA > 0. When a seq id appears twice 
 **The input grammar still allows only single-character chains**, so a multi-character interface is
 reachable from the cache but not from an input entry. On the Foldseek PDB-DB path,
 `expand_fsdb_pdb_targets` checks each chain pair against the `pisa` pattern and skips the ones it
-cannot spell, logging one count rather than a warning per record.
+cannot spell, logging one count rather than a warning per record. The patterns also reject a symmetry
+copy (`A-2`), which a library caller can still name: as the domain chain it is left out of `pisa_pockets`
+with a warning, because the structure holds only the asymmetric unit.
