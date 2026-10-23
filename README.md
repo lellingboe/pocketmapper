@@ -86,6 +86,7 @@ left off the command line.
 | `-t`, `--target_pocket_method` | str | `auto` | As `--query_pocket_method`, for targets; also accepts `foldseek_db`. |
 | `-T`, `--threads` | int | one per core | Cap on the cores Foldseek uses. |
 | `--pisa_source` | str | `ftp` | Where PISA interfaces are fetched from: `ftp` (EBI FTP server, concurrent) or `api` (PDBe API, one paced request per assembly). Both fill the same cache. |
+| `--pisa_bsa_threshold` | float | unset | Build PISA pockets from buried surface: a residue joins when the partner chain buries more than this percent of its accessible surface (at least 0, below 100). Unset, they come from interface bonds. |
 | `-h`, `--help` | flag | — | Show the help message and exit. |
 
 #### In options
@@ -206,7 +207,7 @@ what they do for `search`.
 | `parse` | `QUERY`, `TARGET` (or from the job file), `--query_pocket_method`, `--target_pocket_method`, `--work_dir`, the [cache options](#cache-options), `--results_dir`, `--entries_path`, `--job_settings_path` |
 | `fetch_structures` | `--threads`, the [temp options](#temp-options) |
 | `align` | `--aligner`, `--threads`, `--fetch_missing`, `--foldseek_preprocessed_structure_dir`, `--alignment_path`, the [temp options](#temp-options) |
-| `pockets` | `--alignment`, `--pdb_dir`, `--alphafold_dir`, `--pocket_dir`, `--fsdb_dir`, `--pockets_path`, `--pockets_tsv_path` (a table of `pocket_id`, `chain`, `res_auth_ids`, `method`), `--pisa_source`, `--fetch_missing` |
+| `pockets` | `--alignment`, `--pdb_dir`, `--alphafold_dir`, `--pocket_dir`, `--fsdb_dir`, `--pockets_path`, `--pockets_tsv_path` (a table of `pocket_id`, `chain`, `res_auth_ids`, `method`), `--pisa_source`, `--pisa_bsa_threshold`, `--fetch_missing` |
 | `compare` | `--alignment`, `--pockets`, `--pocket_comparison_path` |
 | `superpose` | `--pocket_comparison`, `--alignment`, `--pockets`, the [aligned structure options](#aligned-structure-options), `--aligned_structure_dir`, `--threads`, `--fetch_missing` |
 
@@ -233,7 +234,7 @@ How the pocket residues are derived is inferred from the shape of the entry:
 
 | Example | Method | Meaning |
 | --- | --- | --- |
-| `4Q5J:B_F` | pisa | Interface residues of chain B against chain F, taken from PDBe PISA |
+| `4Q5J:B_F` | pisa | Interface residues of chain B against chain F, taken from PDBe PISA, or, with `--pisa_bsa_threshold`, residues buried past it |
 | `4Q5J:A:10,11,12` | passthrough | Exactly the residues listed, on chain A (reported in ascending order) |
 | `4Q5J:A_B:10,11,12` | vdw | Van der Waals contact residues on chain A against chain B. The residue list is ignored: on a PDB entry the trailing `:` part only selects vdw over pisa (or force it with `--query_pocket_method vdw`) |
 | `P04637:A:10,11,12` | passthrough | AlphaFold model for the accession, residues listed |

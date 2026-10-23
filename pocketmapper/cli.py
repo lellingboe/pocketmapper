@@ -318,6 +318,16 @@ OPTIONS = {
             f"(default: {DEFAULT_PISA_SOURCE})",
         ),
     ),
+    "pisa_bsa_threshold": (
+        ["--pisa_bsa_threshold"],
+        dict(
+            type=float,
+            default=None,
+            metavar="FLOAT",
+            help="Build PISA pockets from buried surface: a residue joins when more than this percent of its "
+            "accessible surface is buried by the partner chain. (default: unset, interface bonds)",
+        ),
+    ),
 }
 
 # Command -> (description, [(--help group title, or None for the main options, [option names])]).
@@ -383,7 +393,7 @@ COMMANDS = {
             ("in options", ["entries", "alignment"]),
             ("cache options", ["pdb_dir", "alphafold_dir", "pocket_dir", "fsdb_dir"]),
             ("out options", ["pockets_path", "pockets_tsv_path", "log_path"]),
-            ("advanced options", ["pisa_source"]),
+            ("advanced options", ["pisa_source", "pisa_bsa_threshold"]),
         ],
     ),
     "compare": (
@@ -446,7 +456,7 @@ COMMANDS = {
                 ],
             ),
             ("temp options", ["temp_dir", "delete_tmp"]),
-            ("advanced options", ["pisa_source"]),
+            ("advanced options", ["pisa_source", "pisa_bsa_threshold"]),
         ],
     ),
 }

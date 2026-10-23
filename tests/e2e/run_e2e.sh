@@ -90,6 +90,7 @@ test_core_7|core|rows|Two pockets on one query chain (pisa + passthrough)|multi_
 test_core_8|core|rows|Superposing on the pocket rather than the chain, with foldseek|4Q5J:A_E 4Q5J:B_F --align_struct_method pocket
 test_core_9|core|queries=2|Same-named local files in different directories|same_name.txt same_name.txt
 test_core_10|core|rows|Microheterogeneous residue (4Z0Y:A 252 is HS8 and HIS)|4Z0Y:A_E 4Z0Y:C_G
+test_core_11|core|rows|PISA pockets by BSA|pdb_pisa_in.txt pdb_pisa_in.txt --pisa_bsa_threshold 25
 
 test_open_1|core|rows|PISA interface vs an open whole-chain target|4Q5J:A_E 4Q5J:B
 test_open_2|core|rows|PISA interface vs a bare structure, chain defaulting to A|4Q5J:B_F 4Q5J
@@ -120,6 +121,7 @@ test_invalid_6|core|fail|Forced pisa on an AlphaFold entry rejected|P24941:A_B 4
 test_invalid_7|core|fail|Forced vdw with no partner chain rejected|4Q5J:A 4Q5J:B_F --aligner seq --query_pocket_method vdw
 test_invalid_8|core|rows failed=invalid_entry@4Q5J:A|Forced method skips only the entries that cannot use it|forced_pisa_mixed.txt 4Q5J:B_F --aligner seq --query_pocket_method pisa
 test_invalid_9|core|fail|Unknown aligner rejected|4Q5J:A_E 4Q5J:B_F --aligner bogus
+test_invalid_10|core|fail|BSA threshold of 100 rejected|4Q5J:A_E 4Q5J:B_F --aligner seq --pisa_bsa_threshold 100
 
 test_settings_1|core settings|rows|Path options set on the command line|4Q5J:A_E 4Q5J:B_F --aligner seq --pdb_dir @CACHE@/pdb_structures --alphafold_dir @CACHE@/alphafold_structures --pocket_dir @CACHE@/pockets --alignment_path @OUT@/custom_alignment.tsv --aligned_structure_dir @OUT@/custom_aligned --job_settings_path @OUT@/custom_settings.json --log_path @OUT@/custom.log --temp_dir @OUT@/custom_temp
 test_settings_2|core settings|rows|CLI arguments win over the job file|--job_file job_file.json 4Q5J:A_E 4Q5J:B_F --aligner seq --align_count 5
@@ -150,6 +152,7 @@ test_steps_20|core local|files=pdb/4Q5J.cif.gz,pockets.json|pockets --fetch_miss
 test_steps_21|core local|files=moved/entries.tsv|A step follows the entries table parse moved with --entries_path|parse 4Q5J:A_E 4Q5J:B_F --entries_path @OUT@/moved/entries.tsv ; fetch_structures --job_file @OUT@/parse_settings.json
 test_steps_22|core local|fail|parse from a job file rejects a Foldseek database beside a structure target|parse --job_file job_file_fsdb_mixed.json
 test_steps_23|core local|rows failed=pocket_not_built@4Q5J:A:9999|Rerunning pockets clears and re-marks its own failures|parse invalid_residues.txt 4Q5J:B_F ; fetch_structures --job_file @OUT@/parse_settings.json ; align --aligner seq --job_file @OUT@/parse_settings.json ; pockets --job_file @OUT@/parse_settings.json ; pockets --job_file @OUT@/parse_settings.json ; compare --job_file @OUT@/parse_settings.json
+test_steps_24|core local|files=pockets.json|pockets takes --pisa_bsa_threshold directly|parse 4Q5J:B_F 4Q5J:A_E ; fetch_structures --job_file @OUT@/parse_settings.json ; pockets --job_file @OUT@/parse_settings.json --pisa_bsa_threshold 25
 EOF
 
 # ---------------------------------------------------------------------------

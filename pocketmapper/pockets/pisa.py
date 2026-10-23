@@ -3,7 +3,9 @@ Reading of cached PISA interface data into pocket residue sets.
 
 Consumes the JSON files `PisaDownloader` writes and turns one interface into the Pocket the rest of
 the pipeline expects. This is the `pisa` pocket method, available for PDB entries only --
-AlphaFold models and local files have no PISA data.
+AlphaFold models and local files have no PISA data. A pocket is the domain chain's residues in any
+bond of the interface (`bonded_residues`) or, given a threshold, those whose accessible surface the
+partner buries past it (`buried_residues`).
 
 `pisa_pockets` is the method's builder: download, parse, then add coordinates from the structure.
 `download_pisa_interfaces` places the PISA cache at `pocket_dir/pisa/`; `PisaDownloader` names what is
@@ -84,13 +86,16 @@ class PisaParser:
             logger.debug(f"No PISA interface involving chain {chain_id} of {pdb_id}", extra=log_extra)
         return partners
 
-    def get_pockets_from_records(self, records, in_dir):
+    def get_pockets_from_records(self, records, in_dir, bsa_threshold=None):
         """
-        Build a Pocket per record from the residues its chain contributes to any bond of its interface.
+        Build a Pocket per record from the residues its chain contributes to its interface.
 
         Args:
             records (list): QTRecord dicts; reads `struct_info`, `chain_info` and `pocket_id`.
             in_dir (str): Directory of parsed interface files.
+            bsa_threshold (float or None, optional): Percent of a residue's accessible surface the partner
+                must bury, strictly exceeded, for the residue to join (`buried_residues`). Defaults to
+                None, which takes the residues in any bond instead (`bonded_residues`).
 
         Returns:
             dict: pocket_id -> Pocket with residue codes but no coordinates: `ca_sequence`,
@@ -99,7 +104,6 @@ class PisaParser:
                 does not have exactly two molecules, is skipped with a warning.
         """
         log_extra = {"stage": "Calculating Pockets"}
-        bond_types = ["hydrogen_bonds", "salt_bridges", "disulfide_bonds", "covalent_bonds", "other_bonds"]
         pockets = {}
         for record in records:
             pdb_id = record["struct_info"]
@@ -126,39 +130,94 @@ class PisaParser:
                 logger.warning(f"More than two molecules in {pdb_id} interface {interface_chains}", extra=log_extra)
                 continue
 
-            # Find the molecule id of the domain chain
-            pocket_mol_id = None
+            # Find the domain chain's molecule
+            pocket_mol = None
             for mol in pisa_data["molecules"]:
                 if mol["chain_id"] == domain_chain:
-                    pocket_mol_id = mol["molecule_id"]
+                    pocket_mol = mol
                     break
-            if pocket_mol_id is None:
+            if pocket_mol is None:
                 logger.warning(f"Could not find domain chain in {pdb_id} interface {interface_chains}", extra=log_extra)
                 continue
 
             pocket = Pocket()
+            if bsa_threshold is None:
+                pocket.residues = bonded_residues(pisa_data, pocket_mol["molecule_id"])
+            else:
+                pocket.residues = buried_residues(pocket_mol, bsa_threshold)
 
-            # Collect the domain chain's residues across all bond types, keyed by author seqid as a string
-            all_res_auth_ids = set()
-            for bond_type in bond_types:
-                bonds_dict = pisa_data[bond_type]
-                res_auth_ids = bonds_dict[f"atom_site_{pocket_mol_id}_seq_nums"]
-                all_res_auth_ids.update(res_auth_ids)
-                for i, res_auth_id in enumerate(res_auth_ids):
-                    res_code = bonds_dict[f"atom_site_{pocket_mol_id}_residues"][i]
-                    pocket.residues[str(res_auth_id)] = PocketResidue(
-                        res_code=res_code,
-                        res_code_single=one_letter_code(res_code),
-                        uniprot_pos=bonds_dict[f"atom_site_{pocket_mol_id}_unp_nums"][i],
-                    )
-
-            # Sorted numerically: walking the bond types leaves the residues in arbitrary order
-            pocket.res_auth_ids = [str(x) for x in sorted(int(x) for x in all_res_auth_ids)]
+            # Sorted numerically: neither rule leaves the residues in ascending order
+            pocket.res_auth_ids = [str(x) for x in sorted(int(x) for x in pocket.residues)]
             pocket.pocket_exists = len(pocket.res_auth_ids) > 0
 
             pockets[record["pocket_id"]] = pocket
 
         return pockets
+
+
+def bonded_residues(interface, mol_id):
+    """
+    Collect a molecule's residues across every bond type of a PISA interface.
+
+    Args:
+        interface (dict): One interface of a cached interface file.
+        mol_id (str): `molecule_id` of the molecule whose residues are wanted.
+
+    Returns:
+        dict: Author seqid as a string -> PocketResidue with `res_code`, `res_code_single` and
+            `uniprot_pos`, in bond order.
+    """
+    bond_types = ["hydrogen_bonds", "salt_bridges", "disulfide_bonds", "covalent_bonds", "other_bonds"]
+    residues = {}
+    for bond_type in bond_types:
+        bonds_dict = interface[bond_type]
+        res_auth_ids = bonds_dict[f"atom_site_{mol_id}_seq_nums"]
+        for i, res_auth_id in enumerate(res_auth_ids):
+            res_code = bonds_dict[f"atom_site_{mol_id}_residues"][i]
+            residues[str(res_auth_id)] = PocketResidue(
+                res_code=res_code,
+                res_code_single=one_letter_code(res_code),
+                uniprot_pos=bonds_dict[f"atom_site_{mol_id}_unp_nums"][i],
+            )
+    return residues
+
+
+def buried_residues(molecule, bsa_threshold):
+    """
+    Collect a molecule's residues whose accessible surface its partner buries past a threshold.
+
+    A residue joins when `100 * bsa / asa` is strictly greater than `bsa_threshold`; one with no
+    accessible surface never joins.
+
+    Args:
+        molecule (dict): One entry of an interface's `molecules`.
+        bsa_threshold (float): Percent buried a residue must exceed.
+
+    Returns:
+        dict: Author seqid as a string -> PocketResidue with `res_code` and `res_code_single`, in
+            molecule order. `uniprot_pos` is None: the molecule lists carry no UniProt numbering.
+    """
+    residues = {}
+    seen = set()
+    rows = zip(
+        molecule["residue_seq_ids"],
+        molecule["residue_label_comp_ids"],
+        molecule["accessible_surface_areas"],
+        molecule["buried_surface_areas"],
+    )
+    for res_auth_id, res_code, asa, bsa in rows:
+        # A seq id listed twice is one residue in alternative forms (microheterogeneity); its first row
+        # decides, as the first conformer does wherever a chain is walked.
+        if res_auth_id in seen:
+            continue
+        seen.add(res_auth_id)
+        if asa > 0 and 100 * bsa / asa > bsa_threshold:
+            residues[str(res_auth_id)] = PocketResidue(
+                res_code=res_code,
+                res_code_single=one_letter_code(res_code),
+                uniprot_pos=None,
+            )
+    return residues
 
 
 def download_pisa_interfaces(pdb_list, pocket_dir, pisa_source):
@@ -180,7 +239,7 @@ def download_pisa_interfaces(pdb_list, pocket_dir, pisa_source):
     return downloader.interface_dir
 
 
-def pisa_pockets(records, pocket_dir, pisa_source=DEFAULT_PISA_SOURCE):
+def pisa_pockets(records, pocket_dir, pisa_source=DEFAULT_PISA_SOURCE, bsa_threshold=None):
     """
     Build a Pocket per record from the PDBe PISA interface it names, with coordinates from its structure.
 
@@ -193,10 +252,14 @@ def pisa_pockets(records, pocket_dir, pisa_source=DEFAULT_PISA_SOURCE):
         pocket_dir (str): Pocket cache directory.
         pisa_source (str): Where assembly interfaces are fetched from: "ftp" or "api".
             Defaults to DEFAULT_PISA_SOURCE.
+        bsa_threshold (float or None, optional): Percent of a residue's accessible surface the partner
+            must bury, strictly exceeded, for the residue to join. Not validated here. Defaults to None,
+            which builds the pocket from interface bonds instead.
 
     Returns:
         dict: pocket_id -> Pocket. A record whose interface cannot be resolved is skipped with a
-            warning; one whose structure or chain cannot be read maps to None.
+            warning; one whose structure or chain cannot be read maps to None. One with no residue
+            under the rule keeps `pocket_exists` False.
     """
     log_extra = {"stage": "Retrieving PISA Pockets"}
 
@@ -204,7 +267,7 @@ def pisa_pockets(records, pocket_dir, pisa_source=DEFAULT_PISA_SOURCE):
     logger.debug(f"PDBs for which to retrieve PISA pockets: {pdb_list}", extra=log_extra)
     interface_dir = download_pisa_interfaces(pdb_list, pocket_dir, pisa_source)
 
-    pockets = PisaParser().get_pockets_from_records(records=records, in_dir=interface_dir)
+    pockets = PisaParser().get_pockets_from_records(records=records, in_dir=interface_dir, bsa_threshold=bsa_threshold)
     logger.debug(f"PISA pockets before coordinates: {pockets}", extra=log_extra)
 
     # PisaParser gives residue ids only; add seq_pos and CA coordinates to the same Pocket

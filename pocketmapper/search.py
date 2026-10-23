@@ -62,6 +62,7 @@ from pocketmapper.lib.settings import (
     resolve_aligner,
     resolve_delete_tmp,
     resolve_paths,
+    resolve_pisa_bsa_threshold,
     resolve_pisa_source,
     resolve_threads,
 )
@@ -96,6 +97,7 @@ class PocketMapper:
         target_pocket_method=None,
         delete_tmp=None,
         pisa_source=None,
+        pisa_bsa_threshold=None,
         pdb_dir=None,
         alphafold_dir=None,
         pocket_dir=None,
@@ -151,6 +153,9 @@ class PocketMapper:
             pisa_source (str, optional): Where PISA interfaces are fetched from -- 'ftp' for the EBI
                 FTP server or 'api' for the paced PDBe API. Both serve the same data into the same
                 cache. Defaults to DEFAULT_PISA_SOURCE.
+            pisa_bsa_threshold (float, optional): Build pisa pockets from buried surface: a residue
+                joins when the partner chain buries more than this percent of its accessible surface,
+                at least 0 and below 100. Defaults to None, which builds them from interface bonds.
             pdb_dir (str, optional): Cache of fetched PDB structures.
                 Defaults to <cache_dir>/pdb_structures.
             alphafold_dir (str, optional): Cache of fetched AlphaFold structures.
@@ -202,6 +207,7 @@ class PocketMapper:
             "target_pocket_method": target_pocket_method,
             "delete_tmp": delete_tmp,
             "pisa_source": pisa_source,
+            "pisa_bsa_threshold": pisa_bsa_threshold,
             "pdb_dir": pdb_dir,
             "alphafold_dir": alphafold_dir,
             "pocket_dir": pocket_dir,
@@ -309,6 +315,9 @@ class PocketMapper:
 
         # 4f. Before the settings are dumped, so job_settings.json records the normalised value.
         values["pisa_source"] = resolve_pisa_source(values["pisa_source"])
+
+        # 4g. Before the settings are dumped, so job_settings.json records the checked value.
+        values["pisa_bsa_threshold"] = resolve_pisa_bsa_threshold(values["pisa_bsa_threshold"])
 
         settings = Settings(**{field.name: values[field.name] for field in fields(Settings)})
         logger.info(f"Settings: {json.dumps(asdict(settings), indent=4)}", extra=log_extra)

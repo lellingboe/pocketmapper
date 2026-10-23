@@ -32,6 +32,7 @@ from pocketmapper.lib.scopes import run_scope
 from pocketmapper.lib.settings import (
     layer_settings,
     resolve_fetch_missing,
+    resolve_pisa_bsa_threshold,
     resolve_pisa_source,
     resolve_step_paths,
 )
@@ -55,6 +56,7 @@ def pockets(
     pockets_path=None,
     pockets_tsv_path=None,
     pisa_source=None,
+    pisa_bsa_threshold=None,
     fetch_missing=None,
 ):
     """
@@ -81,6 +83,9 @@ def pockets(
         pockets_tsv_path (str, optional): Where a table of every pocket is written: pocket_id, chain,
             res_auth_ids and method. Defaults to None, for none.
         pisa_source (str, optional): "ftp" or "api". Defaults to DEFAULT_PISA_SOURCE.
+        pisa_bsa_threshold (float, optional): Build pisa pockets from buried surface: a residue joins
+            when the partner chain buries more than this percent of its accessible surface, at least 0
+            and below 100. Defaults to the job file's, else None, which builds them from interface bonds.
         fetch_missing (int, optional): 1 downloads an entry structure missing from the cache, 0 skips
             the entry as `structure_not_found`. Defaults to DEFAULT_FETCH_MISSING.
 
@@ -106,6 +111,7 @@ def pockets(
             "pockets_path": pockets_path,
             "pockets_tsv_path": pockets_tsv_path,
             "pisa_source": pisa_source,
+            "pisa_bsa_threshold": pisa_bsa_threshold,
             "fetch_missing": fetch_missing,
         },
     )
@@ -116,6 +122,7 @@ def pockets(
     )
     with run_scope("pockets"), log_to_file(values["log_path"], values["verbosity"]):
         pisa_source = resolve_pisa_source(values["pisa_source"])
+        pisa_bsa_threshold = resolve_pisa_bsa_threshold(values["pisa_bsa_threshold"])
         fetch_missing = resolve_fetch_missing(values["fetch_missing"])
         sides = open_entries(values["entries_path"], "pockets")
         if fetch_missing:
@@ -128,10 +135,20 @@ def pockets(
             values,
             pisa_source,
             values["pockets_tsv_path"],
+            pisa_bsa_threshold=pisa_bsa_threshold,
         )
 
 
-def build_pockets(sides, entries_path, alignment, pockets_path, cache_dirs, pisa_source, pockets_tsv_path=None):
+def build_pockets(
+    sides,
+    entries_path,
+    alignment,
+    pockets_path,
+    cache_dirs,
+    pisa_source,
+    pockets_tsv_path=None,
+    pisa_bsa_threshold=None,
+):
     """
     Build a Pocket for every record of every side, and write them to `pockets_path`.
 
@@ -153,6 +170,9 @@ def build_pockets(sides, entries_path, alignment, pockets_path, cache_dirs, pisa
         pisa_source (str): Where PISA interfaces are fetched from: "ftp" or "api".
         pockets_tsv_path (str, optional): Where a table of every pocket is written: pocket_id, chain,
             res_auth_ids and method. Defaults to None, for none.
+        pisa_bsa_threshold (float, optional): Percent of a residue's accessible surface the partner
+            chain must bury, beyond which it joins a pisa pocket; applies to every pisa pocket, the
+            Foldseek hits' included. Defaults to None, which builds pisa pockets from interface bonds.
 
     Returns:
         None
@@ -194,7 +214,7 @@ def build_pockets(sides, entries_path, alignment, pockets_path, cache_dirs, pisa
     built = PocketFetcher().fetch_pockets(
         [record for _, record in buildable],
         cache_dirs["pocket_dir"],
-        builder_options={"pisa": {"pisa_source": pisa_source}},
+        builder_options={"pisa": {"pisa_source": pisa_source, "bsa_threshold": pisa_bsa_threshold}},
     )
 
     # Checked on the merged pockets: a later method can overwrite an earlier one's pocket with None

@@ -4,8 +4,8 @@ Facts about `pockets/`, moved out of `context/project-overview.md` so they load 
 
 - **`POCKET_BUILDERS` in `pocket_fetcher` is the whole method table.** Builders live beside their
   primitive and all take `(records, pocket_dir)`, plus keyword options the caller passes per method
-  through `fetch_pockets(builder_options=...)` (pisa's `pisa_source` today). A new method =
-  one row + one builder.
+  through `fetch_pockets(builder_options=...)` (pisa's `pisa_source` and `bsa_threshold` today). A new
+  method = one row + one builder.
 - Records are dicts, not DataFrames. The fetcher builds every record it is given.
 - **`expand_fsdb_pdb_targets` lives in `step.py`, not beside the builders** (it builds records and
   downloads). It shares `pocket_dir/pisa/` with `pisa_pockets`; both go through
@@ -65,6 +65,13 @@ Two things that file does not say about itself:
 be deleted. Nothing migrates it, so the first run after the move refetches every entry from PISA. Its
 `interfaces/` held files keyed by concatenated chain ids (`"BF"`), which the parser no longer reads, and
 the flattened cache keeps the name `interface_pairs/` so it can never be mistaken for one.
+
+**A pisa pocket is the domain chain's bonded residues, or with `bsa_threshold` its buried ones.** The
+buried rule reads ASA and BSA from the interface molecule already in `interface_pairs/`, so it needs no
+download and leaves the cache unchanged. A residue joins when `100 * bsa / asa` is strictly greater than
+the threshold, and one with ASA 0 never joins. So 0 gives a superset of the bond pocket: on the warm e2e
+cache every bonded residue has ASA > 0 and BSA > 0. When a seq id appears twice in a molecule
+(microheterogeneity, e.g. 4Z0Y 252 as HS8 then HIS), its first row decides.
 
 **The input grammar still allows only single-character chains**, so a multi-character interface is
 reachable from the cache but not from an input entry. On the Foldseek PDB-DB path,

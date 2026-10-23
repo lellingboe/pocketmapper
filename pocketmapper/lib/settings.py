@@ -50,7 +50,8 @@ class Settings:
 
     A record of what a run actually used, built once by `resolve_settings` and dumped to
     job_settings.json. It has no defaults: each field arrives from the arguments to `search()`, the
-    job file, SETTING_DEFAULTS or run-time resolution, in that priority order. No field is optional.
+    job file, SETTING_DEFAULTS or run-time resolution, in that priority order. Every field is set,
+    except `pisa_bsa_threshold`, which None leaves unset.
     """
 
     query: str
@@ -74,6 +75,9 @@ class Settings:
     delete_tmp: int
     # "ftp" or "api": where PISA assembly interfaces are fetched from.
     pisa_source: str
+    # Percent of a residue's accessible surface the partner must bury for it to join a pisa pocket.
+    # None builds pisa pockets from interface bonds instead.
+    pisa_bsa_threshold: float | None
     pdb_dir: str
     alphafold_dir: str
     pocket_dir: str
@@ -604,6 +608,39 @@ def resolve_pisa_source(pisa_source):
         raise PocketMapperError(msg)
 
     return normalised
+
+
+def resolve_pisa_bsa_threshold(pisa_bsa_threshold):
+    """
+    Validate the `pisa_bsa_threshold` setting.
+
+    Args:
+        pisa_bsa_threshold (int, float or None): Percent buried, at least 0 and below 100, or None for
+            the bond rule.
+
+    Returns:
+        float or None: The threshold as a float, or None.
+
+    Raises:
+        PocketMapperError: If the value is not a number, is a bool, or is outside [0, 100), NaN included.
+    """
+    log_extra = {"stage": "Configuring Settings"}
+
+    if pisa_bsa_threshold is None:
+        return None
+
+    # A job file can hold any JSON value, and a bool passes isinstance(value, int). The range check is
+    # negated so NaN, which argparse's float and json both accept, fails it too.
+    if (
+        isinstance(pisa_bsa_threshold, bool)
+        or not isinstance(pisa_bsa_threshold, (int, float))
+        or not (0 <= pisa_bsa_threshold < 100)
+    ):
+        msg = f"pisa_bsa_threshold must be a number at least 0 and below 100, got {pisa_bsa_threshold!r}."
+        logger.critical(msg, extra=log_extra)
+        raise PocketMapperError(msg)
+
+    return float(pisa_bsa_threshold)
 
 
 def check_fsdb_aligner(aligner):
