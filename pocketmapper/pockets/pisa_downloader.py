@@ -3,7 +3,7 @@ Download and flatten PDBe PISA interface data into a per-entry cache.
 
 Three stages, each cached on disk so a rerun costs nothing: entry summaries, fetched in batches,
 give the assembly ids, one file per assembly gives its interfaces, and those are flattened into a single
-`<pdb_code>.json` per entry keyed by sorted chain pair -- the shape `PisaParser` reads.
+`<pdb_code>.json` per entry keyed by sorted chain pair -- the shape `pisa.load_interfaces` reads.
 
 `PisaDownloader` names the cache's contents under the `pisa_dir` it is given: `summaries/`,
 `assemblies/`, `interface_pairs/` and `errors.json`.
@@ -33,6 +33,27 @@ from pocketmapper.lib.download import DOWNLOAD_WORKERS, DownloadJob, download_ap
 from pocketmapper.lib.exceptions import PocketMapperError
 
 logger = logging.getLogger(__name__)
+
+# What a malformed or unexpected JSON file can raise while it is read and indexed
+PARSE_ERRORS = (OSError, ValueError, KeyError, TypeError, IndexError, AttributeError)
+
+
+def write_json(data, path):
+    """
+    Write `data` as JSON to `path` through `<path>.part`, creating its directory.
+
+    The file appears at `path` only once it is complete, so an interrupted write leaves at most a
+    `.part` file, which no stage reads.
+
+    Args:
+        data (dict): JSON-serialisable data.
+        path (str): Destination file.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    part_path = f"{path}.part"
+    with open(part_path, "w") as f:
+        json.dump(data, f)
+    os.replace(part_path, path)
 
 
 def ftp_assembly_url(pdb_code, asm):
@@ -75,10 +96,10 @@ class PisaDownloader:
     Fetches PISA interfaces from the EBI FTP server or the PDBe API into a local cache.
 
     `download_missing_interfaces` is the entry point; the remaining methods are its stages and are
-    separately usable. Only `parse_assemblies` expects its output directory, `interface_dir`, to exist
-    already. Every stage returns what it could not handle instead of raising, so one dead entry does not
-    abort a large batch. Responses are written through a `.part` file, so an interrupted run cannot leave
-    a truncated response for a later run to trust.
+    separately usable, and each makes the directories it writes into. Every stage returns what it could not
+    handle instead of raising, so one dead entry does not abort a large batch. Every file, downloaded or
+    written here, is written through a `.part` file, so an interrupted run cannot leave a truncated file
+    for a later run to trust.
     """
 
     def __init__(
@@ -93,7 +114,7 @@ class PisaDownloader:
 
         Args:
             pisa_dir (str): Cache directory. Holds `summaries/`, `assemblies/`, `interface_pairs/` (the
-                per-entry files `PisaParser` reads) and the failure report `errors.json`.
+                per-entry files `pisa.load_interfaces` reads) and the failure report `errors.json`.
             source (str, optional): Where assembly interfaces are fetched from: "ftp" or "api". Summaries
                 always come from the API. Defaults to DEFAULT_PISA_SOURCE.
             summary_batch_size (int, optional): Entries per summary request. The API fails with a 500
@@ -132,18 +153,14 @@ class PisaDownloader:
                 `summary_parsing`, `assembly_downloading` and `assembly_parsing`. A stage with
                 nothing to report is absent, so an empty dict means a clean run.
         """
-
-        existing_files = glob(r"*.json", root_dir=self.interface_dir)
-        missing_pdbs = [x.lower() for x in pdb_list if f"{x.lower()}.json" not in existing_files]
-        local_count = len(pdb_list) - len(missing_pdbs)
-        logger.info(f"{local_count}/{len(pdb_list)} interfaces found locally", extra=self.log_extra)
+        pdb_codes = list(dict.fromkeys(x.lower() for x in pdb_list))
+        existing_files = set(glob("*.json", root_dir=self.interface_dir))
+        missing_pdbs = [x for x in pdb_codes if f"{x}.json" not in existing_files]
+        local_count = len(pdb_codes) - len(missing_pdbs)
+        logger.info(f"{local_count}/{len(pdb_codes)} interfaces found locally", extra=self.log_extra)
 
         all_failures = {}
         if len(missing_pdbs) > 0:
-            # The only directory written with `open` before anything has been downloaded into it; it also
-            # makes `pisa_dir` for `error_path`. The download directories are made by their downloads.
-            os.makedirs(self.interface_dir, exist_ok=True)
-
             success, sd_failures = self.download_missing_summaries(missing_pdbs)
             if sd_failures:
                 all_failures["summary_downloading"] = sd_failures
@@ -159,8 +176,7 @@ class PisaDownloader:
                 all_failures["assembly_parsing"] = ap_failures
 
             if all_failures:
-                with open(self.error_path, "w") as f:
-                    json.dump(all_failures, f)
+                write_json(all_failures, self.error_path)
                 logger.warning(
                     f"See {self.error_path} for details of {sum(len(v) for v in all_failures.values())} PISA failures",
                     extra=self.log_extra,
@@ -210,10 +226,7 @@ class PisaDownloader:
                     if pdb_code not in data:
                         failure.append(pdb_code)
                         continue
-                    out_fname = os.path.join(self.summary_dir, f"{pdb_code}.json")
-                    with open(f"{out_fname}.part", "w") as f:
-                        json.dump({pdb_code: data[pdb_code]}, f)
-                    os.replace(f"{out_fname}.part", out_fname)
+                    write_json({pdb_code: data[pdb_code]}, os.path.join(self.summary_dir, f"{pdb_code}.json"))
                     success.append(pdb_code)
             finally:
                 if os.path.exists(batch_fname):
@@ -242,12 +255,16 @@ class PisaDownloader:
                 fname = os.path.join(self.summary_dir, f"{pdb_code}.json")
                 with open(fname) as f:
                     data = json.load(f)
-                logger.debug(f"Summary data for {pdb_code}: {data}", extra=self.log_extra)
                 if len(data[pdb_code]) != 1:
-                    raise PocketMapperError(f"More than one entry in summary for {pdb_code}")
+                    logger.debug(
+                        f"Expected one entry in summary for {pdb_code}, found {len(data[pdb_code])}",
+                        extra=self.log_extra,
+                    )
+                    failure.append(pdb_code)
+                    continue
                 for assembly in data[pdb_code][0]["assemblies"]:
                     asm_dict[pdb_code].append(assembly["assembly_id"])
-            except Exception as e:
+            except PARSE_ERRORS as e:
                 logger.debug(f"Issue parsing summary for {pdb_code}: ({e})", extra=self.log_extra)
                 failure.append(pdb_code)
         if len(failure) > 0:
@@ -296,9 +313,9 @@ class PisaDownloader:
         """
         Flatten each entry's assemblies in `asm_dir` into one interface file keyed by chain pair.
 
-        Writes `<pdb_code>.json` into `interface_dir`, which must already exist, for each entry with at
-        least one usable interface: every assembly's interfaces merged into one dict keyed by the two
-        chain ids sorted and joined by a comma (e.g. "A,B-2"), a later assembly winning on a repeated pair.
+        Writes `<pdb_code>.json` into `interface_dir` for each entry with at least one usable interface:
+        every assembly's interfaces merged into one dict keyed by the two chain ids sorted and joined by a
+        comma (e.g. "A,B-2"), a later assembly winning on a repeated pair.
 
         Args:
             asm_dict (dict): pdb_code -> list of assembly ids.
@@ -318,13 +335,15 @@ class PisaDownloader:
             pdb_interfaces = {}
             for asm_id in assemblies:
                 try:
-                    # Opening assembly file
                     asm_fname = os.path.join(self.asm_dir, f"{pdb_code}_{asm_id}.json")
                     with open(asm_fname) as f:
                         data = json.load(f)
 
                     if len(data.keys()) != 1:
-                        logger.debug(f"More than one entry in assembly for {pdb_code}_{asm_id}", extra=self.log_extra)
+                        logger.debug(
+                            f"Expected one entry in assembly for {pdb_code}_{asm_id}, found {len(data.keys())}",
+                            extra=self.log_extra,
+                        )
                         failure.append(f"{pdb_code}_{asm_id}")
                         continue
 
@@ -335,10 +354,10 @@ class PisaDownloader:
 
                     for interface in data["assembly"]["interfaces"]:
                         interface_id = interface["interface_id"]
-                        # Checking if interface is between two molecules
                         if len(interface["molecules"]) != 2:
                             logger.debug(
-                                f"More than one molecule in {pdb_code}, {interface['interface_id']}",
+                                f"Expected two molecules in {pdb_code}_{asm_id} interface {interface_id}, "
+                                f"found {len(interface['molecules'])}",
                                 extra=self.log_extra,
                             )
                             failure.append(f"{pdb_code}_{asm_id}_{interface_id}")
@@ -347,16 +366,14 @@ class PisaDownloader:
                         chain_ids = [molecule["chain_id"] for molecule in interface["molecules"]]
                         entry_name = ",".join(sorted(chain_ids))
                         pdb_interfaces[entry_name] = interface
-                except Exception as e:
+                except PARSE_ERRORS as e:
                     logger.debug(
                         f"Unexpected error parsing assembly for {pdb_code}_{asm_id}: ({e})", extra=self.log_extra
                     )
                     failure.append(f"{pdb_code}_{asm_id}_parse_error")
 
             if len(pdb_interfaces) > 0:
-                interface_fname = os.path.join(self.interface_dir, f"{pdb_code}.json")
-                with open(interface_fname, "w") as out_f:
-                    json.dump(pdb_interfaces, out_f)
+                write_json(pdb_interfaces, os.path.join(self.interface_dir, f"{pdb_code}.json"))
         if len(failure) > 0:
             logger.warning(f"Failed to parse {len(failure)} PISA assemblies", extra=self.log_extra)
         return failure
