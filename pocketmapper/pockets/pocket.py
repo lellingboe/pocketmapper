@@ -1,10 +1,11 @@
 """
 The declared shape of a pocket: the one structure every pocket method returns.
 
-This module imports nothing, for the same reason `lib/constants.py` gives: a shape that five producers
+This module imports nothing, for the same reason `lib/constants.py` gives: a shape that four producers
 and one consumer must agree on belongs beside none of them. `structure` builds a Pocket from a
-structure, `pisa` and `vdw` from interface data and coordinates respectively,
-and `pocket_comparison` synthesises one for a Foldseek-database hit -- all four then hand the same
+structure's chain (the vdw pockets too, from their contact residues), `pisa` from interface data before
+`structure` adds its coordinates, `pocket_fetcher` rebuilds one from a pockets file, and
+`compare.pocket_comparison` synthesises one for a Foldseek-database hit -- all four then hand the same
 thing to `compare.pocket_comparison.compare_pockets`.
 
 Every field carries a default. A producer that legitimately cannot fill one -- a PISA pocket before
@@ -26,11 +27,12 @@ class PocketResidue:
 
     res_code: str | None = None
     res_code_single: str | None = None
-    # Index among the chain's CA-bearing residues, which is the residue's position in the alignment.
-    # -1 for a pocket residue with no CA atom; None if the residue was never found in the chain.
+    # Index in `lib.residues.ca_residues` of the chain, which is the residue's position in the alignment.
+    # -1 for a pocket residue the chain has but that list leaves out (no CA atom, or not polymer); None if
+    # the residue was never found in the chain.
     seq_pos: int | None = None
     ca_coords: list | None = None
-    # UniProt position, where the producer has one; otherwise -1 or None.
+    # UniProt position, where the producer has one; otherwise None.
     uniprot_pos: str | int | None = None
 
 

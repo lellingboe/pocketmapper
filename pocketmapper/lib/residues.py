@@ -1,8 +1,28 @@
 """
-Residue naming: one-letter codes and the chain_info field of an input entry.
+Residue naming and selection: one-letter codes, a chain's CA residues and the chain_info field of an
+input entry.
 """
 
 from pocketmapper.lib.constants import FOLDSEEK_AA_CODES
+
+
+def ca_residues(chain):
+    """
+    The residues of a chain that have an alignment position, in chain order.
+
+    These are the first-conformer polymer residues with a CA atom of element C (`res.get_ca()` is not
+    None, so `res.get_ca().pos` is safe to read). A residue's index in this list is its `seq_pos`.
+    `get_polymer()` reads the entity types that `gemmi.Structure.setup_entities()` sets: on a structure
+    without them, such as a gemmi-written mmCIF with no entity data, this returns no residue.
+
+    Args:
+        chain (gemmi.Chain): The chain to walk.
+
+    Returns:
+        list: gemmi.Residue objects, valid while the structure they belong to is alive.
+    """
+    # first_conformer: a microheterogeneous position is one residue, as Foldseek reads it
+    return [res for res in chain.get_polymer().first_conformer() if res.get_ca() is not None]
 
 
 def one_letter_code(res_name):

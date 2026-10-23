@@ -14,7 +14,7 @@ from Bio import Align
 from Bio.Align import substitution_matrices
 
 from pocketmapper.lib.constants import ALIGNMENT_COLUMNS
-from pocketmapper.lib.residues import one_letter_code, split_chain_info
+from pocketmapper.lib.residues import ca_residues, one_letter_code, split_chain_info
 
 
 class SequenceAligner:
@@ -84,12 +84,10 @@ class SequenceAligner:
                 continue  # skip if already processed
             path = record["struct_path"]
             st = gemmi.read_structure(path)  # format inferred from the extension, so local .pdb inputs work too
-            st.setup_entities()
+            st.setup_entities()  # ca_residues reads the entity types
             aln_chain, _ = split_chain_info(record["chain_info"])
-            # first_conformer: a microheterogeneous position is one residue, as Foldseek reads it
-            residues = st[0][aln_chain].get_polymer().first_conformer()
-            seq = "".join([one_letter_code(res.name) for res in residues if "CA" in res])
-            name_to_seq[name] = seq
+            # The same walk as a pocket's seq_pos, so the alignment positions match it
+            name_to_seq[name] = "".join(one_letter_code(res.name) for res in ca_residues(st[0][aln_chain]))
 
         # Performing pairwise alignment
         aligner = Align.PairwiseAligner()
