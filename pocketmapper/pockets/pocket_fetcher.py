@@ -2,8 +2,9 @@
 Dispatch of records to their pocket method's builder.
 
 `POCKET_BUILDERS` is the whole table of pocket methods. Every builder takes `(records, pocket_dir)`,
-plus any keyword options its caller passes for that method, and returns pocket_id -> Pocket, so the
-fetcher needs to know nothing about any one method.
+plus any keyword options its caller passes for that method, and returns pocket_id -> Pocket for the
+pockets it built, leaving out (and logging) the records it could not build. So the fetcher needs to know
+nothing about any one method.
 
 Also the pocket file formats: `dump_pockets`/`load_pockets` for a plain pocket_id -> Pocket mapping
 (the per-method cache files), `write_pockets_file`/`read_pockets_file` for a versioned pockets file
@@ -31,9 +32,9 @@ POCKETS_FILE_VERSION = 2
 # two passthrough pockets on one chain differ only in `residue_info`.
 POCKET_BUILDERS = {
     "pisa": ("PISA", ("struct_info", "chain_info"), pisa_pockets),
-    "passthrough": ("passthrough", None, passthrough_pockets),
-    "vdw": ("VDW", None, vdw_pockets),
-    "whole_chain": ("whole chain", None, whole_chain_pockets),
+    "passthrough": ("Passthrough", None, passthrough_pockets),
+    "vdw": ("VdW", None, vdw_pockets),
+    "whole_chain": ("Whole Chain", None, whole_chain_pockets),
 }
 
 
@@ -46,7 +47,7 @@ def dump_pockets(pockets, path):
         path (str): File to write.
 
     Returns:
-        None: Writes a file.
+        None
     """
     with open(path, "w") as f:
         json.dump(serialise_pockets(pockets), f)
@@ -77,7 +78,7 @@ def write_pockets_file(pockets, chains, path):
         path (str): File to write.
 
     Returns:
-        None: Writes a file.
+        None
     """
     with open(path, "w") as f:
         json.dump({"version": POCKETS_FILE_VERSION, "pockets": serialise_pockets(pockets), "chains": chains}, f)
@@ -154,61 +155,54 @@ def deserialise_pockets(serialised):
     return pockets
 
 
-class PocketFetcher:
+def fetch_pockets(records, pocket_dir, builder_options=None):
     """
-    Builds the pockets a set of records names, dispatching each record to its pocket method's builder.
+    Build a Pocket for each record, by the builder of its `pocket_method`.
+
+    Downloads any PISA data not already cached under `pocket_dir`, and overwrites
+    `pocket_dir/<method>_pockets.json` for every method present, creating `pocket_dir` if needed. PISA
+    records sharing a structure and chain are built once, under the first one's pocket_id. Methods are
+    merged in `POCKET_BUILDERS` order, so a later method's pocket replaces an earlier one's of the same
+    pocket_id.
+
+    Args:
+        records (list): QTRecord dicts; reads `pocket_id`, `pocket_method`, `struct_info`,
+            `struct_path`, `chain_info` and `residue_info`. Query and target records may be mixed.
+            Used as given: filter out any whose structure is unavailable before calling.
+        pocket_dir (str): Pocket cache directory.
+        builder_options (dict, optional): pocket_method -> keyword arguments for that method's
+            builder, e.g. `{"pisa": {"pisa_source": "api"}}`. Defaults to None, which passes none.
+
+    Returns:
+        dict: pocket_id -> Pocket, for built pockets only. A record whose pocket cannot be built is left
+            out and logged by its builder; one built but empty is kept, with `pocket_exists=False`.
     """
+    log_extra = {"stage": "Getting Pockets"}
+    logger.info("Starting pocket retrieval...", extra=log_extra)
+    builder_options = builder_options or {}
 
-    def fetch_pockets(self, records, pocket_dir, builder_options=None):
-        """
-        Build a Pocket for each record, by the builder of its `pocket_method`.
+    pockets = {}
+    for pocket_method, (label, dedup_keys, builder) in POCKET_BUILDERS.items():
+        method_log_extra = {"stage": f"Retrieving {label} Pockets"}
+        logger.info(f"Checking for {label} pockets...", extra=method_log_extra)
 
-        Downloads any PISA data not already cached under `pocket_dir`, and overwrites
-        `pocket_dir/<method>_pockets.json` for every method present, creating `pocket_dir` if needed. PISA records sharing a structure
-        and chain are built once, under the first one's pocket_id.
+        method_records = [record for record in records if record["pocket_method"] == pocket_method]
+        if dedup_keys is not None:
+            unique = {}
+            for record in method_records:
+                unique.setdefault(tuple(record[k] for k in dedup_keys), record)
+            method_records = list(unique.values())
 
-        Args:
-            records (list): QTRecord dicts; reads `pocket_id`, `pocket_method`, `struct_info`,
-                `struct_path`, `chain_info` and `residue_info`. Query and target records may be mixed.
-                Used as given: filter out any whose structure is unavailable before calling.
-            pocket_dir (str): Pocket cache directory.
-            builder_options (dict, optional): pocket_method -> keyword arguments for that method's
-                builder, e.g. `{"pisa": {"pisa_source": "api"}}`. Defaults to None, which passes none.
+        if not method_records:
+            logger.info(f"No {label} pockets to retrieve", extra=method_log_extra)
+            continue
+        logger.info(f"{len(method_records)} {label} pockets to retrieve", extra=method_log_extra)
 
-        Returns:
-            dict: pocket_id -> Pocket. A record whose pocket cannot be built is left out, or for the
-                pisa and vdw methods may map to None.
-        """
-        log_extra = {"stage": "Getting Pockets"}
-        logger.info("Starting pocket retrieval...", extra=log_extra)
-        builder_options = builder_options or {}
+        method_pockets = builder(method_records, pocket_dir, **builder_options.get(pocket_method, {}))
+        os.makedirs(pocket_dir, exist_ok=True)
+        dump_pockets(method_pockets, os.path.join(pocket_dir, f"{pocket_method}_pockets.json"))
+        logger.debug(f"Built {len(method_pockets)} {label} pockets", extra=method_log_extra)
+        pockets |= method_pockets
 
-        pockets = {}
-        for pocket_method, (label, dedup_keys, builder) in POCKET_BUILDERS.items():
-            method_log_extra = {"stage": f"Retrieving {label} Pockets"}
-            logger.info(f"Checking for {label} pockets...", extra=method_log_extra)
-
-            method_records = [record for record in records if record["pocket_method"] == pocket_method]
-            if dedup_keys is not None:
-                seen = set()
-                unique_records = []
-                for record in method_records:
-                    key = tuple(record[k] for k in dedup_keys)
-                    if key not in seen:
-                        seen.add(key)
-                        unique_records.append(record)
-                method_records = unique_records
-
-            if not method_records:
-                logger.info(f"No {label} pockets to retrieve", extra=method_log_extra)
-                continue
-            logger.info(f"{len(method_records)} {label} pockets to retrieve", extra=method_log_extra)
-
-            method_pockets = builder(method_records, pocket_dir, **builder_options.get(pocket_method, {}))
-            os.makedirs(pocket_dir, exist_ok=True)
-            dump_pockets(method_pockets, os.path.join(pocket_dir, f"{pocket_method}_pockets.json"))
-            logger.debug(f"Extracted {label} pockets: {method_pockets}", extra=log_extra)
-            pockets |= method_pockets
-
-        logger.debug(f"Combined pockets: {pockets}", extra=log_extra)
-        return pockets
+    logger.debug(f"Built {len(pockets)} pockets in all", extra=log_extra)
+    return pockets
