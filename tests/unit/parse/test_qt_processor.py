@@ -429,6 +429,17 @@ def test_entries_file(processor, write_file):
     assert "XYZ" in reason
 
 
+def test_entries_file_forced_method(processor, write_file):
+    """A forced method rejects only the lines that cannot use it, and keeps the rest in file order."""
+    path = write_file("entries.txt", "4Q5J:B_F\n4Q5J:A\n4Q5J:A_E\n")
+    records, rejected = processor.process_qt_cmdline_input(path, "query", pocket_method="pisa")
+    assert [(r["pocket_id"], r["pocket_method"]) for r in records] == [("4Q5J:B_F", "pisa"), ("4Q5J:A_E", "pisa")]
+    assert len(rejected) == 1
+    entry, reason = rejected[0]
+    assert entry == "4Q5J:A"
+    assert processor.pocket_methods["pisa"][1] in reason
+
+
 def test_foldseek_db_file_not_read(processor, write_file, work_dir):
     """Under foldseek_db, an existing file is a DB, not an entries file."""
     write_file("mydb", "4Q5J:A\n4Q5J:B\n")
