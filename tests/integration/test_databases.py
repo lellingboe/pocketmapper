@@ -50,7 +50,6 @@ def run_chain(run_cli, parse_args, cache_dir, results_dir):
 
 
 @pytest.mark.foldseek
-@pytest.mark.slow
 @pytest.mark.parametrize("args, cache", DOMAINS_CASES)
 def test_domains(args, cache, request, tmp_path, run_cli, comparison_rows):
     """A search against human_domains exits 0 and writes at least one comparison row."""
@@ -62,7 +61,6 @@ def test_domains(args, cache, request, tmp_path, run_cli, comparison_rows):
 
 
 @pytest.mark.foldseek
-@pytest.mark.slow
 def test_steps_8(tmp_path, seed_cache, run_cli, same_outputs):
     """Chained steps against human_domains, run from the results dir after parse, give what search gives."""
     search_dir = os.path.join(str(tmp_path), "results", "search")
