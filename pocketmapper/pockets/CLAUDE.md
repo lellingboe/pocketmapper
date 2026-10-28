@@ -78,7 +78,10 @@ sent, and nothing is written, `errors.json` included. `pisa_pockets_from_records
 file for those records and leaves them out, so the step marks them `pocket_not_built`. Accepted
 limitation: an entry with cached summaries and assemblies but no `interface_pairs/<code>.json` (an
 interrupted run, or every interface skipped, as above) is not reparsed offline, although that would cost
-no request. The download stages called directly ignore the flag.
+no request. The download stages called directly ignore the flag. `expand_fsdb_pdb_targets(download=False)`
+(the pockets step's `offline`, through `build_pockets`) reads the same cache: a hit entry not in it gives
+no records, so its `chains` key is `[]`, and a hit structure not cached is a `structure_not_found` failure,
+as a failed download is.
 
 **The cache lives under `pocket_dir/pisa/`; an existing `pocket_dir/pisa_responses/` is dead** and can
 be deleted. Nothing migrates it, so the first run after the move refetches every entry from PISA. Its

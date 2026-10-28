@@ -75,13 +75,16 @@ itself only once that leaves it empty, so no root guard is needed and a step nee
 
 **`offline`, `fetch_missing` and `refresh_structures`.** `offline` 1 stops every download in each step
 that takes it: structures, PISA interfaces and Foldseek databases. It wins over `fetch_missing`, so a
-step downloads a missing entry only with `fetch_missing and not offline`. An uncached structure is
-marked `structure_not_found`, as a failed download is; an uncached Foldseek database is an error
-(`fetch.fetch.fetch_missing_fsdb(download=False)`). `refresh_structures` 1 re-downloads only PDB and
-AlphaFold structures, and only in the fetch step (`StructureManager(refresh=True)`); PISA interfaces and
-Foldseek databases are never refreshed. Both 1 is an error, checked before anything is fetched or dumped
-by one helper, `lib.settings.check_offline_refresh`, from `resolve_settings` (`# 4h.`) and
-`fetch_structures`; `StructureManager.__init__` rejects the same pair for a library caller.
+step downloads a missing entry only with `fetch_missing and not offline` (align, pockets and superpose
+skip the fetch call; fetch_structures builds `StructureManager(download=False)`). An uncached structure
+is marked `structure_not_found`, as a failed download is; an uncached Foldseek database is an error
+(fetch_structures: `fetch.fetch.fetch_missing_fsdb(download=False)`; align: no usable target). pockets
+passes `download=not offline` to `build_pockets`, for PISA and the Foldseek hits' structures.
+`refresh_structures` 1 re-downloads only PDB and AlphaFold structures, and only in the fetch step
+(`StructureManager(refresh=True)`); PISA interfaces and Foldseek databases are never refreshed. Both 1 is
+an error, checked before anything is fetched or dumped by one helper, `lib.settings.check_offline_refresh`,
+from `resolve_settings` (`# 4h.`) and `fetch_structures`; `StructureManager.__init__` rejects the same
+pair for a library caller.
 
 `search --help` is generated from `help=` strings; `CLI_SEARCH_EPILOG` holds only examples. Resolution
 order, the `aligner` check and tri-state `align_struct_method`: `Settings` docstring and `# 4b.`/`# 4c.` in

@@ -309,7 +309,7 @@ OPTIONS = {
             default=None,
             metavar="INT",
             help="1 downloads an entry structure missing from the cache; 0 skips the entry, as fetch_structures "
-            f"has not fetched it. (default: {DEFAULT_FETCH_MISSING})",
+            f"has not fetched it. --offline 1 overrides it. (default: {DEFAULT_FETCH_MISSING})",
         ),
     ),
     "offline": (
@@ -408,6 +408,7 @@ COMMANDS = {
             ("cache options", ["foldseek_preprocessed_structure_dir"]),
             ("out options", ["alignment_path", "log_path"]),
             ("temp options", ["temp_dir", "delete_tmp"]),
+            ("advanced options", ["offline"]),
         ],
     ),
     "pockets": (
@@ -417,7 +418,7 @@ COMMANDS = {
             ("in options", ["entries", "alignment"]),
             ("cache options", ["pdb_dir", "alphafold_dir", "pocket_dir", "fsdb_dir"]),
             ("out options", ["pockets_path", "pockets_tsv_path", "log_path"]),
-            ("advanced options", ["pisa_source", "pisa_bsa_threshold"]),
+            ("advanced options", ["pisa_source", "pisa_bsa_threshold", "offline"]),
         ],
     ),
     "compare": (
@@ -435,6 +436,7 @@ COMMANDS = {
             ("in options", ["entries", "pocket_comparison", "alignment", "pockets"]),
             ("aligned structure options", ["align_count", "align_struct_method"]),
             ("out options", ["aligned_structure_dir", "log_path"]),
+            ("advanced options", ["offline"]),
         ],
     ),
     "search": (

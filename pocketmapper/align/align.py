@@ -32,6 +32,7 @@ from pocketmapper.lib.settings import (
     resolve_aligner,
     resolve_delete_tmp,
     resolve_fetch_missing,
+    resolve_offline,
     resolve_step_paths,
     resolve_threads,
 )
@@ -52,6 +53,7 @@ def align(
     fetch_missing=None,
     temp_dir=None,
     delete_tmp=None,
+    offline=None,
 ):
     """
     Align the query chains against the target chains into an alignment table.
@@ -77,6 +79,9 @@ def align(
         temp_dir (str, optional): Defaults to the job file's.
         delete_tmp (int, optional): 1 deletes `temp_dir` at the end; 0 keeps it. Defaults to
             DEFAULT_DELETE_TMP.
+        offline (int, optional): 1 downloads nothing, whatever `fetch_missing` says, so an uncached
+            structure or Foldseek database is skipped as with `fetch_missing` 0. Defaults to
+            DEFAULT_OFFLINE.
 
     Returns:
         None
@@ -100,6 +105,7 @@ def align(
             "fetch_missing": fetch_missing,
             "temp_dir": temp_dir,
             "delete_tmp": delete_tmp,
+            "offline": offline,
         },
     )
     values = resolve_step_paths(
@@ -120,10 +126,11 @@ def align(
         threads = resolve_threads(values["threads"])
         delete_tmp = resolve_delete_tmp(values["delete_tmp"])
         fetch_missing = resolve_fetch_missing(values["fetch_missing"])
+        offline = resolve_offline(values["offline"])
 
         with temp_dir_scope(values["temp_dir"], delete_tmp):
             database = fsdb_record(sides["target"])
-            if fetch_missing:
+            if fetch_missing and not offline:
                 fetch_missing_entries(sides, StructureManager())
                 if database is not None:
                     fetch_missing_fsdb(database, threads, os.path.join(values["temp_dir"], TEMP_SUBDIRS["foldseek"]))

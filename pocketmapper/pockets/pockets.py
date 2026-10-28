@@ -32,6 +32,7 @@ from pocketmapper.lib.scopes import run_scope
 from pocketmapper.lib.settings import (
     layer_settings,
     resolve_fetch_missing,
+    resolve_offline,
     resolve_pisa_bsa_threshold,
     resolve_pisa_source,
     resolve_step_paths,
@@ -59,13 +60,14 @@ def pockets(
     pisa_source=None,
     pisa_bsa_threshold=None,
     fetch_missing=None,
+    offline=None,
 ):
     """
     Build the pocket of every query and target entry into one pockets file.
 
     Overwrites `pockets_path`, and marks the entries whose structure is missing or whose pocket could
-    not be built in the entries table. Downloads any PISA data not already cached and, against a
-    PDB-named Foldseek database target, the structures of its hits.
+    not be built in the entries table. Unless `offline` is 1, downloads any PISA data not already cached
+    and, against a PDB-named Foldseek database target, the structures of its hits.
 
     Args:
         job_file (str or dict, optional): JSON job file of job key -> value, or the same already
@@ -89,6 +91,9 @@ def pockets(
             and below 100. Defaults to the job file's, else None, which builds them from interface bonds.
         fetch_missing (int, optional): 1 downloads an entry structure missing from the cache, 0 skips
             the entry as `structure_not_found`. Defaults to DEFAULT_FETCH_MISSING.
+        offline (int, optional): 1 downloads nothing, whatever `fetch_missing` says: an uncached
+            structure is skipped as with `fetch_missing` 0, and a pisa pocket whose PISA data is not
+            cached is not built. Defaults to DEFAULT_OFFLINE.
 
     Returns:
         None
@@ -114,6 +119,7 @@ def pockets(
             "pisa_source": pisa_source,
             "pisa_bsa_threshold": pisa_bsa_threshold,
             "fetch_missing": fetch_missing,
+            "offline": offline,
         },
     )
     values = resolve_step_paths(
@@ -125,8 +131,9 @@ def pockets(
         pisa_source = resolve_pisa_source(values["pisa_source"])
         pisa_bsa_threshold = resolve_pisa_bsa_threshold(values["pisa_bsa_threshold"])
         fetch_missing = resolve_fetch_missing(values["fetch_missing"])
+        offline = resolve_offline(values["offline"])
         sides = open_entries(values["entries_path"], "pockets")
-        if fetch_missing:
+        if fetch_missing and not offline:
             fetch_missing_entries(sides, StructureManager())
         build_pockets(
             sides,
@@ -137,6 +144,7 @@ def pockets(
             pisa_source,
             values["pockets_tsv_path"],
             pisa_bsa_threshold=pisa_bsa_threshold,
+            download=not offline,
         )
 
 
@@ -149,6 +157,7 @@ def build_pockets(
     pisa_source,
     pockets_tsv_path=None,
     pisa_bsa_threshold=None,
+    download=True,
 ):
     """
     Build a Pocket for every record of every side, and write them to `pockets_path`.
@@ -158,8 +167,8 @@ def build_pockets(
     PDB-named Foldseek database, also builds a pisa pocket per PISA interface of each hit (see
     `expand_fsdb_pdb_targets`); a hit is no entry, so one that fails is only logged. The pockets file
     lists every record and hit pocket, `null` where it was not built, and maps each `preprocess_name`
-    and hit name to its pocket_ids. Downloads any PISA data not already cached under `pocket_dir/pisa/`,
-    and overwrites the per-method pocket files under `pocket_dir`.
+    and hit name to its pocket_ids. Downloads any PISA data not already cached under `pocket_dir/pisa/`
+    unless `download` is False, and overwrites the per-method pocket files under `pocket_dir`.
 
     Args:
         sides (dict): "query" and "target" -> that side's QTRecord dicts. Built in order, then the hits,
@@ -174,6 +183,8 @@ def build_pockets(
         pisa_bsa_threshold (float, optional): Percent of a residue's accessible surface the partner
             chain must bury, beyond which it joins a pisa pocket; applies to every pisa pocket, the
             Foldseek hits' included. Defaults to None, which builds pisa pockets from interface bonds.
+        download (bool, optional): False downloads nothing: neither PISA data nor the structures of a
+            PDB-named database's hits, so only what is cached is used. Defaults to True.
 
     Returns:
         None
@@ -201,7 +212,7 @@ def build_pockets(
         require_file(alignment, "alignment")
         hit_names = pd.read_csv(alignment, sep="\t", usecols=["target"], dtype=str)["target"].unique().tolist()
         if fsdb_pocket_mode(hit_names) == "pisa":
-            hits, hit_chains, failures = expand_fsdb_pdb_targets(hit_names, cache_dirs, pisa_source)
+            hits, hit_chains, failures = expand_fsdb_pdb_targets(hit_names, cache_dirs, pisa_source, download=download)
             report_failures(None, "pockets", failures, log_extra, "Missing structures for foldseek hit(s)")
             buildable += [(None, record) for record in hits]
             chains |= hit_chains
@@ -209,7 +220,9 @@ def build_pockets(
     built = fetch_pockets(
         [record for _, record in buildable],
         cache_dirs["pocket_dir"],
-        builder_options={"pisa": {"pisa_source": pisa_source, "bsa_threshold": pisa_bsa_threshold}},
+        builder_options={
+            "pisa": {"pisa_source": pisa_source, "bsa_threshold": pisa_bsa_threshold, "download": download}
+        },
     )
 
     # Looked up by pocket_id in the merged pockets, where a later method's pocket replaces an earlier
@@ -269,17 +282,19 @@ def write_pockets_table(records, pockets, path):
     logger.info(f"Pockets listed in {path}", extra=log_extra)
 
 
-def expand_fsdb_pdb_targets(hit_names, cache_dirs, pisa_source):
+def expand_fsdb_pdb_targets(hit_names, cache_dirs, pisa_source, download=True):
     """
     Turn the hits of a PDB Foldseek-database search into pisa records, one per PISA interface.
 
-    Downloads the PISA data and the structures those records need. Each record's `preprocess_name` is
-    the hit name rather than the one `QTProcessor` derives.
+    Downloads the PISA data and the structures those records need, unless `download` is False. Each
+    record's `preprocess_name` is the hit name rather than the one `QTProcessor` derives.
 
     Args:
         hit_names (list): The database entry names the search hit.
         cache_dirs (dict): Holds "pdb_dir", "alphafold_dir", "fsdb_dir" and "pocket_dir".
         pisa_source (str): Where PISA interfaces are fetched from: "ftp" or "api".
+        download (bool, optional): False downloads nothing: a hit entry whose PISA data is not cached
+            gives no records, and a record whose structure is not cached is a failure. Defaults to True.
 
     Returns:
         tuple: (records, chains, failures). `records` holds those whose structure is available.
@@ -305,7 +320,7 @@ def expand_fsdb_pdb_targets(hit_names, cache_dirs, pisa_source):
         f"Retrieving PISA interfaces for {len(pdb_list)} PDB entries behind {len(hits)} Foldseek hits",
         extra=log_extra,
     )
-    interface_dir = download_pisa_interfaces(pdb_list, cache_dirs["pocket_dir"], pisa_source)
+    interface_dir = download_pisa_interfaces(pdb_list, cache_dirs["pocket_dir"], pisa_source, download=download)
 
     # Each entry's interfaces are read once, however many hits share it
     hit_chains = {}  # pdb_id -> the chain ids hit on it, as dict keys in hit order
@@ -356,7 +371,7 @@ def expand_fsdb_pdb_targets(hit_names, cache_dirs, pisa_source):
         return [], chains, []
 
     # Fetched last, so only entries with an interface are downloaded. Failed fetches are dropped.
-    found = fetch_missing_structures("foldseek hit", records, StructureManager())
+    found = fetch_missing_structures("foldseek hit", records, StructureManager(download=download))
     if not any(found.values()):
         logger.critical("Insufficient foldseek hit structures after fetching", extra=log_extra)
         raise PocketMapperError(

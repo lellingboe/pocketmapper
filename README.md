@@ -188,6 +188,9 @@ pocketmapper superpose --job_file ./out/parse_settings.json
   `superpose` skip an entry whose structure is not in the cache and mark it `structure_not_found`.
   With `--fetch_missing 1` they download it instead (and `align` a missing bundled database). `pockets`
   downloads PISA interfaces and, against the `pdb` database, its hits' structures, which only it needs.
+- **With `--offline 1` no step downloads anything**, whatever `--fetch_missing` says. A structure that is
+  not cached is skipped and marked `structure_not_found`, and a PISA pocket whose interfaces are not
+  cached is marked `pocket_not_built`, as after a failed download.
 - **`compare` stops if `alignment.tsv` names a chain `pockets.json` does not list**, rather than
   silently returning no rows for it — say `pockets` ran on a different entries table than `align`.
   An entry `pockets` listed but could not build is skipped.
@@ -208,10 +211,10 @@ what they do for `search`.
 | --- | --- |
 | `parse` | `QUERY`, `TARGET` (or from the job file), `--query_pocket_method`, `--target_pocket_method`, `--work_dir`, the [cache options](#cache-options), `--results_dir`, `--entries_path`, `--job_settings_path` |
 | `fetch_structures` | `--threads`, the [temp options](#temp-options), `--offline`, `--refresh_structures` |
-| `align` | `--aligner`, `--threads`, `--fetch_missing`, `--foldseek_preprocessed_structure_dir`, `--alignment_path`, the [temp options](#temp-options) |
-| `pockets` | `--alignment`, `--pdb_dir`, `--alphafold_dir`, `--pocket_dir`, `--fsdb_dir`, `--pockets_path`, `--pockets_tsv_path` (a table of `pocket_id`, `chain`, `res_auth_ids`, `method`), `--pisa_source`, `--pisa_bsa_threshold`, `--fetch_missing` |
+| `align` | `--aligner`, `--threads`, `--fetch_missing`, `--foldseek_preprocessed_structure_dir`, `--alignment_path`, the [temp options](#temp-options), `--offline` |
+| `pockets` | `--alignment`, `--pdb_dir`, `--alphafold_dir`, `--pocket_dir`, `--fsdb_dir`, `--pockets_path`, `--pockets_tsv_path` (a table of `pocket_id`, `chain`, `res_auth_ids`, `method`), `--pisa_source`, `--pisa_bsa_threshold`, `--fetch_missing`, `--offline` |
 | `compare` | `--alignment`, `--pockets`, `--pocket_comparison_path` |
-| `superpose` | `--pocket_comparison`, `--alignment`, `--pockets`, the [aligned structure options](#aligned-structure-options), `--aligned_structure_dir`, `--threads`, `--fetch_missing` |
+| `superpose` | `--pocket_comparison`, `--alignment`, `--pockets`, the [aligned structure options](#aligned-structure-options), `--aligned_structure_dir`, `--threads`, `--fetch_missing`, `--offline` |
 
 Only `parse` and `search` write their settings, as a job file for the steps after them. See
 [Advanced options](#advanced-options).

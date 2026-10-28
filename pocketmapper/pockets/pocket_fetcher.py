@@ -159,11 +159,11 @@ def fetch_pockets(records, pocket_dir, builder_options=None):
     """
     Build a Pocket for each record, by the builder of its `pocket_method`.
 
-    Downloads any PISA data not already cached under `pocket_dir`, and overwrites
-    `pocket_dir/<method>_pockets.json` for every method present, creating `pocket_dir` if needed. PISA
-    records sharing a structure and chain are built once, under the first one's pocket_id. Methods are
-    merged in `POCKET_BUILDERS` order, so a later method's pocket replaces an earlier one's of the same
-    pocket_id.
+    Downloads any PISA data not already cached under `pocket_dir`, unless the pisa option `download` is
+    False, and overwrites `pocket_dir/<method>_pockets.json` for every method present, creating
+    `pocket_dir` if needed. PISA records sharing a structure and chain are built once, under the first
+    one's pocket_id. Methods are merged in `POCKET_BUILDERS` order, so a later method's pocket replaces
+    an earlier one's of the same pocket_id.
 
     Args:
         records (list): QTRecord dicts; reads `pocket_id`, `pocket_method`, `struct_info`,

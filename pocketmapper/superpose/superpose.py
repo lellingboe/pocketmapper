@@ -17,6 +17,7 @@ from pocketmapper.lib.settings import (
     require_foldseek,
     resolve_align_struct_method,
     resolve_fetch_missing,
+    resolve_offline,
     resolve_step_paths,
     resolve_threads,
 )
@@ -40,6 +41,7 @@ def superpose(
     align_count=None,
     threads=None,
     fetch_missing=None,
+    offline=None,
 ):
     """
     Superpose the top targets of each query onto it, one PDB per query.
@@ -67,6 +69,8 @@ def superpose(
         threads (int, optional): Defaults to one per available core.
         fetch_missing (int, optional): 1 downloads an entry structure missing from the cache, 0 skips
             the entry as `structure_not_found`. Defaults to DEFAULT_FETCH_MISSING.
+        offline (int, optional): 1 downloads nothing, whatever `fetch_missing` says, so an uncached
+            structure is skipped as with `fetch_missing` 0. Defaults to DEFAULT_OFFLINE.
 
     Returns:
         None
@@ -92,6 +96,7 @@ def superpose(
             "align_count": align_count,
             "threads": threads,
             "fetch_missing": fetch_missing,
+            "offline": offline,
         },
     )
     values = resolve_step_paths(
@@ -110,8 +115,9 @@ def superpose(
         aligner = "seq" if transforms.iloc[0] == "-" else "foldseek"
         align_struct_method = resolve_align_struct_method(values["align_struct_method"], aligner)
         fetch_missing = resolve_fetch_missing(values["fetch_missing"])
+        offline = resolve_offline(values["offline"])
         sides = open_entries(values["entries_path"], "superpose")
-        if fetch_missing:
+        if fetch_missing and not offline:
             fetch_missing_entries(sides, StructureManager())
         if fsdb_record(sides["target"]) is not None:
             check_fsdb_align_struct_method(align_struct_method)

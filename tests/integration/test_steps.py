@@ -167,6 +167,59 @@ def test_steps_24(tmp_path, seed_cache, run_cli):
     assert bsa != bonds
 
 
+# Step under test, the steps run before it (online), and its own arguments besides --offline 1
+OFFLINE_STEPS = [
+    pytest.param("fetch_structures", [], [], id="fetch_structures"),
+    pytest.param("align", [], ["--aligner", "seq", "--fetch_missing", "1"], id="align"),
+    pytest.param("pockets", [], ["--fetch_missing", "1"], id="pockets"),
+    pytest.param(
+        "superpose",
+        [["align", "--aligner", "seq"], ["pockets"], ["compare"]],
+        ["--fetch_missing", "1"],
+        id="superpose",
+    ),
+]
+
+
+@pytest.mark.parametrize("step, before, step_args", OFFLINE_STEPS)
+def test_offline_step(step, before, step_args, tmp_path, seed_cache, run_cli, failed):
+    """With --offline 1 a step downloads nothing, even with --fetch_missing 1, and marks the uncached entry."""
+    results_dir = os.path.join(str(tmp_path), "results")
+    job_file = results_file(results_dir, "parse_settings.json")
+    entries_path = results_file(results_dir, "entries.tsv")
+    uncached = "P24941:A:160"
+    query_path = os.path.join(str(tmp_path), "query.txt")
+    with open(query_path, "w") as f:
+        f.write(f"4Q5J:B_F\n{uncached}\n")
+
+    assert run_cli(*parse_args(query_path, "4Q5J:A_E", results_dir=results_dir, cache_dir=seed_cache)) == 0
+    for argv in before:
+        assert run_cli(*argv, "--job_file", job_file) == 0, argv[0]
+
+    # Uncached from here on; 4Q5J stays. The no_network guard fails the test on any download attempt.
+    os.remove(os.path.join(seed_cache, "alphafold_structures", "P24941.cif.gz"))
+    assert run_cli(step, *step_args, "--offline", "1", "--job_file", job_file) == 0
+
+    marked = [(row["pocket_id"], row["failed_step"]) for row in read_entries(entries_path) if row["failed_reason"]]
+    assert marked == [(uncached, step)]
+    assert failed(entries_path, "structure_not_found", uncached)
+
+
+@pytest.mark.parametrize("command", ["search", "fetch_structures"])
+def test_offline_refresh(command, tmp_path, seed_cache, run_cli):
+    """--offline 1 with --refresh_structures 1 exits 1, before search dumps its settings."""
+    results_dir = os.path.join(str(tmp_path), "results")
+    flags = ("--offline", "1", "--refresh_structures", "1")
+    if command == "search":
+        argv = ("search", "4Q5J:B_F", "4Q5J:A_E", "--aligner", "seq", "--results_dir", results_dir)
+        assert run_cli(*argv, "--cache_dir", seed_cache, *flags) == 1
+        assert not os.path.exists(results_file(results_dir, "job_settings.json"))
+    else:
+        assert run_cli(*parse_args("4Q5J:B_F", "4Q5J:A_E", results_dir=results_dir, cache_dir=seed_cache)) == 0
+        job_file = results_file(results_dir, "parse_settings.json")
+        assert run_cli("fetch_structures", "--job_file", job_file, *flags) == 1
+
+
 @pytest.mark.network
 def test_steps_18(tmp_path, seed_cache, run_cli):
     """fetch_structures downloads a PDB and an AlphaFold structure into the cache paths parse moved."""

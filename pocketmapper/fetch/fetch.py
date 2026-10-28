@@ -44,9 +44,10 @@ def fetch_structures(
     """
     Download the structures and Foldseek databases the entries table names.
 
-    A local file is checked, not fetched, and so is everything with `offline` 1. Marks the entries whose structure cannot be fetched
-    (`structure_not_found`) in the entries table. Empties the scratch subdirectories of `temp_dir` on the
-    way in and, unless `delete_tmp` is 0, deletes them on the way out, unless an enclosing call holds it.
+    A local file is checked, not fetched, and so is everything with `offline` 1. Marks the entries whose
+    structure cannot be fetched (`structure_not_found`) in the entries table. Empties the scratch
+    subdirectories of `temp_dir` on the way in and, unless `delete_tmp` is 0, deletes them on the way out,
+    unless an enclosing call holds it.
 
     Args:
         job_file (str or dict, optional): JSON job file of job key -> value, or the same already
