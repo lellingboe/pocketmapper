@@ -152,7 +152,7 @@ def test_parse_entries_no_valid_side(cache_dirs, work_dir, query, target, match)
     ],
 )
 def test_parse_entries_fsdb_target_not_alone(cache_dirs, work_dir, target, target_pocket_method):
-    """A Foldseek-database target beside any other target entry raises."""
+    """A Foldseek-database target beside any other kept target entry raises."""
     with pytest.raises(PocketMapperError, match="must be the only target entry, but 2 target entries"):
         parse_entries("4Q5J:A_E", target, "auto", target_pocket_method, cache_dirs, work_dir)
 
@@ -162,10 +162,15 @@ def test_parse_entries_fsdb_target_not_alone(cache_dirs, work_dir, target, targe
     [
         ("human_domains", "auto", None),
         ("user_db", "foldseek_db", "user_db"),
+        (["human_domains", "XYZ"], "auto", None),
     ],
 )
 def test_parse_entries_fsdb_target_alone(cache_dirs, work_dir, target, target_pocket_method, struct_path):
-    """A Foldseek-database target on its own passes, a user database's path resolved against `work_dir`."""
+    """
+    A Foldseek-database target on its own passes, a user database's path resolved against `work_dir`.
+
+    A dropped entry beside it does not count.
+    """
     sides, _ = parse_entries("4Q5J:A_E", target, "auto", target_pocket_method, cache_dirs, work_dir)
     (record,) = sides["target"]
     assert record["struct_type"] == "foldseek_db"
@@ -256,6 +261,19 @@ def test_parse_job_file_dict(run_parse):
     """A job file given as a dict supplies the query and target."""
     table = run_parse(job_file={"query": "4Q5J:A_E", "target": "4Q5J:B_F"})
     assert list(zip(table["side"], table["pocket_id"])) == [("query", "4Q5J:A_E"), ("target", "4Q5J:B_F")]
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [
+        ({"query_pocket_method": "vdw"}, [("query", "vdw"), ("target", "pisa")]),
+        ({"target_pocket_method": "vdw"}, [("query", "pisa"), ("target", "vdw")]),
+    ],
+)
+def test_parse_pocket_methods(run_parse, kwargs, expected):
+    """Each side's forced pocket method reaches only that side's entries."""
+    table = run_parse(query="4Q5J:A_B", target="4Q5J:A_B", **kwargs)
+    assert list(zip(table["side"], table["pocket_method"])) == expected
 
 
 def test_parse_nested_in_search(run_parse, work_dir):

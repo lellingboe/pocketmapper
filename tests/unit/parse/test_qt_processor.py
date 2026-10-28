@@ -22,6 +22,7 @@ INFERENCE_TABLE = [
     ("", {"pdb": "whole_chain", "alphafold": "whole_chain", "local_file": "whole_chain"}),
     (":", {"pdb": "whole_chain", "alphafold": "whole_chain", "local_file": "whole_chain"}),
     (":A", {"pdb": "whole_chain", "alphafold": "whole_chain", "local_file": "whole_chain"}),
+    (":A:", {"pdb": "whole_chain", "alphafold": "whole_chain", "local_file": "whole_chain"}),
     (":A_B", {"pdb": "pisa", "alphafold": None, "local_file": "vdw"}),
     (":A:10,11", {"pdb": "passthrough", "alphafold": "passthrough", "local_file": "passthrough"}),
     (":A_B:10,11", {"pdb": "vdw", "alphafold": None, "local_file": "vdw"}),
@@ -52,6 +53,7 @@ def test_work_dir_defaults_to_cwd(tmp_path, monkeypatch):
     assert processor.work_dir == os.getcwd()
     assert os.path.samefile(processor.work_dir, str(tmp_path))
     assert processor.pdb_dir == os.path.join(os.getcwd(), "pdb")
+    assert processor.alphafold_dir == os.path.join(os.getcwd(), "af")
 
 
 def test_relative_cache_dirs_resolve_against_work_dir(processor, work_dir):
@@ -351,10 +353,10 @@ def test_forced_method_mismatch(processor):
 
 
 def test_forced_method_match(processor):
-    """A forced method the entry supplies gives a record with that method."""
-    record, reason = processor.parse_individual_qt("4Q5J:A", "whole_chain")
+    """A forced method the entry supplies gives a record with that method, not the one inference picks (pisa)."""
+    record, reason = processor.parse_individual_qt("4Q5J:A_B", "vdw")
     assert reason is None
-    assert record.pocket_method == "whole_chain"
+    assert record.pocket_method == "vdw"
 
 
 @pytest.mark.parametrize(

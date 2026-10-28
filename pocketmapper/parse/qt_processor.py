@@ -101,9 +101,9 @@ class QTProcessor:
         }
 
         # struct_type -> the pocket methods it supports, in the order they are tried. whole_chain is
-        # first everywhere: a bare chain also matches the passthrough and vdw patterns, so it has to
-        # win or an open entry would be read as an empty pocket. PISA is PDB-only, and an AlphaFold
-        # model is a single chain, so neither reaches a method that needs a partner chain.
+        # first everywhere, so an open entry stays open should another pattern ever also match it. PISA
+        # is PDB-only, and an AlphaFold model is a single chain, so neither reaches a method that needs
+        # a partner chain.
         self.struct_type_pocket_methods = {
             "alphafold": ("whole_chain", "passthrough"),
             "pdb": ("whole_chain", "pisa", "passthrough", "vdw"),
