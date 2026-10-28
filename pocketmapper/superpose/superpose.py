@@ -6,7 +6,7 @@ import logging
 
 import pandas as pd
 
-from pocketmapper.fetch.step import fetch_missing_entries
+from pocketmapper.fetch.fetch import fetch_missing_entries
 from pocketmapper.lib.entries import fsdb_record, open_entries, require_file, split_missing_structures
 from pocketmapper.lib.foldseek import fsdb_pocket_mode
 from pocketmapper.lib.logs import log_to_file

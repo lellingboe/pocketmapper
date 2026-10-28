@@ -10,7 +10,7 @@ import os
 
 from pocketmapper.align.sequence_aligner import SequenceAligner
 from pocketmapper.align.structure_preprocessor import StructurePreprocessor
-from pocketmapper.fetch.step import fetch_missing_entries, fetch_missing_fsdb
+from pocketmapper.fetch.fetch import fetch_missing_entries, fetch_missing_fsdb
 from pocketmapper.lib.constants import FOLDSEEK_FORMAT_OUTPUT, TEMP_SUBDIRS
 from pocketmapper.lib.entries import (
     failure,

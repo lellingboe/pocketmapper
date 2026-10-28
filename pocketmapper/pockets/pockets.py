@@ -13,7 +13,7 @@ from dataclasses import asdict
 
 import pandas as pd
 
-from pocketmapper.fetch.step import fetch_missing_entries, fetch_missing_structures
+from pocketmapper.fetch.fetch import fetch_missing_entries, fetch_missing_structures
 from pocketmapper.lib.entries import (
     failure,
     fsdb_record,

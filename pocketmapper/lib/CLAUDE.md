@@ -19,7 +19,7 @@ same delay and then fire together. The rule sits beside the pacer, so no caller 
 
 Four consequences no single file states:
 
-- **The download pools ignore `--threads`, on purpose.** `fetch.step.fetch_missing_structures` calls
+- **The download pools ignore `--threads`, on purpose.** `fetch.fetch.fetch_missing_structures` calls
   `download_structures`, and `pockets.pisa.download_pisa_interfaces` builds `PisaDownloader`, each with
   the default width, `DOWNLOAD_WORKERS` (8), so `--threads` governs Foldseek alone. A worker here waits
   on a socket rather than on a core, so a thread count says nothing useful about how wide a pool should

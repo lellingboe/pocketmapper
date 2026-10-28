@@ -4,18 +4,18 @@ PocketMapper: map and compare binding pockets across protein structures.
 `PocketMapper.search()` is the whole workflow. It resolves its settings, then runs the steps in order:
 
 1. `configure_workflow` -> arguments over job file; `resolve_settings` -> Settings, job_settings.json.
-2. `parse.step` -> every entry checked before anything is fetched; entries.tsv written afresh.
-3. `fetch.step` -> structures and a bundled Foldseek database into the cache.
-4. `align.step` -> foldseek or the local sequence aligner, per `aligner` -> alignment.tsv.
-5. `pockets.step` -> PISA interfaces into the cache, then pockets.json. Against a PDB Foldseek
+2. `parse.parse` -> every entry checked before anything is fetched; entries.tsv written afresh.
+3. `fetch.fetch` -> structures and a bundled Foldseek database into the cache.
+4. `align.align` -> foldseek or the local sequence aligner, per `aligner` -> alignment.tsv.
+5. `pockets.pockets` -> PISA interfaces into the cache, then pockets.json. Against a PDB Foldseek
    database, also a pisa pocket per interface of each hit. The Pocket shape itself is declared in
    `pockets/pocket.py`.
-6. `compare.step` -> pocket_comparison.tsv.
-7. `superpose.step` -> the top align_count targets per query, superposed into aligned_structures/.
+6. `compare.compare` -> pocket_comparison.tsv.
+7. `superpose.superpose` -> the top align_count targets per query, superposed into aligned_structures/.
 
 Each step skips what it cannot use and marks it, with the reason, in entries.tsv.
 
-Steps: each step is a package, and `pocketmapper.<step>.step` holds its two layers. The entry function,
+Steps: each step is a package, and `pocketmapper.<step>.<step>` holds its two layers. The entry function,
 named after the step's command (`parse`, `fetch_structures`, `align`, `pockets`, `compare`, `superpose`),
 is what the CLI and `search` call: it layers its settings, logs to `log_path` for the length of the call,
 validates its settings, manages its scratch directory and calls the core function. `search` calls it
@@ -44,9 +44,9 @@ import json
 import logging
 from dataclasses import asdict, fields
 
-from pocketmapper.align.step import align
-from pocketmapper.compare.step import compare
-from pocketmapper.fetch.step import fetch_structures
+from pocketmapper.align.align import align
+from pocketmapper.compare.compare import compare
+from pocketmapper.fetch.fetch import fetch_structures
 from pocketmapper.lib.entries import entry_sides, fsdb_record, read_entries
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope, temp_dir_scope
@@ -66,9 +66,9 @@ from pocketmapper.lib.settings import (
     resolve_pisa_source,
     resolve_threads,
 )
-from pocketmapper.parse.step import parse
-from pocketmapper.pockets.step import pockets
-from pocketmapper.superpose.step import superpose
+from pocketmapper.parse.parse import parse
+from pocketmapper.pockets.pockets import pockets
+from pocketmapper.superpose.superpose import superpose
 
 logger = logging.getLogger(__name__)
 

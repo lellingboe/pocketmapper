@@ -1,6 +1,6 @@
 """
 Command-line front end: argparse over `PocketMapper.search` and the step entry functions in
-`pocketmapper.<step>.step`.
+`pocketmapper.<step>.<step>`.
 
 This is the only module that knows about `sys.argv`, terminals or exit codes. Everything here exists
 to turn a command line into one function's keyword arguments and nothing more: each subcommand's
@@ -27,9 +27,9 @@ import logging
 import sys
 
 from pocketmapper import __version__
-from pocketmapper.align.step import align
-from pocketmapper.compare.step import compare
-from pocketmapper.fetch.step import fetch_structures
+from pocketmapper.align.align import align
+from pocketmapper.compare.compare import compare
+from pocketmapper.fetch.fetch import fetch_structures
 from pocketmapper.lib.constants import (
     CLI_COMMAND_EPILOGS,
     DEFAULT_ALIGN_COUNT,
@@ -45,10 +45,10 @@ from pocketmapper.lib.constants import (
 )
 from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.logs import format_handler
-from pocketmapper.parse.step import parse
-from pocketmapper.pockets.step import pockets
+from pocketmapper.parse.parse import parse
+from pocketmapper.pockets.pockets import pockets
 from pocketmapper.search import PocketMapper
-from pocketmapper.superpose.step import superpose
+from pocketmapper.superpose.superpose import superpose
 
 
 def input_file(flag, name, key):

@@ -6,7 +6,7 @@ package imports `pocketmapper.search`, which imports every other module but `cli
 `pocketmapper.lib.constants` resolve as attributes only as a side effect of that chain. Always import
 anything else explicitly from the module that defines it: `from pocketmapper.<module> import <name>`, or
 `from pocketmapper.<package>.<module> import <name>` for a module in a subpackage
-(`from pocketmapper.align.step import align`).
+(`from pocketmapper.align.align import align`).
 """
 
 import logging

@@ -13,7 +13,7 @@ Facts about `pockets/`, moved out of `context/project-overview.md` so they load 
   `pocket_exists=False`. Each builder reads every structure once per call (`records_by_structure`).
 - Records are dicts, not DataFrames. The fetcher passes every record it is given to its method's
   builder, so a caller filters out records whose structure is unavailable first.
-- **`expand_fsdb_pdb_targets` lives in `step.py`, not beside the builders** (it builds records and
+- **`expand_fsdb_pdb_targets` lives in `pockets.py`, not beside the builders** (it builds records and
   downloads). It shares `pocket_dir/pisa/` with `pisa_pockets`; both go through
   `pockets.pisa.download_pisa_interfaces`, which picks `pisa/`, and `PisaDownloader` names its contents.
 
