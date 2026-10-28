@@ -39,8 +39,10 @@ from pocketmapper.lib.constants import (
     DEFAULT_CACHE_DIR,
     DEFAULT_DELETE_TMP,
     DEFAULT_FETCH_MISSING,
+    DEFAULT_OFFLINE,
     DEFAULT_PISA_SOURCE,
     DEFAULT_POCKET_METHOD,
+    DEFAULT_REFRESH_STRUCTURES,
     DEFAULT_VERBOSITY,
     PACKAGE_LOGGER,
 )
@@ -310,6 +312,26 @@ OPTIONS = {
             f"has not fetched it. (default: {DEFAULT_FETCH_MISSING})",
         ),
     ),
+    "offline": (
+        ["--offline"],
+        dict(
+            type=int,
+            default=None,
+            metavar="INT",
+            help="1 downloads nothing (no structures, PISA interfaces or Foldseek databases) and skips "
+            f"what is not cached; 0 downloads what the cache lacks. (default: {DEFAULT_OFFLINE})",
+        ),
+    ),
+    "refresh_structures": (
+        ["--refresh_structures"],
+        dict(
+            type=int,
+            default=None,
+            metavar="INT",
+            help="1 re-downloads PDB and AlphaFold structures in fetch_structures even when cached; 0 keeps "
+            f"them. Not with --offline 1. (default: {DEFAULT_REFRESH_STRUCTURES})",
+        ),
+    ),
     "pisa_source": (
         ["--pisa_source"],
         dict(
@@ -375,6 +397,7 @@ COMMANDS = {
             ("in options", ["entries"]),
             ("out options", ["log_path"]),
             ("temp options", ["temp_dir", "delete_tmp"]),
+            ("advanced options", ["offline", "refresh_structures"]),
         ],
     ),
     "align": (
@@ -457,7 +480,7 @@ COMMANDS = {
                 ],
             ),
             ("temp options", ["temp_dir", "delete_tmp"]),
-            ("advanced options", ["pisa_source", "pisa_bsa_threshold"]),
+            ("advanced options", ["pisa_source", "pisa_bsa_threshold", "offline", "refresh_structures"]),
         ],
     ),
 }

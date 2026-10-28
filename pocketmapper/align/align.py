@@ -35,6 +35,7 @@ from pocketmapper.lib.settings import (
     resolve_step_paths,
     resolve_threads,
 )
+from pocketmapper.lib.structure_manager import StructureManager
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +124,7 @@ def align(
         with temp_dir_scope(values["temp_dir"], delete_tmp):
             database = fsdb_record(sides["target"])
             if fetch_missing:
-                fetch_missing_entries(sides)
+                fetch_missing_entries(sides, StructureManager())
                 if database is not None:
                     fetch_missing_fsdb(database, threads, os.path.join(values["temp_dir"], TEMP_SUBDIRS["foldseek"]))
             align_chains(

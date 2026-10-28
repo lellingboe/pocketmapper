@@ -1,5 +1,6 @@
 """
-Unit tests for `lib.settings`: each `resolve_*` validator, `layer_settings`, `require_setting` and `read_job_file`.
+Unit tests for `lib.settings`: each `resolve_*` validator, the offline/refresh conflict, `layer_settings`,
+`require_setting` and `read_job_file`.
 """
 
 import json
@@ -14,6 +15,7 @@ from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.settings import (
     JOB_KEYS,
     SETTING_DEFAULTS,
+    check_offline_refresh,
     layer_settings,
     read_job_file,
     require_setting,
@@ -21,10 +23,13 @@ from pocketmapper.lib.settings import (
     resolve_aligner,
     resolve_delete_tmp,
     resolve_fetch_missing,
+    resolve_offline,
     resolve_pisa_bsa_threshold,
     resolve_pisa_source,
+    resolve_refresh_structures,
     resolve_threads,
 )
+from pocketmapper.search import PocketMapper
 
 
 def raises(message):
@@ -124,22 +129,63 @@ def test_resolve_threads_rejects(threads):
         resolve_threads(threads)
 
 
-# resolve_delete_tmp (replaces e2e test_settings_8) and resolve_fetch_missing
+# resolve_delete_tmp (replaces e2e test_settings_8), resolve_fetch_missing, resolve_offline and
+# resolve_refresh_structures
+
+FLAG_RESOLVERS = [
+    (resolve_delete_tmp, "delete_tmp"),
+    (resolve_fetch_missing, "fetch_missing"),
+    (resolve_offline, "offline"),
+    (resolve_refresh_structures, "refresh_structures"),
+]
 
 
-@pytest.mark.parametrize("resolve, key", [(resolve_delete_tmp, "delete_tmp"), (resolve_fetch_missing, "fetch_missing")])
+@pytest.mark.parametrize("resolve, key", FLAG_RESOLVERS)
 @pytest.mark.parametrize("value", [0, 1])
 def test_resolve_flag_accepts(resolve, key, value):
     """0 and 1 are returned unchanged."""
     assert resolve(value) == value
 
 
-@pytest.mark.parametrize("resolve, key", [(resolve_delete_tmp, "delete_tmp"), (resolve_fetch_missing, "fetch_missing")])
+@pytest.mark.parametrize("resolve, key", FLAG_RESOLVERS)
 @pytest.mark.parametrize("value", [2, -1, True, False, "1", None])
 def test_resolve_flag_rejects(resolve, key, value):
     """Anything but the int 0 or 1, a bool included, is rejected by setting name."""
     with raises(f"{key} must be 1 or 0, got {value!r}."):
         resolve(value)
+
+
+# check_offline_refresh, alone and as `resolve_settings` step 4h
+
+OFFLINE_REFRESH_CONFLICT = "offline and refresh_structures cannot both be 1"
+
+
+@pytest.mark.parametrize("offline, refresh_structures", [(0, 0), (1, 0), (0, 1)])
+def test_check_offline_refresh_accepts(offline, refresh_structures):
+    """Any pair but both 1 passes."""
+    check_offline_refresh(offline, refresh_structures)
+
+
+def test_check_offline_refresh_rejects():
+    """Refreshing structures with downloads turned off is rejected."""
+    with raises(OFFLINE_REFRESH_CONFLICT):
+        check_offline_refresh(1, 1)
+
+
+def test_resolve_settings_offline_refresh_conflict():
+    """`resolve_settings` rejects offline and refresh_structures both 1 before a Settings is built or dumped."""
+    values = {
+        "aligner": "seq",
+        "align_struct_method": "auto",
+        "threads": 1,
+        "delete_tmp": 1,
+        "pisa_source": "ftp",
+        "pisa_bsa_threshold": None,
+        "offline": 1,
+        "refresh_structures": 1,
+    }
+    with raises(OFFLINE_REFRESH_CONFLICT):
+        PocketMapper().resolve_settings(values)
 
 
 # resolve_pisa_source

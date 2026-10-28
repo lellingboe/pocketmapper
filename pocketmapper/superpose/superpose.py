@@ -20,6 +20,7 @@ from pocketmapper.lib.settings import (
     resolve_step_paths,
     resolve_threads,
 )
+from pocketmapper.lib.structure_manager import StructureManager
 from pocketmapper.pockets.pocket_fetcher import read_pockets_file
 from pocketmapper.superpose.structure_aligner import StructureAligner
 
@@ -111,7 +112,7 @@ def superpose(
         fetch_missing = resolve_fetch_missing(values["fetch_missing"])
         sides = open_entries(values["entries_path"], "superpose")
         if fetch_missing:
-            fetch_missing_entries(sides)
+            fetch_missing_entries(sides, StructureManager())
         if fsdb_record(sides["target"]) is not None:
             check_fsdb_align_struct_method(align_struct_method)
             require_foldseek("Rebuilding the target structures out of the Foldseek database needs foldseek")

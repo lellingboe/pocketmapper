@@ -204,6 +204,14 @@ DELETE_TMP_VALUES = (0, 1)
 # cache, 0 skips the entry.
 FETCH_MISSING_VALUES = (0, 1)
 
+# The values the `offline` setting accepts: 1 downloads nothing (structures, PISA interfaces, Foldseek
+# databases), 0 downloads what the cache lacks.
+OFFLINE_VALUES = (0, 1)
+
+# The values the `refresh_structures` setting accepts: 1 re-downloads cached PDB and AlphaFold
+# structures in the fetch step, 0 keeps them.
+REFRESH_STRUCTURES_VALUES = (0, 1)
+
 # Where PISA interfaces come from: static files on the EBI FTP server, or one paced PDBe API call per
 # assembly. Both serve identical JSON.
 PISA_SOURCES = ("ftp", "api")
@@ -224,6 +232,8 @@ DEFAULT_ALIGNER = "foldseek"
 DEFAULT_DELETE_TMP = 1
 DEFAULT_PISA_SOURCE = "ftp"
 DEFAULT_FETCH_MISSING = 0
+DEFAULT_OFFLINE = 0
+DEFAULT_REFRESH_STRUCTURES = 0
 
 # The chain used when an entry names a structure but no chain at all ("4Q5J"). AlphaFold models are
 # always a single chain A, and it is the first chain of most PDB entries.

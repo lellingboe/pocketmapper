@@ -54,6 +54,7 @@ from pocketmapper.lib.settings import (
     Settings,
     check_fsdb_align_struct_method,
     check_fsdb_aligner,
+    check_offline_refresh,
     dump_settings,
     layer_settings,
     require_foldseek,
@@ -61,9 +62,11 @@ from pocketmapper.lib.settings import (
     resolve_align_struct_method,
     resolve_aligner,
     resolve_delete_tmp,
+    resolve_offline,
     resolve_paths,
     resolve_pisa_bsa_threshold,
     resolve_pisa_source,
+    resolve_refresh_structures,
     resolve_threads,
 )
 from pocketmapper.parse.parse import parse
@@ -98,6 +101,8 @@ class PocketMapper:
         delete_tmp=None,
         pisa_source=None,
         pisa_bsa_threshold=None,
+        offline=None,
+        refresh_structures=None,
         pdb_dir=None,
         alphafold_dir=None,
         pocket_dir=None,
@@ -156,6 +161,12 @@ class PocketMapper:
             pisa_bsa_threshold (float, optional): Build pisa pockets from buried surface: a residue
                 joins when the partner chain buries more than this percent of its accessible surface,
                 at least 0 and below 100. Defaults to None, which builds them from interface bonds.
+            offline (int, optional): 1 downloads nothing -- no structures, PISA interfaces or Foldseek
+                databases -- and skips and marks whatever is not cached; 0 downloads what the cache
+                lacks. Defaults to DEFAULT_OFFLINE.
+            refresh_structures (int, optional): 1 re-downloads the PDB and AlphaFold structures in the
+                fetch step even when they are cached; 0 keeps them. Cannot be 1 with `offline` 1.
+                Defaults to DEFAULT_REFRESH_STRUCTURES.
             pdb_dir (str, optional): Cache of fetched PDB structures.
                 Defaults to <cache_dir>/pdb_structures.
             alphafold_dir (str, optional): Cache of fetched AlphaFold structures.
@@ -188,7 +199,7 @@ class PocketMapper:
 
         Raises:
             PocketMapperError: On a bad job file, a query/target given both ways or neither way,
-                or any pipeline failure.
+                offline and refresh_structures both 1, or any pipeline failure.
         """
         # The Settings fields as passed to this call. Kept beside the signature it mirrors, so the
         # two cannot drift; `job_file` is absent because Settings has no such field.
@@ -208,6 +219,8 @@ class PocketMapper:
             "delete_tmp": delete_tmp,
             "pisa_source": pisa_source,
             "pisa_bsa_threshold": pisa_bsa_threshold,
+            "offline": offline,
+            "refresh_structures": refresh_structures,
             "pdb_dir": pdb_dir,
             "alphafold_dir": alphafold_dir,
             "pocket_dir": pocket_dir,
@@ -287,8 +300,8 @@ class PocketMapper:
                 field, as a job file any step can take.
 
         Raises:
-            PocketMapperError: If a setting has an unknown value, foldseek is selected but cannot run, or
-                the settings cannot be written.
+            PocketMapperError: If a setting has an unknown value, foldseek is selected but cannot run,
+                offline and refresh_structures are both 1, or the settings cannot be written.
         """
         log_extra = {"stage": "Configuring Settings"}
 
@@ -318,6 +331,12 @@ class PocketMapper:
 
         # 4g. Before the settings are dumped, so job_settings.json records the checked value.
         values["pisa_bsa_threshold"] = resolve_pisa_bsa_threshold(values["pisa_bsa_threshold"])
+
+        # 4h. Before anything is fetched, so a conflict fails without wasted downloads, and before the
+        # settings are dumped below, so job_settings.json records checked values.
+        values["offline"] = resolve_offline(values["offline"])
+        values["refresh_structures"] = resolve_refresh_structures(values["refresh_structures"])
+        check_offline_refresh(values["offline"], values["refresh_structures"])
 
         settings = Settings(**{field.name: values[field.name] for field in fields(Settings)})
         logger.info(f"Settings: {json.dumps(asdict(settings), indent=4)}", extra=log_extra)

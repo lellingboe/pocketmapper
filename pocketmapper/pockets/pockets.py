@@ -36,6 +36,7 @@ from pocketmapper.lib.settings import (
     resolve_pisa_source,
     resolve_step_paths,
 )
+from pocketmapper.lib.structure_manager import StructureManager
 from pocketmapper.parse.qt_processor import QTProcessor
 from pocketmapper.pockets.pisa import download_pisa_interfaces, interface_partners, load_interfaces
 from pocketmapper.pockets.pocket_fetcher import fetch_pockets, write_pockets_file
@@ -126,7 +127,7 @@ def pockets(
         fetch_missing = resolve_fetch_missing(values["fetch_missing"])
         sides = open_entries(values["entries_path"], "pockets")
         if fetch_missing:
-            fetch_missing_entries(sides)
+            fetch_missing_entries(sides, StructureManager())
         build_pockets(
             sides,
             values["entries_path"],
@@ -355,7 +356,7 @@ def expand_fsdb_pdb_targets(hit_names, cache_dirs, pisa_source):
         return [], chains, []
 
     # Fetched last, so only entries with an interface are downloaded. Failed fetches are dropped.
-    found = fetch_missing_structures("foldseek hit", records)
+    found = fetch_missing_structures("foldseek hit", records, StructureManager())
     if not any(found.values()):
         logger.critical("Insufficient foldseek hit structures after fetching", extra=log_extra)
         raise PocketMapperError(

@@ -73,6 +73,16 @@ process neither emptying nor deleting it. Only the `TEMP_SUBDIRS` are emptied or
 itself only once that leaves it empty, so no root guard is needed and a step needs no `cache_dir` or
 `results_dir`. `lib.scopes.delete_temp_dir` does nothing if it was never made.
 
+**`offline`, `fetch_missing` and `refresh_structures`.** `offline` 1 stops every download in each step
+that takes it: structures, PISA interfaces and Foldseek databases. It wins over `fetch_missing`, so a
+step downloads a missing entry only with `fetch_missing and not offline`. An uncached structure is
+marked `structure_not_found`, as a failed download is; an uncached Foldseek database is an error
+(`fetch.fetch.fetch_missing_fsdb(download=False)`). `refresh_structures` 1 re-downloads only PDB and
+AlphaFold structures, and only in the fetch step (`StructureManager(refresh=True)`); PISA interfaces and
+Foldseek databases are never refreshed. Both 1 is an error, checked before anything is fetched or dumped
+by one helper, `lib.settings.check_offline_refresh`, from `resolve_settings` (`# 4h.`) and
+`fetch_structures`; `StructureManager.__init__` rejects the same pair for a library caller.
+
 `search --help` is generated from `help=` strings; `CLI_SEARCH_EPILOG` holds only examples. Resolution
 order, the `aligner` check and tri-state `align_struct_method`: `Settings` docstring and `# 4b.`/`# 4c.` in
 `resolve_settings`. `aligner` has no auto mode; a broken `foldseek` fails at 4b before fetching.

@@ -29,13 +29,17 @@ from pocketmapper.lib.constants import (
     DEFAULT_CACHE_DIR,
     DEFAULT_DELETE_TMP,
     DEFAULT_FETCH_MISSING,
+    DEFAULT_OFFLINE,
     DEFAULT_PISA_SOURCE,
     DEFAULT_POCKET_METHOD,
+    DEFAULT_REFRESH_STRUCTURES,
     DEFAULT_VERBOSITY,
     DELETE_TMP_VALUES,
     FETCH_MISSING_VALUES,
     FOLDSEEK_INSTALL_HINT,
+    OFFLINE_VALUES,
     PISA_SOURCES,
+    REFRESH_STRUCTURES_VALUES,
 )
 from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.foldseek import check_foldseek
@@ -78,6 +82,10 @@ class Settings:
     # Percent of a residue's accessible surface the partner must bury for it to join a pisa pocket.
     # None builds pisa pockets from interface bonds instead.
     pisa_bsa_threshold: float | None
+    # 1 downloads nothing: no structures, PISA interfaces or Foldseek databases.
+    offline: int
+    # 1 re-downloads cached PDB and AlphaFold structures in the fetch step. Never 1 with offline 1.
+    refresh_structures: int
     pdb_dir: str
     alphafold_dir: str
     pocket_dir: str
@@ -122,6 +130,8 @@ SETTING_DEFAULTS = {
     "delete_tmp": DEFAULT_DELETE_TMP,
     "pisa_source": DEFAULT_PISA_SOURCE,
     "fetch_missing": DEFAULT_FETCH_MISSING,
+    "offline": DEFAULT_OFFLINE,
+    "refresh_structures": DEFAULT_REFRESH_STRUCTURES,
 }
 
 # Path setting -> its default, relative to cache_dir
@@ -583,6 +593,76 @@ def resolve_fetch_missing(fetch_missing):
         raise PocketMapperError(msg)
 
     return fetch_missing
+
+
+def resolve_offline(offline):
+    """
+    Validate the `offline` setting.
+
+    Args:
+        offline (int): 1 to download nothing, 0 to download what the cache lacks.
+
+    Returns:
+        int: The value, unchanged.
+
+    Raises:
+        PocketMapperError: If the value is not one of OFFLINE_VALUES, including a bool.
+    """
+    log_extra = {"stage": "Configuring Settings"}
+
+    # A job file can hold any JSON value, and True == 1
+    if isinstance(offline, bool) or offline not in OFFLINE_VALUES:
+        msg = f"offline must be 1 or 0, got {offline!r}."
+        logger.critical(msg, extra=log_extra)
+        raise PocketMapperError(msg)
+
+    return offline
+
+
+def resolve_refresh_structures(refresh_structures):
+    """
+    Validate the `refresh_structures` setting.
+
+    Args:
+        refresh_structures (int): 1 to re-download cached PDB and AlphaFold structures, 0 to keep them.
+
+    Returns:
+        int: The value, unchanged.
+
+    Raises:
+        PocketMapperError: If the value is not one of REFRESH_STRUCTURES_VALUES, including a bool.
+    """
+    log_extra = {"stage": "Configuring Settings"}
+
+    # A job file can hold any JSON value, and True == 1
+    if isinstance(refresh_structures, bool) or refresh_structures not in REFRESH_STRUCTURES_VALUES:
+        msg = f"refresh_structures must be 1 or 0, got {refresh_structures!r}."
+        logger.critical(msg, extra=log_extra)
+        raise PocketMapperError(msg)
+
+    return refresh_structures
+
+
+def check_offline_refresh(offline, refresh_structures):
+    """
+    Check that structures are not to be refreshed with downloads turned off.
+
+    Args:
+        offline (int): The `offline` setting, already validated.
+        refresh_structures (int): The `refresh_structures` setting, already validated.
+
+    Returns:
+        None
+
+    Raises:
+        PocketMapperError: If both are 1.
+    """
+    log_extra = {"stage": "Configuring Settings"}
+
+    if offline and refresh_structures:
+        msg = "offline and refresh_structures cannot both be 1: refreshing structures needs downloads."
+        logger.critical(msg, extra=log_extra)
+        raise PocketMapperError(msg)
 
 
 def resolve_pisa_source(pisa_source):

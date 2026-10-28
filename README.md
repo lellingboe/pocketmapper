@@ -87,6 +87,8 @@ left off the command line.
 | `-T`, `--threads` | int | one per core | Cap on the cores Foldseek uses. |
 | `--pisa_source` | str | `ftp` | Where PISA interfaces are fetched from: `ftp` (EBI FTP server, concurrent) or `api` (PDBe API, one paced request per assembly). Both fill the same cache. |
 | `--pisa_bsa_threshold` | float | unset | Build PISA pockets from buried surface: a residue joins when the partner chain buries more than this percent of its accessible surface (at least 0, below 100). Unset, they come from interface bonds. |
+| `--offline` | int | `0` | `1` downloads nothing: no structures, PISA interfaces or Foldseek databases. An entry whose structure is not cached is skipped and marked, as a failed download is; a Foldseek database that is not cached is an error. |
+| `--refresh_structures` | int | `0` | `1` re-downloads the PDB and AlphaFold structures in `fetch_structures` even when they are cached. PISA interfaces and Foldseek databases are not refreshed. Not with `--offline 1`. |
 | `-h`, `--help` | flag | — | Show the help message and exit. |
 
 #### In options
@@ -205,7 +207,7 @@ what they do for `search`.
 | Command | Options |
 | --- | --- |
 | `parse` | `QUERY`, `TARGET` (or from the job file), `--query_pocket_method`, `--target_pocket_method`, `--work_dir`, the [cache options](#cache-options), `--results_dir`, `--entries_path`, `--job_settings_path` |
-| `fetch_structures` | `--threads`, the [temp options](#temp-options) |
+| `fetch_structures` | `--threads`, the [temp options](#temp-options), `--offline`, `--refresh_structures` |
 | `align` | `--aligner`, `--threads`, `--fetch_missing`, `--foldseek_preprocessed_structure_dir`, `--alignment_path`, the [temp options](#temp-options) |
 | `pockets` | `--alignment`, `--pdb_dir`, `--alphafold_dir`, `--pocket_dir`, `--fsdb_dir`, `--pockets_path`, `--pockets_tsv_path` (a table of `pocket_id`, `chain`, `res_auth_ids`, `method`), `--pisa_source`, `--pisa_bsa_threshold`, `--fetch_missing` |
 | `compare` | `--alignment`, `--pockets`, `--pocket_comparison_path` |
