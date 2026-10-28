@@ -1,0 +1,199 @@
+"""
+Integration tests for the step commands through the CLI, chained and alone, offline against the seeded cache
+unless marked `network`.
+
+`parse` takes `--results_dir` and `--cache_dir`; every later step takes `--job_file <results>/parse_settings.json`.
+"""
+
+import json
+import os
+
+import pytest
+
+from pocketmapper.lib.entries import read_entries
+
+
+def results_file(results_dir, name):
+    """The path of `name` under `results_dir`."""
+    return os.path.join(results_dir, name)
+
+
+def pocket_residues(pockets_path):
+    """Pocket id -> its residue auth ids, from a pockets.json."""
+    with open(pockets_path) as f:
+        return {pocket_id: pocket["res_auth_ids"] for pocket_id, pocket in json.load(f)["pockets"].items()}
+
+
+def parse_args(*entries, results_dir, cache_dir):
+    """The argv of a `parse` over `entries` into `results_dir`, with `cache_dir`."""
+    return ("parse", *entries, "--results_dir", results_dir, "--cache_dir", cache_dir)
+
+
+# test_steps_6 (with its prefixes, test_steps_2-5), test_steps_19, and test_steps_8's cd
+def test_steps_6_19_8cd(tmp_path, seed_cache, run_cli, comparison_rows):
+    """Each step, chained off parse's settings and run from another cwd, writes its outputs."""
+    results_dir = os.path.join(str(tmp_path), "results")
+    elsewhere = os.path.join(str(tmp_path), "elsewhere")
+    os.makedirs(elsewhere)
+    job_file = results_file(results_dir, "parse_settings.json")
+
+    assert run_cli(*parse_args("4Q5J:A_E", "4Q5J:B_F", results_dir=results_dir, cache_dir=seed_cache)) == 0
+    assert os.path.isfile(job_file)
+    assert os.path.isfile(results_file(results_dir, "entries.tsv"))
+
+    assert run_cli("fetch_structures", "--job_file", job_file, cwd=elsewhere) == 0
+
+    assert run_cli("align", "--aligner", "seq", "--job_file", job_file, cwd=elsewhere) == 0
+    assert os.path.isfile(results_file(results_dir, "alignment.tsv"))
+
+    pockets_tsv = results_file(results_dir, "pockets.tsv")
+    assert run_cli("pockets", "--job_file", job_file, "--pockets_tsv_path", pockets_tsv, cwd=elsewhere) == 0
+    assert os.path.isfile(results_file(results_dir, "pockets.json"))
+    assert os.path.isfile(pockets_tsv)
+
+    assert run_cli("compare", "--job_file", job_file, cwd=elsewhere) == 0
+    assert len(comparison_rows(results_dir)) > 0
+
+    assert run_cli("superpose", "--job_file", job_file, cwd=elsewhere) == 0
+    aligned_dir = results_file(results_dir, "aligned_structures")
+    assert os.path.isdir(aligned_dir) and os.listdir(aligned_dir)
+
+    # Nothing was written relative to the cwd the steps ran from
+    assert os.listdir(elsewhere) == []
+
+
+@pytest.mark.parametrize(
+    "aligner_args",
+    [
+        pytest.param(["--aligner", "seq"], id="seq"),
+        pytest.param([], id="foldseek", marks=pytest.mark.foldseek),
+    ],
+)
+def test_steps_7(aligner_args, tmp_path, seed_cache, run_cli, comparison_rows, same_outputs):
+    """Chained steps give the comparison and alignment tables search gives (PISA batch vs itself)."""
+    search_dir = os.path.join(str(tmp_path), "search")
+    steps_dir = os.path.join(str(tmp_path), "steps")
+    job_file = results_file(steps_dir, "parse_settings.json")
+
+    search_argv = ("search", "pdb_pisa_in.txt", "pdb_pisa_in.txt", *aligner_args)
+    assert run_cli(*search_argv, "--results_dir", search_dir, "--cache_dir", seed_cache) == 0
+    assert run_cli(*parse_args("pdb_pisa_in.txt", "pdb_pisa_in.txt", results_dir=steps_dir, cache_dir=seed_cache)) == 0
+    assert run_cli("fetch_structures", "--job_file", job_file) == 0
+    assert run_cli("align", *aligner_args, "--job_file", job_file) == 0
+    for step in ("pockets", "compare", "superpose"):
+        assert run_cli(step, "--job_file", job_file) == 0, step
+
+    assert len(comparison_rows(steps_dir)) > 0
+    assert same_outputs(search_dir, steps_dir)
+
+
+def test_steps_15(tmp_path, seed_cache, run_cli, comparison_rows):
+    """compare reads a search's job_settings.json, and --pocket_comparison_path moves only its output."""
+    search_dir = os.path.join(str(tmp_path), "search")
+    other_path = os.path.join(str(tmp_path), "other", "pocket_comparison.tsv")
+    search_argv = ("search", "4Q5J:A_E", "4Q5J:B_F", "--aligner", "seq", "--align_count", "0")
+    assert run_cli(*search_argv, "--results_dir", search_dir, "--cache_dir", seed_cache) == 0
+
+    # search wrote its own comparison; compare must leave it as it was
+    default_path = results_file(search_dir, "pocket_comparison.tsv")
+    before = os.stat(default_path).st_mtime_ns
+    with open(default_path) as f:
+        content = f.read()
+
+    job_file = results_file(search_dir, "job_settings.json")
+    assert run_cli("compare", "--job_file", job_file, "--pocket_comparison_path", other_path) == 0
+
+    assert len(comparison_rows(os.path.dirname(other_path))) > 0
+    assert os.stat(default_path).st_mtime_ns == before
+    with open(default_path) as f:
+        assert f.read() == content
+
+
+def test_steps_21(tmp_path, seed_cache, run_cli):
+    """fetch_structures follows the entries table parse moved with --entries_path."""
+    results_dir = os.path.join(str(tmp_path), "results")
+    moved_path = os.path.join(str(tmp_path), "moved", "entries.tsv")
+    job_file = results_file(results_dir, "parse_settings.json")
+
+    argv = parse_args("4Q5J:A_E", "4Q5J:B_F", results_dir=results_dir, cache_dir=seed_cache)
+    assert run_cli(*argv, "--entries_path", moved_path) == 0
+    with open(job_file) as f:
+        assert json.load(f)["entries_path"] == moved_path
+
+    # fetch_structures fails on a missing entries table, so exit 0 means it read the moved one
+    assert run_cli("fetch_structures", "--job_file", job_file) == 0
+    assert os.path.isfile(moved_path)
+    assert not os.path.exists(results_file(results_dir, "entries.tsv"))
+
+
+def test_steps_23(tmp_path, seed_cache, run_cli, comparison_rows, failed):
+    """Rerunning pockets clears its own marks and marks the unbuildable pocket again, once."""
+    results_dir = os.path.join(str(tmp_path), "results")
+    job_file = results_file(results_dir, "parse_settings.json")
+    entries_path = results_file(results_dir, "entries.tsv")
+    pocket_id = "4Q5J:A:9999"
+
+    # invalid_residues.txt line 2 is deliberately absent from the chain
+    assert run_cli(*parse_args("invalid_residues.txt", "4Q5J:B_F", results_dir=results_dir, cache_dir=seed_cache)) == 0
+    assert run_cli("fetch_structures", "--job_file", job_file) == 0
+    assert run_cli("align", "--aligner", "seq", "--job_file", job_file) == 0
+    assert run_cli("pockets", "--job_file", job_file) == 0
+    assert failed(entries_path, "pocket_not_built", pocket_id)
+    assert run_cli("pockets", "--job_file", job_file) == 0
+    assert run_cli("compare", "--job_file", job_file) == 0
+
+    assert failed(entries_path, "pocket_not_built", pocket_id)
+    marked = [row for row in read_entries(entries_path) if row["failed_reason"]]
+    assert [(row["pocket_id"], row["failed_step"]) for row in marked] == [(pocket_id, "pockets")]
+    assert len(comparison_rows(results_dir)) > 0
+
+
+def test_steps_24(tmp_path, seed_cache, run_cli):
+    """pockets takes --pisa_bsa_threshold directly, and it changes the pisa pockets it builds."""
+    results_dir = os.path.join(str(tmp_path), "results")
+    job_file = results_file(results_dir, "parse_settings.json")
+    bonds_path = results_file(results_dir, "pockets.json")
+    bsa_path = results_file(results_dir, "pockets_bsa.json")
+
+    assert run_cli(*parse_args("4Q5J:B_F", "4Q5J:A_E", results_dir=results_dir, cache_dir=seed_cache)) == 0
+    assert run_cli("fetch_structures", "--job_file", job_file) == 0
+    assert run_cli("pockets", "--job_file", job_file) == 0
+    assert run_cli("pockets", "--job_file", job_file, "--pisa_bsa_threshold", "25", "--pockets_path", bsa_path) == 0
+
+    # Without a threshold pisa pockets come from interface bonds, so the buried-surface ones differ
+    bonds = pocket_residues(bonds_path)
+    bsa = pocket_residues(bsa_path)
+    assert set(bsa) == set(bonds) == {"4Q5J:B_F", "4Q5J:A_E"}
+    assert bsa != bonds
+
+
+@pytest.mark.network
+def test_steps_18(tmp_path, seed_cache, run_cli):
+    """fetch_structures downloads a PDB and an AlphaFold structure into the cache paths parse moved."""
+    results_dir = os.path.join(str(tmp_path), "results")
+    pdb_dir = os.path.join(results_dir, "pdb")
+    alphafold_dir = os.path.join(results_dir, "af")
+    job_file = results_file(results_dir, "parse_settings.json")
+
+    argv = parse_args("4Q5J:A_E", "P24941:A:160", results_dir=results_dir, cache_dir=seed_cache)
+    assert run_cli(*argv, "--pdb_dir", pdb_dir, "--alphafold_dir", alphafold_dir) == 0
+    assert run_cli("fetch_structures", "--job_file", job_file) == 0
+
+    assert os.path.isfile(os.path.join(pdb_dir, "4Q5J.cif.gz"))
+    assert os.path.isfile(os.path.join(alphafold_dir, "P24941.cif.gz"))
+
+
+@pytest.mark.network
+def test_steps_20(tmp_path, seed_cache, run_cli):
+    """pockets --fetch_missing 1 downloads a structure missing from the moved pdb_dir, then builds the pockets."""
+    results_dir = os.path.join(str(tmp_path), "results")
+    pdb_dir = os.path.join(str(tmp_path), "pdb")
+    job_file = results_file(results_dir, "parse_settings.json")
+
+    # The seed supplies the PISA interfaces, so only the structure is downloaded
+    argv = parse_args("4Q5J:B_F", "4Q5J:A_E", results_dir=results_dir, cache_dir=seed_cache)
+    assert run_cli(*argv, "--pdb_dir", pdb_dir) == 0
+    assert run_cli("pockets", "--job_file", job_file, "--fetch_missing", "1") == 0
+
+    assert os.path.isfile(os.path.join(pdb_dir, "4Q5J.cif.gz"))
+    assert os.path.isfile(results_file(results_dir, "pockets.json"))
