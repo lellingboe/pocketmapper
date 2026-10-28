@@ -6,48 +6,21 @@ passthrough, vdw or whole_chain methods is interchangeable downstream. It is the
 set, from `lib.residues.ca_residues`. The shape itself -- which fields exist, which are optional and
 why -- is declared in `pocket.py`.
 
-Also holds the structure reading every builder shares (`load_structure`, `records_by_structure`) and the
-builders of the two methods that need nothing beyond it: `passthrough_pockets` and `whole_chain_pockets`.
-Both run `residue_list_pockets` and differ only in the residue list they pass it.
+Also holds the structure reading every builder shares (`records_by_structure`, through
+`lib.structure_manager.load_structure`) and the builders of the two methods that need nothing beyond it:
+`passthrough_pockets` and `whole_chain_pockets`. Both run `residue_list_pockets` and differ only in the
+residue list they pass it.
 """
 
 import logging
-import os
 
-import gemmi
 from tqdm import tqdm
 
 from pocketmapper.lib.residues import ca_residues, one_letter_code, split_chain_info
+from pocketmapper.lib.structure_manager import load_structure
 from pocketmapper.pockets.pocket import Pocket, PocketResidue
 
 logger = logging.getLogger(__name__)
-
-
-def load_structure(struct, log_extra):
-    """
-    Return a parsed structure with its entity types set, reading it first when given a path.
-
-    `setup_entities()` is called on every structure returned, one passed in included, which modifies
-    that structure in place. `lib.residues.ca_residues` needs the entity types: without them, a local
-    mmCIF with no entity data gives empty pockets.
-
-    Args:
-        struct (gemmi.Structure or str): A parsed structure, or a path gemmi will read, its format
-            inferred from the extension.
-        log_extra (dict): `extra` for the warning about a missing file.
-
-    Returns:
-        gemmi.Structure: The structure, or None (with a warning) if the path does not exist.
-    """
-    if isinstance(struct, gemmi.Structure):
-        st = struct
-    else:
-        if not os.path.exists(struct):
-            logger.warning(f"Structure file {struct} does not exist.", extra=log_extra)
-            return None
-        st = gemmi.read_structure(struct)
-    st.setup_entities()
-    return st
 
 
 def records_by_structure(records, log_extra):
@@ -59,11 +32,11 @@ def records_by_structure(records, log_extra):
 
     Args:
         records (list): QTRecord dicts; `struct_path` is read.
-        log_extra (dict): `extra` for `load_structure`'s warning about a missing file.
+        log_extra (dict): `extra` for `load_structure`'s warning about a missing or unreadable file.
 
     Yields:
         tuple: (structure, group): the `load_structure` result for one path, None if the file is
-            missing, and the list of records with that path.
+            missing or unusable, and the list of records with that path.
     """
     groups = {}
     for record in records:
@@ -78,7 +51,7 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
 
     A `pocket` passed in is modified in place: its residues keep the fields they already carry and
     gain `seq_pos` and coordinates, and its `whole_chain` and `ca_sequence` are overwritten. A structure
-    passed in has `setup_entities()` called on it (see `load_structure`).
+    passed in has `setup_entities()` called on it (see `lib.structure_manager.load_structure`).
 
     Args:
         struct (gemmi.Structure or str): A parsed structure, or a path gemmi will read.
@@ -88,7 +61,7 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
         pocket (Pocket or None, optional): An existing Pocket to extend; a new one is built when None.
 
     Returns:
-        Pocket: The pocket, or None if the file is missing or the chain is not in the structure.
+        Pocket: The pocket, or None if the file is missing or unusable, or the chain is not in the structure.
     """
     log_extra = {"stage": "Parsing Pocket from Structure"}
 

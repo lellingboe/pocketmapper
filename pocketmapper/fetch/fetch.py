@@ -9,7 +9,7 @@ import logging
 import os
 
 from pocketmapper.lib.constants import TEMP_SUBDIRS
-from pocketmapper.lib.entries import failure, open_entries, report_failures, unique_by
+from pocketmapper.lib.entries import failure, open_entries, report_failures
 from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.files import make_dir
 from pocketmapper.lib.foldseek import run_foldseek
@@ -22,7 +22,7 @@ from pocketmapper.lib.settings import (
     resolve_step_paths,
     resolve_threads,
 )
-from pocketmapper.lib.structure_downloader import download_structures
+from pocketmapper.lib.structure_manager import StructureManager
 
 logger = logging.getLogger(__name__)
 
@@ -158,8 +158,8 @@ def fetch_missing_structures(name, records):
     """
     log_extra = {"stage": "Downloading Structures"}
 
-    # One download per structure, however many pockets sit on it
-    found = download_structures(unique_by(records, "struct_info"))
+    # One download per structure, however many pockets sit on it: fetch dedupes by struct_info
+    found = StructureManager().fetch(records)
     logger.debug(f"Structure fetcher results: {found}", extra=log_extra)
 
     logger.info(f"{sum(found.values())}/{len(found)} {name} required structures available", extra=log_extra)

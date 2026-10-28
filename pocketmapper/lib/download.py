@@ -4,7 +4,7 @@ Shared download machinery: retrying what is worth retrying, and writing through 
 Two entry points, because PocketMapper fetches two different kinds of thing. `download_file` is for
 bulk files: it is unpaced and holds no state, so many can run at once. `download_api` is for REST
 endpoints: it paces its requests and remembers, per host, how long the pacing has had to grow.
-`download_many` runs a set of either, skipping files already in place.
+`download_many` runs a set of either, skipping files already in place unless told to overwrite them.
 
 Every response lands on `<out_fpath>.part` and is moved onto its final name only once it is
 complete, so an interrupted download cannot leave a truncated file under a name a cache would
@@ -260,13 +260,13 @@ def download_api(
     return False
 
 
-def download_many(jobs, fetch=download_file, max_workers=DOWNLOAD_WORKERS, log_extra=None):
+def download_many(jobs, fetch=download_file, max_workers=DOWNLOAD_WORKERS, log_extra=None, overwrite=False):
     """
     Fetch every job whose file is not already in place, `max_workers` at a time.
 
-    A job whose `out_fpath` exists is not fetched and counts as a success. With `fetch=download_api` the
-    jobs run one at a time, whatever `max_workers` says. The progress bar counts every job, skipped ones
-    included.
+    A job whose `out_fpath` exists is not fetched and counts as a success, unless `overwrite` is True. With
+    `fetch=download_api` the jobs run one at a time, whatever `max_workers` says. The progress bar counts
+    every job, skipped ones included.
 
     Args:
         jobs (dict): Key -> `DownloadJob`.
@@ -275,11 +275,13 @@ def download_many(jobs, fetch=download_file, max_workers=DOWNLOAD_WORKERS, log_e
         max_workers (int, optional): Downloads to run concurrently. Defaults to `DOWNLOAD_WORKERS`.
         log_extra (dict, optional): `extra` mapping for the log records. Defaults to None, which logs them
             under `fetch`'s own name.
+        overwrite (bool, optional): True fetches every job, replacing a file already in place. A failed fetch
+            leaves the existing file untouched but reports False. Defaults to False.
 
     Returns:
         dict: Key -> True if the file is in place, False if its download failed, in the order of `jobs`.
     """
-    results = {key: True for key, job in jobs.items() if os.path.exists(job.out_fpath)}
+    results = {} if overwrite else {key: True for key, job in jobs.items() if os.path.exists(job.out_fpath)}
     to_fetch = {key: job for key, job in jobs.items() if key not in results}
     # `download_api` sleeps the host delay outside the lock, so concurrent calls would not be paced
     workers = 1 if fetch is download_api else max_workers

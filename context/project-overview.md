@@ -37,7 +37,7 @@ checks that live nowhere else.
   are lowercased wholesale.
 - **Every chain walk reads `first_conformer()`**, and a new walk must too. The CA walk is
   `lib.residues.ca_residues` (`parse_pocket_from_struct`, `vdw_pockets`' domain side, `SequenceAligner`); it
-  needs the entity types `setup_entities()` sets (`pockets.structure.load_structure` calls it). vdw's motif
+  needs the entity types `setup_entities()` sets (`lib.structure_manager.load_structure` calls it). vdw's motif
   side reads every atom of `get_polymer().first_conformer()`. `test_core_10` (`network`) covers it.
 - **`preprocess_name` is the alignment join key** (`QTProcessor.build_record`), bridged to `pocket_id` by
   `pockets.json` `chains`. Only parse computes it (hashing local files); later steps read it from
@@ -90,11 +90,11 @@ places must agree: `requires-python`, the classifiers, `[tool.ruff] target-versi
 ## As a library
 
 `PocketMapper().search(...)`, a step's entry or core function in `<step>.<step>`, or any component directly
-(`parse.qt_processor`, `lib.structure_downloader`, `pockets.pisa_downloader`, `align.structure_preprocessor`,
-`pockets.pocket_fetcher.fetch_pockets` or one builder, `pockets.pisa` (`load_interfaces`, `interface_partners`,
-`pisa_pockets_from_records`), `pockets.vdw.vdw_contact_residues`, `align.sequence_aligner`,
-`superpose.structure_aligner`,
-`lib.foldseek`). No component or step takes a `Settings`; the entry functions take its dict as `job_file`.
+(`parse.qt_processor`, `lib.structure_manager` (`StructureManager.get` fetches and loads one structure),
+`pockets.pisa_downloader`, `align.structure_preprocessor`, `pockets.pocket_fetcher.fetch_pockets` or one
+builder, `pockets.pisa` (`load_interfaces`, `interface_partners`, `pisa_pockets_from_records`),
+`pockets.vdw.vdw_contact_residues`, `align.sequence_aligner`, `superpose.structure_aligner`, `lib.foldseek`).
+No component or step takes a `Settings`; the entry functions take its dict as `job_file`.
 
 - **Records come from `parse.parse.parse_entries`**: the side checks parse makes, with no files written.
   A finished run's own records, its dropped entries left out, are

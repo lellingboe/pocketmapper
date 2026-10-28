@@ -11,16 +11,17 @@ in every operational respect. `download_file` is for bulk static files: unpaced 
 host's pacing and never lowers it again. Both write through a `.part` file, create the destination's
 directory, and share one retry test.
 
-**`download_many` is the one download pool**, used by `lib.structure_downloader.download_structures`
+**`download_many` is the one download pool**, used by `lib.structure_manager.StructureManager.fetch`
 and `PisaDownloader.download_missing_assemblies`. It skips a `DownloadJob` whose file already exists, so
-the file is the cache. **With `fetch=download_api` it runs one job at a time, whatever `max_workers`
+the file is the cache; `overwrite=True` fetches it anyway (a structure refresh), and a failed fetch then
+leaves the cached file in place. **With `fetch=download_api` it runs one job at a time, whatever `max_workers`
 says**: `download_api` sleeps the host delay outside the lock, so concurrent calls would each sleep the
 same delay and then fire together. The rule sits beside the pacer, so no caller repeats it.
 
 Four consequences no single file states:
 
 - **The download pools ignore `--threads`, on purpose.** `fetch.fetch.fetch_missing_structures` calls
-  `download_structures`, and `pockets.pisa.download_pisa_interfaces` builds `PisaDownloader`, each with
+  `StructureManager.fetch`, and `pockets.pisa.download_pisa_interfaces` builds `PisaDownloader`, each with
   the default width, `DOWNLOAD_WORKERS` (8), so `--threads` governs Foldseek alone. A worker here waits
   on a socket rather than on a core, so a thread count says nothing useful about how wide a pool should
   be. A library caller can still pass its own `max_workers`.

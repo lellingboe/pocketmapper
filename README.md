@@ -485,7 +485,7 @@ writes the same files; results come back through `results_dir`, not as a return 
 command is a function, `pocketmapper.<step>.<step>.<command>` (such as `pocketmapper.align.align.align`;
 `fetch_structures` is `pocketmapper.fetch.fetch.fetch_structures`), taking its CLI options as keyword
 arguments; its `job_file` also takes a dict, such as the settings `search()` returns. The individual
-components (`parse.qt_processor`, `lib.structure_downloader`, `pockets.pisa_downloader`,
+components (`parse.qt_processor`, `lib.structure_manager`, `pockets.pisa_downloader`,
 `align.sequence_aligner`, `superpose.structure_aligner`, `pockets.pocket_fetcher`, ...) are each usable on
 their own. Note that `search()` deletes its temporary directories on the way out.
 

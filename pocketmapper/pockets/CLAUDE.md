@@ -7,10 +7,12 @@ Facts about `pockets/`, moved out of `context/project-overview.md` so they load 
   through the module function `fetch_pockets(builder_options=...)` (pisa's `pisa_source` and
   `bsa_threshold` today). A new method = one row + one builder.
 - **One builder contract.** A builder returns pocket_id -> Pocket for the pockets it built only. A record
-  it cannot build (missing structure or chain, unusable residue, unresolved interface) is left out with a
-  warning, never mapped to None; the step then marks it `pocket_not_built` in `entries.tsv`. A pocket
-  built but empty (pisa with no residue under the rule, vdw with no contacts) is kept, with
-  `pocket_exists=False`. Each builder reads every structure once per call (`records_by_structure`).
+  it cannot build (missing or unreadable structure, missing chain, unusable residue, unresolved interface)
+  is left out with a warning, never mapped to None; the step then marks it `pocket_not_built` in
+  `entries.tsv`. A pocket built but empty (pisa with no residue under the rule, vdw with no contacts) is
+  kept, with `pocket_exists=False`. Each builder reads every structure once per call
+  (`records_by_structure`, through `lib.structure_manager.load_structure`, which gives None for a file it
+  cannot use).
 - Records are dicts, not DataFrames. The fetcher passes every record it is given to its method's
   builder, so a caller filters out records whose structure is unavailable first.
 - **`expand_fsdb_pdb_targets` lives in `pockets.py`, not beside the builders** (it builds records and
