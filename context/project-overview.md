@@ -29,7 +29,7 @@ checks that live nowhere else.
   vdw included) as the index in `lib.residues.ca_residues`, and read in `map_pocket_into_alignment`. -1 marks
   a requested residue the chain has but `ca_residues` leaves out (no CA atom, or not polymer). Computed any
   other way, it gives zero overlap and no error. Check: a pocket compared with itself gives
-  `overlap_count == pocket_len`.
+  `overlap_count == pocket_len` (`test_self_comparison`).
 - **`res_auth_ids` ascending** in every producer (`Pocket`); nothing checks it. `pockets.json` round-trips
   this order and `seq_pos` (`read_pockets_file`).
 - **Residue letters mirror Foldseek, not gemmi** (`lib.constants.FOLDSEEK_AA_CODES`). They compare
@@ -38,17 +38,18 @@ checks that live nowhere else.
 - **Every chain walk reads `first_conformer()`**, and a new walk must too. The CA walk is
   `lib.residues.ca_residues` (`parse_pocket_from_struct`, `vdw_pockets`' domain side, `SequenceAligner`); it
   needs the entity types `setup_entities()` sets (`pockets.structure.load_structure` calls it). vdw's motif
-  side reads every atom of `get_polymer().first_conformer()`. `test_core_10` covers it.
+  side reads every atom of `get_polymer().first_conformer()`. `test_core_10` (`network`) covers it.
 - **`preprocess_name` is the alignment join key** (`QTProcessor.build_record`), bridged to `pocket_id` by
   `pockets.json` `chains`. Only parse computes it (hashing local files); later steps read it from
   `entries.tsv`, so `align` and `pockets` must run on the same table, and a caller that re-runs
-  `parse_entries` needs unchanged inputs. `compare.step.check_coverage` catches a mismatch. `test_core_9`
-  and `test_local_7` cover local-file names.
+  `parse_entries` needs unchanged inputs. `compare.compare.check_coverage` catches a mismatch.
+  `test_preprocess_name_local_contents` and `test_local_7` cover local-file names.
 - **`chain_info` is split only by `lib.residues.split_chain_info`.** `chain_info[0]` breaks on multi-character
   chains; the patterns reject them, but library callers bypass the patterns.
 
 **Changing the comparison without changing behaviour**: capture `compare_pockets`' arguments from a real
-run and diff old vs new output. Nothing else covers it.
+run and diff old vs new output. The tests assert invariants (self-comparison overlap, rows present, steps
+matching search), not column values, so nothing else covers it.
 
 ## Logging and errors
 
@@ -60,8 +61,9 @@ run and diff old vs new output. Nothing else covers it.
 
 ## Python versions
 
-**3.10 – 3.14**, verified by full e2e at both ends. Four places must agree: `requires-python`, the
-classifiers, `[tool.ruff] target-version`, README Installation; CI `compat` matrix is a fifth.
+**3.10 – 3.14**; CI's `e2e` job runs pytest with foldseek, `network` tests included, at both ends. Four
+places must agree: `requires-python`, the classifiers, `[tool.ruff] target-version`, README Installation; CI
+`compat` matrix is a fifth.
 
 - **Floor is 3.10**: `match` statements, PEP 604 dataclass annotations (no `from __future__ import
   annotations`), and biopython itself.
@@ -69,37 +71,36 @@ classifiers, `[tool.ruff] target-version`, README Installation; CI `compat` matr
   not the 3.10 parser). `compileall` at 3.10 catches syntax; the import step catches
   annotation/`importlib.resources` failures. It uses `pkgutil.walk_packages` with a prefix (`iter_modules`
   skips subpackage modules) and asserts a module count.
-- **Only 3.10 resolves pandas 2.x**; 3.11+ get 3.x. Hence e2e runs 3.10 and 3.14. Both give identical
-  row counts on every non-`huge` case.
+- **Only 3.10 resolves pandas 2.x**; 3.11+ get 3.x. Hence CI's `e2e` job runs 3.10 and 3.14. Both gave
+  identical row counts on every non-`huge` case of the former bash suite.
 
 ## Repo layout
 
-- No unit tests; `tests/e2e/` is the whole suite.
-- **Deliberately wrong fixture lines — don't fix them:** `invalid_residues.txt` line 2 (`4Q5J:A:9999`,
-  `test_invalid_1`, asserted `pocket_not_built`); `forced_pisa_mixed.txt` line 2 (`4Q5J:A`, no partner;
-  `test_invalid_8`, asserted `invalid_entry`); `fsdb_mixed_target.txt` (a DB beside a structure, also via
-  `job_file_fsdb_mixed.json` in `test_steps_22`; `test_steps_11`).
-- **`fixtures/job_file.json` must never set a path** (the runner's `--results_dir` would not move it, so
-  the case would write outside its dir). Its `align_count: 3` vs `test_settings_2`'s `5` shows priority
-  only in `job_settings.json` (5 wins) — check by hand.
+- `tests/unit/` and `tests/integration/` are the suite (`python -m pytest`). Integration tests run the CLI
+  in-process, offline from a copy of `tests/data/seed_cache/` unless marked `network`; the markers and
+  their env vars are in `pyproject.toml` and `tests/integration/conftest.py`.
+- **Deliberately wrong fixture line — don't fix it:** `tests/integration/fixtures/invalid_residues.txt`
+  line 2 (`4Q5J:A:9999`, `test_steps_23`, asserted `pocket_not_built`).
+- **`tests/integration/fixtures/4Q5J.cif.gz` is also the seed's PDB structure** (`seed_cache` copies it
+  into `pdb_structures/`), and `testfile.txt` names it by a relative path; don't move or rename it.
 - **Delete `build/` before building or testing a wheel.** Stale, gitignored, but setuptools reuses
   `build/lib/`, so `pip install .` ships dead modules (`align.py`, `local_aligner.py`, a 3.12-only
   `pisa.py`, top-level `structure_fetcher.py`/`pisa_downloader.py`). Never edit it.
 
 ## As a library
 
-`PocketMapper().search(...)`, a step's entry or core function in `<step>.step`, or any component directly
+`PocketMapper().search(...)`, a step's entry or core function in `<step>.<step>`, or any component directly
 (`parse.qt_processor`, `lib.structure_downloader`, `pockets.pisa_downloader`, `align.structure_preprocessor`,
 `pockets.pocket_fetcher.fetch_pockets` or one builder, `pockets.pisa` (`load_interfaces`, `interface_partners`,
 `pisa_pockets_from_records`), `pockets.vdw.vdw_contact_residues`, `align.sequence_aligner`,
 `superpose.structure_aligner`,
 `lib.foldseek`). No component or step takes a `Settings`; the entry functions take its dict as `job_file`.
 
-- **Records come from `parse.step.parse_entries`**: the side checks parse makes, with no files written.
+- **Records come from `parse.parse.parse_entries`**: the side checks parse makes, with no files written.
   A finished run's own records, its dropped entries left out, are
   `lib.entries.entry_sides(lib.entries.read_entries(entries_path))`.
 - **Superposition can be deferred**: `search(align_count=0)`, then
-  `superpose.step.superpose(job_file=settings)`, or `StructureAligner.align_structs` with the records of
-  the run's `entries.tsv`, as above (FSDB targets also need `fsdb_path`; `superpose.step` derives it).
+  `superpose.superpose.superpose(job_file=settings)`, or `StructureAligner.align_structs` with the records
+  of the run's `entries.tsv`, as above (FSDB targets also need `fsdb_path`; `superpose.superpose` derives it).
   Records point at `pdb_dir`/`alphafold_dir`, which temp deletion never touches.
   `query_ids`/`target_ids`/`overwrite` exist for batching this.

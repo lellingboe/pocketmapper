@@ -36,6 +36,12 @@ Mechanism: `project-overview.md` "Logging and errors".
 - **A writer into a configurable path makes its own directory**: `lib.files.make_dir` in the pipeline,
   `os.makedirs` in components.
 
+## Tests
+- **Test code follows these standards too**: a docstring on every module, test and fixture (one line is
+  enough), no annotations, `os.path`, f-strings, absolute imports.
+- **Test file basenames are unique across `tests/`.** There are no `__init__.py` files.
+- **Prefer `pytest.mark.parametrize` tables** over one test per case.
+
 ## Formatting
 - **ruff, configured in `pyproject.toml`.** pre-commit runs `ruff check --fix` and `ruff format`; CI
   checks both.

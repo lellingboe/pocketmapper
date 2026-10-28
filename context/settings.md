@@ -46,9 +46,10 @@ static default: `lib.settings.SETTING_DEFAULTS` (from `lib.constants.DEFAULT_*`,
 Signature and parser defaults are all None. Path defaults are `lib.settings.CACHE_PATH_DEFAULTS` /
 `RESULTS_PATH_DEFAULTS` (`cache_path`, `results_path`). `cli()` passes parsed args straight through its
 dispatch table, so there is no kwarg block. Miss one → argparse fails or the option is silently
-ignored. Check, per command: `inspect.signature(<step>.step.<command>)` == subparser `_actions` dests; for
-search also `dataclasses.fields(Settings)` == signature == `arguments` keys (modulo `job_file`);
-`SETTING_DEFAULTS` keys ⊆ `JOB_KEYS`.
+ignored. `tests/unit/test_cli.py` checks, per command, that the options are exactly the parameters of its
+`cli.DISPATCH` function and all default to None; for search also `dataclasses.fields(Settings)` ==
+signature == `arguments` keys (modulo `job_file`); and `SETTING_DEFAULTS` keys ⊆ `JOB_KEYS`. No test
+checks every step's `arguments` dict, or README.
 
 Options are grouped by lifetime in `cli.COMMANDS` and README alike: `in`, `aligned structure`, `cache`,
 `out`, `temp`, `advanced` (README lists advanced options in the main table: an `Advanced options`
@@ -60,7 +61,7 @@ directory is made up front, by `lib.logs.log_to_file` (the file handler opens at
 not make its directory fails once a path option points elsewhere.
 
 **`temp_dir` is one option, three dirs**, `lib.constants.TEMP_SUBDIRS` (`query_structures/`,
-`target_structures/`, `foldseek_tmp/`), used in `align/step.py` (all three) and `fetch/step.py`
+`target_structures/`, `foldseek_tmp/`), used in `align/align.py` (all three) and `fetch/fetch.py`
 (`foldseek_tmp/`, for a DB download). The two
 structure dirs are made in `foldseek_preprocessing`, `foldseek_tmp/` before each Foldseek call that uses
 it (MMseqs2 makes only one level of tmp dir), so a `seq` run makes none. Ownership is
