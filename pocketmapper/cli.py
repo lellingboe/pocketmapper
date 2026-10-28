@@ -8,7 +8,8 @@ options are exactly its function's parameters, and `cli()` passes the parsed arg
 through. The pipeline itself stays importable without a terminal.
 
 `OPTIONS` holds every option once; `COMMANDS` lists which options each subcommand takes, grouped
-for `--help`. Three parsing details are load-bearing, each for a reason the code alone would not show:
+for `--help`; `DISPATCH` maps each subcommand to its function. Three parsing details are load-bearing,
+each for a reason the code alone would not show:
 
 - `search`'s and `parse`'s query and target are optional positionals; there are no
   `--query`/`--target` options. A job file may supply them instead, and `lib.settings.layer_settings`
@@ -461,6 +462,17 @@ COMMANDS = {
     ),
 }
 
+# Command -> the function its options are the parameters of
+DISPATCH = {
+    "parse": parse,
+    "fetch_structures": fetch_structures,
+    "align": align,
+    "pockets": pockets,
+    "compare": compare,
+    "superpose": superpose,
+    "search": PocketMapper().search,
+}
+
 
 def build_parser():
     """
@@ -514,16 +526,6 @@ def cli(argv=None):
         parser.print_help()
         return
 
-    # Command -> the function its options are the parameters of
-    dispatch = {
-        "parse": parse,
-        "fetch_structures": fetch_structures,
-        "align": align,
-        "pockets": pockets,
-        "compare": compare,
-        "superpose": superpose,
-        "search": PocketMapper().search,
-    }
     kwargs = {dest: value for dest, value in vars(args).items() if dest != "command"}
 
     # Before dispatch: layer_settings can log a critical on a bad job file before any log is open, and
@@ -532,7 +534,7 @@ def cli(argv=None):
     handler = format_handler(logging.StreamHandler(sys.stdout))
     package_logger.addHandler(handler)
     try:
-        result = dispatch[args.command](**kwargs)
+        result = DISPATCH[args.command](**kwargs)
         # After the run, so it does not interleave with the log, which goes to stdout too
         if args.command == "parse":
             result.to_csv(sys.stdout, sep="\t", index=False)
