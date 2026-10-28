@@ -56,7 +56,15 @@ pocketmapper = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests/unit"]
+testpaths = ["tests/unit", "tests/integration"]
+addopts = "-rs -m 'not slow'"
+markers = [
+  "foldseek: needs foldseek on PATH",
+  "network: downloads; runs only with POCKETMAPPER_TEST_NETWORK=1, sharing POCKETMAPPER_TEST_CACHE",
+  "pdb_fsdb: needs a PDB Foldseek database at POCKETMAPPER_PDB_FSDB",
+  "huge: downloads the full-PDB Foldseek database; runs only with POCKETMAPPER_TEST_HUGE=1",
+  "slow: deselected by default; select with -m slow or -m 'slow or not slow'",
+]
 
 [tool.ruff]
 line-length = 120
