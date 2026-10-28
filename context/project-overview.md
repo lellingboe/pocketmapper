@@ -18,7 +18,7 @@ and not copied here.
 - `lib/entries.py`: `entries.tsv`, why a dropped entry warns only once, and why a rerun step gives the same
   table.
 - `parse/qt_processor.py`: the input grammar; the two tables in `QTProcessor.__init__` are the whole of it.
-- `pockets/CLAUDE.md`, `lib/CLAUDE.md`: read before changing those packages.
+- `parse/CLAUDE.md`, `pockets/CLAUDE.md`, `lib/CLAUDE.md`: read before changing those packages.
 
 ## Invariants
 
