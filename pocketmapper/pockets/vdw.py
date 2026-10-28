@@ -8,16 +8,16 @@ offered for an AlphaFold model, which is always a single chain. `vdw_pockets` is
 It finds the contact residues and leaves the pocket itself to `structure.parse_pocket_from_struct`, so
 `seq_pos` and coordinates are set as for every other method.
 
-Every structure gets `setup_entities()` (through `structure.load_structure`), because
+Every structure gets `setup_entities()` (through `lib.structure_manager.load_structure`), because
 `lib.residues.ca_residues` and `get_polymer()` read the entity types it sets.
 """
 
 import logging
 
-import gemmi
 import numpy as np
 
 from pocketmapper.lib.residues import ca_residues, split_chain_info
+from pocketmapper.lib.structure_manager import load_structure
 from pocketmapper.pockets.structure import parse_pocket_from_struct, records_by_structure
 
 logger = logging.getLogger(__name__)
@@ -112,7 +112,7 @@ def atp_pocket_overlap(struct_path, atp_chain_id, name):
     Residues of a chain's polymer that contact the ATP residue in the same chain.
 
     Args:
-        struct_path (str): Path to an mmCIF structure.
+        struct_path (str): Path to a structure file, its format inferred from the extension.
         atp_chain_id (str): Chain holding both the polymer and the ATP residue.
         name (str): Key the pocket is returned under.
 
@@ -120,10 +120,11 @@ def atp_pocket_overlap(struct_path, atp_chain_id, name):
         dict: {name: Pocket}.
 
     Raises:
-        ValueError: If the chain contains no ATP residue.
+        ValueError: If the structure file is missing or unreadable, or the chain contains no ATP residue.
     """
-    structure = gemmi.read_structure(struct_path, format=gemmi.CoorFormat.Mmcif)
-    structure.setup_entities()
+    structure = load_structure(struct_path, {"stage": "Retrieving ATP Pockets"})
+    if structure is None:
+        raise ValueError(f"Structure file {struct_path} is missing or unreadable.")
     chain = structure[0][atp_chain_id]
 
     atp_residue = None

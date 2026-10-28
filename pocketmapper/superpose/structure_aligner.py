@@ -2,9 +2,10 @@
 Building of aligned multi-structure PDB files.
 
 Takes one query structure plus one or more matched targets and writes them back out as a single
-human-readable PDB, as glue around gemmi: read mmCIF, apply per-target rotations and translations,
-rename chains so each structure stays distinguishable, and emit a combined PDB with COMPND
-metadata naming each model.
+human-readable PDB, as glue around gemmi: read each structure (through
+`lib.structure_manager.load_structure`, without `setup_entities()`), apply per-target rotations and
+translations, rename chains so each structure stays distinguishable, and emit a combined PDB with
+COMPND metadata naming each model.
 
 `StructureAligner.align_structs` drives the whole step from a finished pocket comparison, so a caller
 holding one of those needs nothing else from the pipeline to produce the aligned structures.
@@ -26,6 +27,7 @@ from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.files import safe_filename
 from pocketmapper.lib.foldseek import extract_fsdb_structures
 from pocketmapper.lib.residues import split_chain_info
+from pocketmapper.lib.structure_manager import load_structure
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +135,7 @@ class StructureAligner:
 
         Returns:
             str: `out_path`, once the merged PDB is written; None when no structure could be placed
-                and nothing was written.
+                and nothing was written. A record whose structure is missing or unreadable is dropped.
         """
         structs = []
         domain_chains = []
@@ -154,7 +156,14 @@ class StructureAligner:
                         continue
                     struct_u, struct_t = transforms[i]
 
-                struct = gemmi.read_structure(record["struct_path"])
+                # The merged structure gets setup_entities() in apply_transformation
+                struct = load_structure(record["struct_path"], self.log_extra, entities=False)
+                if struct is None:
+                    dropped.append(record["pocket_id"])
+                    logger.error(
+                        f"Problem processing {record['pocket_id']}: structure not loaded", extra=self.log_extra
+                    )
+                    continue
 
                 if record["chain_info"] is None:
                     domain_chain = 0  # first chain

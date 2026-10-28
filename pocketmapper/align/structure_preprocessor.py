@@ -2,8 +2,9 @@
 Reduction of fetched structures to the single chain the alignment needs.
 
 Foldseek indexes one structure per chain, so each record's reference structure is split down to
-its alignment chain before the search directory is built. Parsing and writing are gemmi
-throughout; the single-chain copies are written as gzipped mmCIF.
+its alignment chain before the search directory is built. Structures are read through
+`lib.structure_manager.load_structure` without `setup_entities()`, so the copies keep the entity data
+as read; they are written with gemmi as gzipped mmCIF.
 """
 
 import logging
@@ -15,6 +16,7 @@ from tqdm import tqdm
 
 from pocketmapper.lib.files import gzip_file
 from pocketmapper.lib.residues import split_chain_info
+from pocketmapper.lib.structure_manager import load_structure
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +50,9 @@ class StructurePreprocessor:
             search_dir (str): Directory Foldseek will read the single-chain structures from.
 
         Returns:
-            dict: pocket_id -> whether preprocessing succeeded. Foldseek-database records count as
-                succeeded untouched.
+            dict: pocket_id -> whether preprocessing succeeded: False if the reference structure is missing
+                or unreadable, or lacks the alignment chain. Foldseek-database records count as succeeded
+                untouched.
         """
         status_dict = {}
 
@@ -67,7 +70,10 @@ class StructurePreprocessor:
 
             if not os.path.exists(out_path_gz):
                 ref_path = record["struct_path"]  # e.g., /path/to/alphafold_dir/P12345.cif.gz
-                st = gemmi.read_structure(ref_path)
+                st = load_structure(ref_path, self.log_extra, entities=False)
+                if st is None:
+                    status_dict[record["pocket_id"]] = False
+                    continue
 
                 # Taking first model and deleting the rest
                 del st[1:]

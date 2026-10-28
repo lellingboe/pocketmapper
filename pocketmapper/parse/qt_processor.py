@@ -27,6 +27,7 @@ from pocketmapper.lib.constants import DEFAULT_CHAIN, DEFAULT_POCKET_METHOD
 from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.foldseek import bundled_foldseek_dbs
 from pocketmapper.lib.residues import split_chain_info
+from pocketmapper.lib.structure_manager import StructureManager
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +102,8 @@ class QTProcessor:
         self.work_dir = os.path.abspath(work_dir if work_dir is not None else os.getcwd())
         self.pdb_dir = self.work_path(pdb_dir)
         self.alphafold_dir = self.work_path(alphafold_dir)
+        # Owns the cache layout of pdb and alphafold structures; only its `path` is used here
+        self.structure_manager = StructureManager(self.pdb_dir, self.alphafold_dir)
 
         # Structure type regex patterns, matched against the upper-cased identifier. A PDB id starts 1-9.
         self.pdb_regex = r"^[1-9][A-Z0-9]{3}$"
@@ -395,13 +398,15 @@ class QTProcessor:
             struct_type (str): Type of the structure ("alphafold", "pdb", "local_file").
 
         Returns:
-            str: Path to the structure file. A local file's is made absolute against `work_dir`.
+            str: Path to the structure file: the `StructureManager` cache path for pdb and alphafold, and
+                for a local file its path made absolute against `work_dir`.
+
+        Raises:
+            PocketMapperError: If the structure type is unknown.
         """
         match struct_type:
-            case "alphafold":
-                return os.path.join(self.alphafold_dir, f"{struct_info}.cif.gz")
-            case "pdb":
-                return os.path.join(self.pdb_dir, f"{struct_info}.cif.gz")
+            case "alphafold" | "pdb":
+                return self.structure_manager.path(struct_type, struct_info)
             case "local_file":
                 return self.work_path(struct_info)
             case _:

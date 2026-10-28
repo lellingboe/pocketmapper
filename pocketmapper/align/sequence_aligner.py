@@ -6,15 +6,19 @@ same alignment table. It has no structural information to offer, so it writes "-
 `t` transform columns.
 """
 
+import logging
 from itertools import product
 
-import gemmi
 import pandas as pd
 from Bio import Align
 from Bio.Align import substitution_matrices
 
 from pocketmapper.lib.constants import ALIGNMENT_COLUMNS
+from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.residues import ca_residues, one_letter_code, split_chain_info
+from pocketmapper.lib.structure_manager import load_structure
+
+logger = logging.getLogger(__name__)
 
 
 class SequenceAligner:
@@ -73,7 +77,11 @@ class SequenceAligner:
 
         Returns:
             pandas.DataFrame: One row per query/target pair, columns in `ALIGNMENT_COLUMNS` order.
+
+        Raises:
+            PocketMapperError: If a record's structure file is missing or cannot be read.
         """
+        log_extra = {"stage": "Local Alignment"}
 
         # One sequence per preprocess_name, so a chain on both sides is parsed once. Read from the full
         # reference structure, selecting the chain here.
@@ -83,8 +91,13 @@ class SequenceAligner:
             if name in name_to_seq:
                 continue  # skip if already processed
             path = record["struct_path"]
-            st = gemmi.read_structure(path)  # format inferred from the extension, so local .pdb inputs work too
-            st.setup_entities()  # ca_residues reads the entity types
+            # Format inferred from the extension, so local .pdb inputs work too; ca_residues reads the
+            # entity types load_structure sets
+            st = load_structure(path, log_extra)
+            if st is None:
+                msg = f"Cannot align {record['pocket_id']}: structure file {path} is missing or unreadable"
+                logger.critical(msg, extra=log_extra)
+                raise PocketMapperError(msg)
             aln_chain, _ = split_chain_info(record["chain_info"])
             # The same walk as a pocket's seq_pos, so the alignment positions match it
             name_to_seq[name] = "".join(one_letter_code(res.name) for res in ca_residues(st[0][aln_chain]))
