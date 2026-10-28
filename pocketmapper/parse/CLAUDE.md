@@ -35,6 +35,12 @@ grammar is the two tables in `QTProcessor.__init__`; README "Input format" is th
   `pockets.pocket_fetcher.POCKET_BUILDERS`; and the hand-written method lists in `cli.py`
   (`--query_pocket_method` help) and the README (Options table, both "Input format" tables).
   `accepted_pocket_methods` reads the table, so validation needs no other change.
+- **A residue list is spelled `\d+(,\d+)*,?`.** The older `(\d+,?)+` matches the same strings but
+  backtracks exponentially when a long list has a bad last character; keep new patterns free of nested
+  quantifiers (`test_residue_pattern_linear`).
+- **A top-level input that is an existing file is a file of entries**, unless `is_structure_file` says
+  its name is a structure's (`STRUCTURE_EXTENSIONS`). Inside an entries file, any existing file is a
+  `local_file` entry.
 - **Every pattern allows only single-character chains.** To allow longer chain ids, also check
   `lib.residues.split_chain_info` and the PDB-database skip described in `pockets/CLAUDE.md`.
 - `context/settings.md` covers `query_pocket_method` / `target_pocket_method` as settings; read it before

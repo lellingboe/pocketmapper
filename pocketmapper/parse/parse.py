@@ -225,12 +225,10 @@ def parse_side(entries, name, pocket_method, cache_dirs, work_dir):
     )
     rows = []
     for source in [entries] if isinstance(entries, str) else entries:
-        records, rejected = qtprocessor.process_qt_cmdline_input(
-            qt_input=source, name=name, pocket_method=pocket_method
-        )
-        rows += [entry_row(name, record, source) for record in records]
-        rows += [
-            entry_row(name, {"pocket_id": entry}, source, "parse", "invalid_entry", reason)
-            for entry, reason in rejected
-        ]
+        results = qtprocessor.process_qt_cmdline_input(qt_input=source, name=name, pocket_method=pocket_method)
+        for entry, record, reason in results:
+            if record is None:
+                rows.append(entry_row(name, {"pocket_id": entry}, source, "parse", "invalid_entry", reason))
+            else:
+                rows.append(entry_row(name, record, source))
     return rows

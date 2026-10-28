@@ -56,9 +56,9 @@ def records(processor):
     """The 4Q5J query records, built by the parser."""
     records = []
     for entry in ("4Q5J:A_E", "4Q5J:B_F"):
-        side, rejected = processor.process_qt_cmdline_input(entry, "query")
-        assert rejected == []
-        records += side
+        ((_, record, reason),) = processor.process_qt_cmdline_input(entry, "query")
+        assert reason is None
+        records.append(record)
     return records
 
 

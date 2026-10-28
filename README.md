@@ -223,7 +223,7 @@ STRUCTURE[:CHAIN[:RESIDUES]]
 ```
 
 - **STRUCTURE** — a 4-character PDB ID (`4Q5J`), a UniProt accession (`P04637`, fetched from
-  AlphaFold), or a path to a local structure file.
+  AlphaFold), or a path to a local structure file. IDs and accessions are case-insensitive.
 - **CHAIN** — the chain the pocket belongs to. For the interface-based methods this is two chains joined
   by an underscore (`B_F`), where the first is the chain carrying the pocket and the second is its
   binding partner. Optional; omitted, it defaults to chain `A`.
@@ -266,8 +266,10 @@ A passthrough entry's residue ids are checked against the structure: an entry na
 does not have, or has without a CA atom, is skipped with a warning rather than compared, and the rest of
 the run continues. A residue id listed more than once is collapsed to one, also with a warning.
 
-For batch runs, pass a path to a file containing one such entry per line instead of a single entry.
-Query and target files are read independently, and every query is compared against every target.
+For batch runs, pass a path to a file containing one such entry per line instead of a single entry;
+blank lines are ignored. A path ending in `.cif`, `.mmcif`, `.pdb` or `.ent` (optionally `.gz`) is read
+as a structure entry, not as a file of entries. Query and target files are read independently, and every
+query is compared against every target.
 
 ### Closed vs Open Search
 

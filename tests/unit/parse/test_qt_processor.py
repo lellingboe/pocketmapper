@@ -97,10 +97,12 @@ def test_accepted_pocket_methods(processor):
         ("4q5j", "pdb"),
         ("1abc", "pdb"),
         ("P24941", "alphafold"),
+        ("p24941", "alphafold"),
         ("A0A023GPI8", "alphafold"),
         ("struct.cif", "local_file"),
         ("XYZ", None),
         ("4Q5JX", None),
+        ("0ABC", None),
         ("missing.cif", None),
     ],
 )
@@ -115,17 +117,21 @@ def test_determine_struct_type(processor, write_file, struct_str, expected):
         assert reason is None
 
 
-def test_accession_beats_file(processor, write_file):
-    """A file named like a PDB id is still read as a PDB id."""
-    write_file("4Q5J", b"any bytes")
-    assert processor.determine_struct_type("4Q5J") == ("pdb", None)
+@pytest.mark.parametrize(
+    "name, expected", [("4Q5J", "pdb"), ("4q5j", "pdb"), ("test", "local_file"), ("0ABC", "local_file")]
+)
+def test_accession_beats_file(processor, write_file, name, expected):
+    """A file named like a PDB id is still read as a PDB id; one a PDB id cannot spell is a local file."""
+    write_file(name, b"any bytes")
+    assert processor.determine_struct_type(name) == (expected, None)
 
 
-def test_directory_struct_raises(processor, work_dir):
+def test_directory_struct_rejected(processor, work_dir):
     """A directory is not a supported structure."""
     os.makedirs(os.path.join(work_dir, "somedir"))
-    with pytest.raises(PocketMapperError, match="Directory input"):
-        processor.determine_struct_type("somedir")
+    struct_type, reason = processor.determine_struct_type("somedir")
+    assert struct_type is None
+    assert "Directory input" in reason
 
 
 # determine_ref_struct_path
@@ -221,6 +227,12 @@ def test_validate_match(processor, entry, method, struct_type):
     assert processor.validate_pocket_method(entry, method, struct_type) is None
 
 
+@pytest.mark.parametrize("method, pocket_info", [("passthrough", "A:"), ("vdw", "A_B:")])
+def test_residue_pattern_linear(processor, method, pocket_info):
+    """A long residue list with a bad last character is rejected at once, not after exponential backtracking."""
+    assert not re.match(processor.pocket_methods[method][0], pocket_info + "1" * 5000 + "x")
+
+
 @pytest.mark.parametrize("entry, struct_type, expected", [c for c in INFERENCE_CASES if c.values[2] is not None])
 def test_inferred_method_validates(processor, entry, struct_type, expected):
     """Every method inference gives passes validation, so the two tables agree."""
@@ -287,6 +299,20 @@ def test_build_record_defaults(processor, work_dir):
     assert record.pocket_method == "whole_chain"
 
 
+@pytest.mark.parametrize("entry, struct_type", [("4q5j:A", "pdb"), ("p24941:A", "alphafold")])
+def test_accession_case_normalised(processor, entry, struct_type):
+    """An accession typed in lower case gives the upper-case record's structure and name, and keeps its own pocket_id."""
+    lower, _ = processor.parse_individual_qt(entry, "auto")
+    upper, _ = processor.parse_individual_qt(entry.upper(), "auto")
+    assert lower.struct_type == struct_type
+    assert lower.pocket_id == entry
+    assert (lower.struct_info, lower.struct_path, lower.preprocess_name) == (
+        upper.struct_info,
+        upper.struct_path,
+        upper.preprocess_name,
+    )
+
+
 def test_pocket_id_verbatim_residues_canonical(processor):
     """`pocket_id` keeps the entry as typed while `residue_info` is canonical."""
     record, reason = processor.parse_individual_qt("4Q5J:A:07,7", "auto")
@@ -345,6 +371,23 @@ def test_preprocess_name_local_contents(processor, write_file):
     assert name("dir1/struct.cif:A") != original
 
 
+def test_unreadable_local_file_rejected(processor, write_file, monkeypatch):
+    """A local file that cannot be read for hashing gives a reason."""
+    path = write_file("struct.cif", b"any bytes")
+    real_open = builtins.open
+
+    def failing_open(file, *args, **kwargs):
+        """Raise OSError for the structure file, else open normally."""
+        if file == path:
+            raise OSError("permission denied")
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", failing_open)
+    record, reason = processor.parse_individual_qt("struct.cif:A", "auto")
+    assert record is None
+    assert reason == "Could not read struct.cif: permission denied"
+
+
 def test_forced_method_mismatch(processor):
     """A forced method the entry cannot supply gives a reason."""
     record, reason = processor.parse_individual_qt("4Q5J:A", "passthrough")
@@ -388,11 +431,12 @@ def test_unparseable_entry(processor):
     assert "XYZ" in reason
 
 
-def test_directory_entry_raises(processor, work_dir):
-    """An entry naming a directory raises."""
+def test_directory_entry_rejected(processor, work_dir):
+    """An entry naming a directory gives a reason."""
     os.makedirs(os.path.join(work_dir, "somedir"))
-    with pytest.raises(PocketMapperError, match="Directory input"):
-        processor.parse_individual_qt("somedir:A", "auto")
+    record, reason = processor.parse_individual_qt("somedir:A", "auto")
+    assert record is None
+    assert reason == "Directory input is not supported: somedir"
 
 
 # process_qt_cmdline_input
@@ -414,43 +458,53 @@ def test_unknown_method_raises(processor):
 
 def test_single_entry_record_fields(processor):
     """A single entry gives one record dict holding exactly RECORD_FIELDS, in order."""
-    records, rejected = processor.process_qt_cmdline_input("4Q5J:A", "query")
-    assert rejected == []
-    assert len(records) == 1
-    assert tuple(records[0]) == RECORD_FIELDS
+    ((entry, record, reason),) = processor.process_qt_cmdline_input("4Q5J:A", "query")
+    assert (entry, reason) == ("4Q5J:A", None)
+    assert tuple(record) == RECORD_FIELDS
 
 
 def test_entries_file(processor, write_file):
-    """An entries file gives its records in file order, stripped, with a bad line rejected."""
-    write_file(os.path.join("inputs", "entries.txt"), "4Q5J:A\n  P24941:A:1,2  \nXYZ:A\n4Q5J:B_F\n")
-    records, rejected = processor.process_qt_cmdline_input(os.path.join("inputs", "entries.txt"), "target")
-    assert [r["pocket_id"] for r in records] == ["4Q5J:A", "P24941:A:1,2", "4Q5J:B_F"]
-    assert len(rejected) == 1
-    entry, reason = rejected[0]
-    assert entry == "XYZ:A"
-    assert "XYZ" in reason
+    """An entries file gives an entry per line in file order, stripped, blank lines skipped, a bad line rejected."""
+    write_file(os.path.join("inputs", "entries.txt"), "4Q5J:A\n\n  P24941:A:1,2  \nXYZ:A\n   \n4Q5J:B_F\n\n")
+    results = processor.process_qt_cmdline_input(os.path.join("inputs", "entries.txt"), "target")
+    assert [(entry, record is not None) for entry, record, _ in results] == [
+        ("4Q5J:A", True),
+        ("P24941:A:1,2", True),
+        ("XYZ:A", False),
+        ("4Q5J:B_F", True),
+    ]
+    assert "XYZ" in results[2][2]
+
+
+@pytest.mark.parametrize(
+    "name, is_entry", [("x.cif", True), ("x.cif.gz", True), ("X.PDB", True), ("x.ent.gz", True), ("x.txt", False)]
+)
+def test_structure_file_not_read_as_entries(processor, write_file, name, is_entry):
+    """An existing file named like a structure is itself an entry; any other file is a file of entries."""
+    write_file(name, "4Q5J:A\n")
+    assert processor.read_entries(name, read_file=True) == ([name] if is_entry else ["4Q5J:A"])
 
 
 def test_entries_file_forced_method(processor, write_file):
     """A forced method rejects only the lines that cannot use it, and keeps the rest in file order."""
     path = write_file("entries.txt", "4Q5J:B_F\n4Q5J:A\n4Q5J:A_E\n")
-    records, rejected = processor.process_qt_cmdline_input(path, "query", pocket_method="pisa")
-    assert [(r["pocket_id"], r["pocket_method"]) for r in records] == [("4Q5J:B_F", "pisa"), ("4Q5J:A_E", "pisa")]
-    assert len(rejected) == 1
-    entry, reason = rejected[0]
-    assert entry == "4Q5J:A"
-    assert processor.pocket_methods["pisa"][1] in reason
+    results = processor.process_qt_cmdline_input(path, "query", pocket_method="pisa")
+    assert [(entry, record and record["pocket_method"]) for entry, record, _ in results] == [
+        ("4Q5J:B_F", "pisa"),
+        ("4Q5J:A", None),
+        ("4Q5J:A_E", "pisa"),
+    ]
+    assert processor.pocket_methods["pisa"][1] in results[1][2]
 
 
 def test_foldseek_db_file_not_read(processor, write_file, work_dir):
     """Under foldseek_db, an existing file is a DB, not an entries file."""
     write_file("mydb", "4Q5J:A\n4Q5J:B\n")
-    records, rejected = processor.process_qt_cmdline_input("mydb", "target", pocket_method="foldseek_db")
-    assert rejected == []
-    assert len(records) == 1
-    assert records[0]["pocket_id"] == "mydb"
-    assert records[0]["struct_type"] == "foldseek_db"
-    assert records[0]["struct_path"] == os.path.join(work_dir, "mydb")
+    ((entry, record, reason),) = processor.process_qt_cmdline_input("mydb", "target", pocket_method="foldseek_db")
+    assert (entry, reason) == ("mydb", None)
+    assert record["pocket_id"] == "mydb"
+    assert record["struct_type"] == "foldseek_db"
+    assert record["struct_path"] == os.path.join(work_dir, "mydb")
 
 
 def test_log_stage_names_side(processor):

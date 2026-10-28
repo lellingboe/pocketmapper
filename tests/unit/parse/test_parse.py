@@ -72,16 +72,16 @@ def test_parse_side_sources(cache_dirs, work_dir, entries, expected):
 
 
 def test_parse_side_order(cache_dirs, work_dir, write_file):
-    """Rows follow source order, and within a source the parsed records come first, then the rejects."""
+    """Rows follow source order, and within a source the order of its entries, parsed or rejected."""
     write_file("first.txt", "XYZ\n4Q5J:A\n1abc:B\n")
     write_file("second.txt", "4Q5J:AB\nP24941\n")
     rows = parse_side(["first.txt", "second.txt", "2ER6"], "target", "auto", cache_dirs, work_dir)
     assert [(row["pocket_id"], row["source"], row["failed_reason"]) for row in rows] == [
+        ("XYZ", "first.txt", "invalid_entry"),
         ("4Q5J:A", "first.txt", None),
         ("1abc:B", "first.txt", None),
-        ("XYZ", "first.txt", "invalid_entry"),
-        ("P24941", "second.txt", None),
         ("4Q5J:AB", "second.txt", "invalid_entry"),
+        ("P24941", "second.txt", None),
         ("2ER6", "2ER6", None),
     ]
 

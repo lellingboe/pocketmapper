@@ -2,7 +2,9 @@
 Parsing of query and target input strings into structured records.
 
 Input grammar is `struct_info[:chain_info[:residue_info]]`, and either side may instead be a file
-holding one such string per line -- README's "Input format" table documents the forms.
+holding one such string per line, blank lines skipped -- README's "Input format" table documents the
+forms. An existing file named like a structure (`STRUCTURE_EXTENSIONS`) is an entry, not such a file.
+PDB ids and UniProt accessions are matched in any case and kept upper-cased.
 `determine_struct_type` and `determine_pocket_method` implement them, against the regexes defined
 in `QTProcessor.__init__`. A caller may force a pocket method instead of the default "auto";
 `validate_pocket_method` holds a forced one to the same patterns, so no record leaves here without
@@ -27,6 +29,23 @@ from pocketmapper.lib.foldseek import bundled_foldseek_dbs
 from pocketmapper.lib.residues import split_chain_info
 
 logger = logging.getLogger(__name__)
+
+# Extensions of a structure file, each optionally followed by ".gz"
+STRUCTURE_EXTENSIONS = (".cif", ".mmcif", ".pdb", ".ent")
+
+
+def is_structure_file(path):
+    """
+    Whether a path is named like a structure file.
+
+    Args:
+        path (str): The path; only its basename is read.
+
+    Returns:
+        bool: True if the basename ends in one of `STRUCTURE_EXTENSIONS`, in any case and optionally
+            followed by ".gz".
+    """
+    return os.path.basename(path).lower().removesuffix(".gz").endswith(STRUCTURE_EXTENSIONS)
 
 
 @dataclass
@@ -83,21 +102,22 @@ class QTProcessor:
         self.pdb_dir = self.work_path(pdb_dir)
         self.alphafold_dir = self.work_path(alphafold_dir)
 
-        # Structure type regex patterns
-        self.pdb_regex = r"^[a-zA-Z0-9]{4}$"
+        # Structure type regex patterns, matched against the upper-cased identifier. A PDB id starts 1-9.
+        self.pdb_regex = r"^[1-9][A-Z0-9]{3}$"
         self.uniprot_regex = r"^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})$"  # https://www.uniprot.org/help/accession_numbers
 
         # Pocket method -> (the pocket-info pattern that spells it, what an entry must carry to use
         # it). Every pattern spells a chain as a single character. Both inference and validation read
-        # this one table, so an inferred method and a forced one cannot disagree.
+        # this one table, so an inferred method and a forced one cannot disagree. A residue list is
+        # spelled `\d+(,\d+)*,?`, not `(\d+,?)+`, which backtracks exponentially on a long bad list.
         self.pocket_methods = {
-            "whole_chain": (r"^[A-Za-z0-9]?\:?$", "a single chain and no residue list, e.g. '4Q5J:B'"),
+            "whole_chain": (r"^[A-Za-z0-9]?:?$", "a single chain and no residue list, e.g. '4Q5J:B'"),
             "pisa": (r"^[A-Za-z0-9]_[A-Za-z0-9]$", "a chain pair, e.g. '4Q5J:B_F'"),
-            "passthrough": (r"^[A-Za-z0-9]\:(\d+\,?)+$", "a chain and a residue list, e.g. '4Q5J:A:10,11,12'"),
+            "passthrough": (r"^[A-Za-z0-9]:\d+(,\d+)*,?$", "a chain and a residue list, e.g. '4Q5J:A:10,11,12'"),
             # The partner chain is required: when it was optional, a forced vdw on '4Q5J:A' reached
             # gemmi as chain None. A trailing residue list matches but is ignored: the contacts define
             # the pocket.
-            "vdw": (r"^[A-Za-z0-9]_[A-Za-z0-9](\:(\d+\,?)*)?$", "a chain pair, e.g. '4Q5J:A_B'"),
+            "vdw": (r"^[A-Za-z0-9]_[A-Za-z0-9](:(\d+(,\d+)*,?)?)?$", "a chain pair, e.g. '4Q5J:A_B'"),
         }
 
         # struct_type -> the pocket methods it supports, in the order they are tried. whole_chain is
@@ -143,14 +163,15 @@ class QTProcessor:
                 `accepted_pocket_methods`, or the input file cannot be read.
 
         Returns:
-            tuple: (records, rejected) -- the QTRecord dicts parsed for this side, in input order, and
-                an (entry, reason) pair for each entry that could not be.
+            list: An (entry, record, reason) triple per entry, in input order. `record` is the QTRecord
+                dict and `reason` None, or `record` is None and `reason` says why the entry could not
+                be parsed.
         """
         self.log_extra.update({"stage": f"Processing {name}"})
         logger.debug(f"Processing {name}", extra=self.log_extra)
 
         # Check that the input is specified
-        if isinstance(qt_input, type(None)):
+        if qt_input is None:
             logger.critical(f"{name} input is required. Exiting.", extra=self.log_extra)
             raise PocketMapperError(f"{name} input is required.")
 
@@ -164,37 +185,34 @@ class QTProcessor:
             logger.critical(msg, extra=self.log_extra)
             raise PocketMapperError(msg)
 
-        records = []
-        rejected = []
+        results = []
         for entry in self.read_entries(qt_input, read_file=pocket_method != "foldseek_db"):
             record, reason = self.parse_individual_qt(entry, pocket_method=pocket_method)
-            if record is None:
-                rejected.append((entry, reason))
-            else:
-                records.append(asdict(record))
-        return records, rejected
+            results.append((entry, None if record is None else asdict(record), reason))
+        return results
 
     def read_entries(self, qt_input, read_file):
         """
         The entries one input holds: the lines of an entries file, else the input itself.
 
         Args:
-            qt_input (str): An entry, or a path, resolved against `work_dir`, to a file of them.
+            qt_input (str): An entry, or a path, resolved against `work_dir`, to a file of them. A file
+                named like a structure (`is_structure_file`) is an entry.
             read_file (bool): Whether a file at `qt_input` holds entries. False for a Foldseek
                 database, which is a file but no list of entries.
 
         Returns:
-            list: The entries, stripped, in file order.
+            list: The entries, stripped, in file order, blank lines left out.
 
         Raises:
             PocketMapperError: If the file cannot be read.
         """
         entries_path = self.work_path(qt_input)
-        if not read_file or not os.path.isfile(entries_path):
+        if not read_file or not os.path.isfile(entries_path) or is_structure_file(entries_path):
             return [qt_input]
         try:
             with open(entries_path) as f:
-                return [line.strip() for line in f.readlines()]
+                return [line.strip() for line in f if line.strip()]
         except Exception as e:
             logger.critical(f"Problem reading the file {qt_input}: {e}", extra=self.log_extra)
             raise PocketMapperError(f"Problem reading the file {qt_input}: {e}") from e
@@ -235,9 +253,6 @@ class QTProcessor:
 
         Returns:
             tuple: (record, reason) as `parse_individual_qt` returns them.
-
-        Raises:
-            PocketMapperError: If the entry names a directory, which is not supported.
         """
 
         # Unpack the input string into its components
@@ -254,20 +269,10 @@ class QTProcessor:
         struct_type, reason = self.determine_struct_type(struct_info)
         if struct_type is None:
             return None, reason
+        # One case, so "4q5j" and "4Q5J" share a cached structure and an alignment
+        if struct_type != "local_file":
+            struct_info = struct_info.upper()
         struct_path = self.determine_ref_struct_path(struct_info, struct_type)
-
-        # Generate a unique name for the structure: a readable stem and chain, then a hash that also covers
-        # a local file's contents, since its name says nothing about which structure it holds. By basename
-        # alone, /dir1/structure.pdb:A and /dir2/structure.pdb:A would collide and one be silently
-        # mis-aligned. So identical copies share a name and an in-place edit gets a new one.
-        input_fname = os.path.basename(struct_info).split(".")[0]
-        domain_chain, _ = split_chain_info(chain_info)
-        name = input_fname + "_" + domain_chain  # e.g., "P12345_A" or "1ABC_A"
-        hash_input = name
-        if struct_type == "local_file":
-            with open(struct_path, "rb") as f:
-                hash_input += "_" + hashlib.md5(f.read()).hexdigest()
-        preprocess_name = name + "_" + hashlib.md5(hash_input.encode()).hexdigest()
 
         resolved_pocket_method = (
             pocket_method if pocket_method != "auto" else self.determine_pocket_method(qt, struct_type)
@@ -285,6 +290,23 @@ class QTProcessor:
             residue_info, reason = self.parse_residue_info(qt, residue_info)
             if residue_info is None:
                 return None, reason
+
+        # Generate a unique name for the structure: a readable stem and chain, then a hash that also covers
+        # a local file's contents, since its name says nothing about which structure it holds. By basename
+        # alone, /dir1/structure.pdb:A and /dir2/structure.pdb:A would collide and one be silently
+        # mis-aligned. So identical copies share a name and an in-place edit gets a new one. Hashed last,
+        # so a rejected entry's file is never read.
+        input_fname = os.path.basename(struct_info).split(".")[0]
+        domain_chain, _ = split_chain_info(chain_info)
+        name = input_fname + "_" + domain_chain  # e.g., "P12345_A" or "1ABC_A"
+        hash_input = name
+        if struct_type == "local_file":
+            try:
+                with open(struct_path, "rb") as f:
+                    hash_input += "_" + hashlib.md5(f.read()).hexdigest()
+            except OSError as e:
+                return None, f"Could not read {struct_info}: {e}"
+        preprocess_name = name + "_" + hashlib.md5(hash_input.encode()).hexdigest()
 
         record = QTRecord(
             pocket_id=qt,
@@ -349,21 +371,18 @@ class QTProcessor:
 
         Returns:
             tuple: (struct_type, reason). `struct_type` is one of "pdb", "alphafold", "local_file",
-                and `reason` None; accession patterns win over a file of the same name. If nothing
-                matched, `struct_type` is None and `reason` says so.
-
-        Raises:
-            PocketMapperError: If `struct_str` names a directory, which is not supported.
+                and `reason` None; accession patterns, matched in any case, win over a file of the same
+                name. If nothing matched, or `struct_str` names a directory, `struct_type` is None and
+                `reason` says so.
         """
-        if re.match(self.pdb_regex, struct_str):
+        if re.match(self.pdb_regex, struct_str.upper()):
             return "pdb", None
-        elif re.match(self.uniprot_regex, struct_str):
+        elif re.match(self.uniprot_regex, struct_str.upper()):
             return "alphafold", None
         elif os.path.isfile(self.work_path(struct_str)):
             return "local_file", None
         elif os.path.isdir(self.work_path(struct_str)):
-            logger.critical(f"Directory input is not currently supported: {struct_str}", extra=self.log_extra)
-            raise PocketMapperError(f"Directory input is not currently supported: {struct_str}")
+            return None, f"Directory input is not supported: {struct_str}"
         else:
             return None, f"Could not determine structure type for {struct_str}"
 
