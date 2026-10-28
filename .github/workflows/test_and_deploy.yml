@@ -85,6 +85,12 @@ jobs:
       # the package imports. argparse prints the top-level help and exits 0.
       - name: CLI entry point
         run: pocketmapper --help
+      # The unit tests need neither network nor foldseek, so they run on every
+      # interpreter here, Windows included.
+      - name: Unit tests
+        run: |
+          pip install pytest
+          python -m pytest
   # One end-to-end case per aligner, on each OS foldseek supports, plus the ends
   # of the supported Python range. Windows is absent because foldseek has no
   # Windows build -- bioconda carries only linux-64, linux-aarch64, osx-64 and

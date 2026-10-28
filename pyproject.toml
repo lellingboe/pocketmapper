@@ -33,6 +33,7 @@ classifiers = [
 dev = [
   "bump-my-version",
   "pre-commit",
+  "pytest",
   "ruff",
 ]
 
@@ -53,6 +54,9 @@ pocketmapper = [
   "data/blosum62.bla",
   "data/human_domains/*",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]
 
 [tool.ruff]
 line-length = 120
