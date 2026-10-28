@@ -18,6 +18,8 @@ lowered again, so a rate-limited run slows down and stays slow rather than re-pr
 No stage raises on a bad entry. Each returns the ids it could not handle and the entry point
 collects them into one JSON report, so the entries PISA lacks cost a line in that file rather than
 the rest of the batch.
+
+With downloads off, the entry point uses only what `interface_pairs/` already holds and sends no request.
 """
 
 import json
@@ -99,7 +101,8 @@ class PisaDownloader:
     separately usable, and each makes the directories it writes into. Every stage returns what it could not
     handle instead of raising, so one dead entry does not abort a large batch. Every file, downloaded or
     written here, is written through a `.part` file, so an interrupted run cannot leave a truncated file
-    for a later run to trust.
+    for a later run to trust. With `download` False, `download_missing_interfaces` runs no stage, so it
+    sends no request; the download stages called directly still fetch.
     """
 
     def __init__(
@@ -108,6 +111,7 @@ class PisaDownloader:
         source=DEFAULT_PISA_SOURCE,
         summary_batch_size=50,
         max_workers=DOWNLOAD_WORKERS,
+        download=True,
     ):
         """
         Lay out the cache under `pisa_dir` and configure where assembly interfaces come from.
@@ -120,6 +124,8 @@ class PisaDownloader:
             summary_batch_size (int, optional): Entries per summary request. The API fails with a 500
                 somewhere above 800, so keep it well below that. Defaults to 50.
             max_workers (int, optional): Concurrent FTP downloads. Defaults to DOWNLOAD_WORKERS.
+            download (bool, optional): Whether `download_missing_interfaces` may fetch entries missing from
+                `interface_pairs/`. Defaults to True.
 
         Raises:
             PocketMapperError: If `source` is not one of PISA_SOURCES.
@@ -132,6 +138,7 @@ class PisaDownloader:
         self.source = source
         self.summary_batch_size = summary_batch_size
         self.max_workers = max_workers
+        self.download = download
         self.summary_dir = os.path.join(pisa_dir, "summaries")
         self.asm_dir = os.path.join(pisa_dir, "assemblies")
         self.interface_dir = os.path.join(pisa_dir, "interface_pairs")
@@ -145,13 +152,18 @@ class PisaDownloader:
         assembly responses, writes one `<pdb_code>.json` per entry into `interface_dir`, and writes
         `error_path` if anything failed.
 
+        With `download` False, the entries not in `interface_dir` skip every stage: one warning gives
+        their count, and nothing is written. That includes an entry whose summaries and assemblies are
+        cached but which has no `<pdb_code>.json`; it is not reparsed.
+
         Args:
             pdb_list (list): PDB codes, in any case.
 
         Returns:
             dict: Stage name -> the ids that stage could not handle, keyed `summary_downloading`,
                 `summary_parsing`, `assembly_downloading` and `assembly_parsing`. A stage with
-                nothing to report is absent, so an empty dict means a clean run.
+                nothing to report is absent, so an empty dict means a clean run. Always empty with
+                `download` False: the entries skipped are counted only in the warning.
         """
         pdb_codes = list(dict.fromkeys(x.lower() for x in pdb_list))
         existing_files = set(glob("*.json", root_dir=self.interface_dir))
@@ -160,7 +172,12 @@ class PisaDownloader:
         logger.info(f"{local_count}/{len(pdb_codes)} interfaces found locally", extra=self.log_extra)
 
         all_failures = {}
-        if len(missing_pdbs) > 0:
+        if len(missing_pdbs) > 0 and not self.download:
+            logger.warning(
+                f"Downloads are off: skipped {len(missing_pdbs)} PISA entries not cached locally",
+                extra=self.log_extra,
+            )
+        elif len(missing_pdbs) > 0:
             success, sd_failures = self.download_missing_summaries(missing_pdbs)
             if sd_failures:
                 all_failures["summary_downloading"] = sd_failures

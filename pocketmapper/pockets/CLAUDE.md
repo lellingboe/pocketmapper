@@ -4,8 +4,8 @@ Facts about `pockets/`, moved out of `context/project-overview.md` so they load 
 
 - **`POCKET_BUILDERS` in `pocket_fetcher` is the whole method table.** Builders live beside their
   primitive and all take `(records, pocket_dir)`, plus keyword options the caller passes per method
-  through the module function `fetch_pockets(builder_options=...)` (pisa's `pisa_source` and
-  `bsa_threshold` today). A new method = one row + one builder.
+  through the module function `fetch_pockets(builder_options=...)` (pisa's `pisa_source`,
+  `bsa_threshold` and `download` today). A new method = one row + one builder.
 - **One builder contract.** A builder returns pocket_id -> Pocket for the pockets it built only. A record
   it cannot build (missing or unreadable structure, missing chain, unusable residue, unresolved interface)
   is left out with a warning, never mapped to None; the step then marks it `pocket_not_built` in
@@ -70,6 +70,15 @@ Two things that file does not say about itself:
 - **An entry whose interfaces are all skipped gets no `<pdb_code>.json`.** It therefore never enters
   the interface cache and is reparsed on every later run — from cached assemblies, so at no request
   cost, but it is also why such an entry reappears in every report.
+
+**Offline, "cached" means `interface_pairs/<code>.json` exists, and nothing else is read.**
+`PisaDownloader(download=False)` (through `download_pisa_interfaces` and the `pisa_pockets` builder option
+`download`) runs no stage for an entry without that file: one warning gives their count, no request is
+sent, and nothing is written, `errors.json` included. `pisa_pockets_from_records` then finds no interface
+file for those records and leaves them out, so the step marks them `pocket_not_built`. Accepted
+limitation: an entry with cached summaries and assemblies but no `interface_pairs/<code>.json` (an
+interrupted run, or every interface skipped, as above) is not reparsed offline, although that would cost
+no request. The download stages called directly ignore the flag.
 
 **The cache lives under `pocket_dir/pisa/`; an existing `pocket_dir/pisa_responses/` is dead** and can
 be deleted. Nothing migrates it, so the first run after the move refetches every entry from PISA. Its
