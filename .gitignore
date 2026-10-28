@@ -20,9 +20,6 @@ venv/
 # OS
 .DS_Store
 
-# e2e suite output (results, logs and the fetched-structure/PISA cache)
-tests/e2e/e2e_results/
-
 # Cache shared by the network integration tests (POCKETMAPPER_TEST_CACHE overrides it)
 tests/integration/network_cache/
 
