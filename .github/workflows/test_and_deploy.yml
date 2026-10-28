@@ -19,9 +19,11 @@ jobs:
         run: |
           ruff check .
           ruff format --check .
-  # Every supported interpreter, cheaply: install, byte-compile, import, and run
-  # the CLI's help. No network beyond PyPI and no foldseek, so this can cover the
-  # whole range without multiplying the e2e job's load on wwPDB and PDBe PISA.
+  # Every supported interpreter, cheaply: install, byte-compile, import, run the
+  # CLI's help, and run pytest -- the unit tests and the offline integration tests,
+  # which run the pipeline from the committed seed cache. No network beyond PyPI
+  # and no foldseek, so this can cover the whole range without multiplying the
+  # e2e job's load on wwPDB and PDBe PISA.
   #
   # This is also the real guard on the floor. ruff flags some newer-than-3.10
   # syntax (an f-string reusing its outer quote, say) from its target-version,
@@ -36,9 +38,9 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-        # Windows gets the import path only. foldseek has no Windows build, so
-        # e2e can never run there, but nothing in the package is POSIX-only and a
-        # broken import is worth catching.
+        # Windows gets this job only. foldseek has no Windows build, so e2e can
+        # never run there, but nothing in the package is POSIX-only, and the
+        # import path and the seq-aligner pipeline are worth catching broken.
         include:
           - os: windows-latest
             python: "3.12"
@@ -62,6 +64,8 @@ jobs:
       # Imported from the installed package, not the checkout, so this exercises
       # what the wheel actually ships -- including the bundled Foldseek DB path,
       # which lib/foldseek.py resolves with importlib.resources at import time.
+      # Run from $RUNNER_TEMP because `python -c` puts the cwd first on sys.path,
+      # and at the repo root that would import ./pocketmapper instead.
       # walk_packages, not iter_modules: iter_modules stops at the top level, so for
       # each subpackage it would import that package's __init__ and silently skip
       # the modules underneath it. onerror re-raises because
@@ -69,6 +73,7 @@ jobs:
       # this step exists to catch into a silent pass. The count is a tripwire for the
       # same class of regression.
       - name: Import every module
+        working-directory: ${{ runner.temp }}
         run: |
           python -c "
           import importlib, pkgutil, pocketmapper
@@ -85,16 +90,19 @@ jobs:
       # the package imports. argparse prints the top-level help and exits 0.
       - name: CLI entry point
         run: pocketmapper --help
-      # The unit tests need neither network nor foldseek, so they run on every
-      # interpreter here, Windows included.
-      - name: Unit tests
+      # Unit and offline integration tests, on every interpreter here, Windows
+      # included. The integration tests copy the seed cache and block the network,
+      # so the `network` tests skip, as do the `foldseek` ones (not installed
+      # here; the e2e job runs them). -rs in addopts prints each skip's reason.
+      - name: Tests
         run: |
           pip install pytest
           python -m pytest
-  # One end-to-end case per aligner, on each OS foldseek supports, plus the ends
-  # of the supported Python range. Windows is absent because foldseek has no
-  # Windows build -- bioconda carries only linux-64, linux-aarch64, osx-64 and
-  # osx-arm64.
+  # pytest with foldseek installed, so the `foldseek` tests run, then the
+  # `network` tests against live wwPDB, AlphaFold and PDBe PISA, on each OS
+  # foldseek supports, plus the ends of the supported Python range. Windows is
+  # absent because foldseek has no Windows build -- bioconda carries only
+  # linux-64, linux-aarch64, osx-64 and osx-arm64.
   #
   # 3.10 and 3.14 are here and the middle versions are not because 3.10 is the
   # only interpreter pip resolves to pandas 2.x (3.11 and up get pandas 3.x), and
@@ -145,39 +153,56 @@ jobs:
         run: |
           python -m pip install --upgrade pip \
             && pip install .[dev]
-      # run_e2e.sh reports a missing binary as SKIP and still exits 0, so a
-      # silently failed install would leave a green job that ran only the local
-      # case. Fail here instead.
+      # pytest reports a missing binary as a skip, not a failure, so a silently
+      # failed install would leave a green job that never ran a `foldseek` test.
+      # Fail here instead.
       - name: Verify foldseek
         run: foldseek version
+      # Everything not deselected or gated, offline from the seed cache: the same
+      # run as compat, plus the `foldseek` tests. No retry, since nothing here
+      # touches the network. --basetemp keeps each test's results dir, info.log
+      # included, somewhere the upload below can find it; its parent must exist.
+      - name: Offline tests
+        run: python -m pytest --basetemp "$RUNNER_TEMP/pm_pytest_offline"
       # Keyed on the OS alone, not the Python version: the cache holds downloaded
       # wwPDB structures and PISA responses, which are interpreter-independent, so
       # the three ubuntu jobs sharing one entry is the point. Concurrent jobs
-      # saving the same key just warn and skip.
+      # saving the same key just warn and skip. v2, not v1: a hit on the primary
+      # key is never saved again, and the v1 entries hold only the 4Q5J files of
+      # the two cases this job ran before pytest, so the structures the network
+      # tests add would be downloaded on every run.
       - name: Cache PocketMapper downloads
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/pm_cache
-          key: pocketmapper-e2e-${{ matrix.os }}-v1
-      # The same 4Q5J PISA pair through the foldseek and the local BLOSUM62
-      # aligner. The cases hit live wwPDB and PDBe PISA, so one retry absorbs a
-      # transient outage while a real regression fails twice. -o/-c are explicit
-      # because the runner's default out-dir is $PWD/e2e_results, which would
-      # land in the working tree.
-      - name: Run e2e cases
+          key: pocketmapper-e2e-${{ matrix.os }}-v2
+      # The `network` tests not deselected as slow or gated as huge: 4DX9 and
+      # 4Z0Y searches, the 1B38 human_domains search (foldseek), and the two
+      # step tests that download into their own dirs. They hit live services, so
+      # one retry absorbs a transient outage while a real regression fails twice.
+      # POCKETMAPPER_TEST_CACHE is explicit because its default is under tests/,
+      # in the working tree, where actions/cache would not find it.
+      - name: Network tests
         run: |
           for attempt in 1 2; do
-            tests/e2e/run_e2e.sh test_core_1 test_local_1 \
-              -o "$RUNNER_TEMP/pm_e2e" -c "$RUNNER_TEMP/pm_cache" && exit 0
-            echo "e2e attempt $attempt failed; retrying" >&2
+            POCKETMAPPER_TEST_NETWORK=1 POCKETMAPPER_TEST_CACHE="$RUNNER_TEMP/pm_cache" \
+              python -m pytest -m "network and not slow and not huge" \
+              --basetemp "$RUNNER_TEMP/pm_pytest_network" && exit 0
+            echo "network attempt $attempt failed; retrying" >&2
             sleep 30
           done
           exit 1
-      # Named by OS and Python: three jobs share an OS, and artifact names must
-      # be unique within a run.
-      - name: Upload e2e logs
+      # pytest's own report is already in the step log; what it leaves out is
+      # each run's info.log, kept under the --basetemp dirs above (the network
+      # dir from the last attempt only, since pytest clears it on start). Only
+      # the logs, because the dirs also hold a seed cache copy per test. Named by
+      # OS and Python: three jobs share an OS, and artifact names must be unique
+      # within a run.
+      - name: Upload test logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-logs-${{ matrix.os }}-py${{ matrix.python }}
-          path: ${{ runner.temp }}/pm_e2e/*.log
+          name: test-logs-${{ matrix.os }}-py${{ matrix.python }}
+          path: |
+            ${{ runner.temp }}/pm_pytest_offline/**/*.log
+            ${{ runner.temp }}/pm_pytest_network/**/*.log
