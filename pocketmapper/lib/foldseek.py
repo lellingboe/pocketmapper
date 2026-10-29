@@ -3,8 +3,9 @@ Everything PocketMapper does with the Foldseek binary and its bundled databases.
 
 Foldseek is an optional external dependency. `run_foldseek` is the single point at which the package
 runs a subcommand, so the binary name, the debug log and the failure convention are written once
-(`check_foldseek`'s probe is the one other invocation, and reports rather than raises). Callers build
-their own argument lists: the subcommands share no shape worth abstracting over.
+(`check_foldseek`'s probe is the one other invocation, and reports rather than raises; `require_foldseek`
+wraps it and raises). Callers build their own argument lists: the subcommands share no shape worth
+abstracting over.
 
 The entry names of Foldseek's PDB database are parsed here too, since they decide how the pockets of a
 Foldseek-database search are resolved.
@@ -18,6 +19,7 @@ from importlib.resources import files
 
 import pandas as pd
 
+from pocketmapper.lib.constants import FOLDSEEK_INSTALL_HINT
 from pocketmapper.lib.exceptions import PocketMapperError
 
 logger = logging.getLogger(__name__)
@@ -48,6 +50,36 @@ def check_foldseek():
         logger.debug(f"'{FOLDSEEK_BINARY}' is not runnable: {e}")
         return False
     return True
+
+
+def require_foldseek(needed_by, alternative=None):
+    """
+    Check that the foldseek binary can run, by running it.
+
+    Args:
+        needed_by (str): What needs the binary, opening the error message, e.g. "The foldseek aligner
+            was selected".
+        alternative (str, optional): A way to avoid needing it, appended to the error message.
+            Defaults to None, which suggests none.
+
+    Returns:
+        None
+
+    Raises:
+        PocketMapperError: If foldseek cannot be run.
+    """
+    log_extra = {"stage": "Configuring Settings"}
+
+    if check_foldseek():
+        return
+    msg = (
+        f"{needed_by} but 'foldseek' could not be run; it is either not on PATH or not executable "
+        f"(run with --verbosity 4 for the reason). {FOLDSEEK_INSTALL_HINT}"
+    )
+    if alternative:
+        msg += f" {alternative}"
+    logger.critical(msg, extra=log_extra)
+    raise PocketMapperError(msg)
 
 
 def run_foldseek(args, log_extra=None):

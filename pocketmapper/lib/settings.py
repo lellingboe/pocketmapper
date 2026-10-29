@@ -10,8 +10,6 @@ file or arguments name them (`resolve_step_paths`). A job file may hold any of `
 
 Every `resolve_*` takes the value as given -- from the command line, a job file or a library call, so
 any JSON value -- and returns it checked and normalised, or logs a critical and raises.
-`require_foldseek` is separate from `resolve_aligner`: some steps need the binary whatever aligner was
-chosen.
 """
 
 import json
@@ -36,13 +34,11 @@ from pocketmapper.lib.constants import (
     DEFAULT_VERBOSITY,
     DELETE_TMP_VALUES,
     FETCH_MISSING_VALUES,
-    FOLDSEEK_INSTALL_HINT,
     OFFLINE_VALUES,
     PISA_SOURCES,
     REFRESH_STRUCTURES_VALUES,
 )
 from pocketmapper.lib.exceptions import PocketMapperError
-from pocketmapper.lib.foldseek import check_foldseek
 
 logger = logging.getLogger(__name__)
 
@@ -442,36 +438,6 @@ def resolve_aligner(aligner):
         logger.critical(msg, extra=log_extra)
         raise PocketMapperError(msg)
     return normalised
-
-
-def require_foldseek(needed_by, alternative=None):
-    """
-    Check that the foldseek binary can run, by running it.
-
-    Args:
-        needed_by (str): What needs the binary, opening the error message, e.g. "The foldseek aligner
-            was selected".
-        alternative (str, optional): A way to avoid needing it, appended to the error message.
-            Defaults to None, which suggests none.
-
-    Returns:
-        None
-
-    Raises:
-        PocketMapperError: If foldseek cannot be run.
-    """
-    log_extra = {"stage": "Configuring Settings"}
-
-    if check_foldseek():
-        return
-    msg = (
-        f"{needed_by} but 'foldseek' could not be run; it is either not on PATH or not executable "
-        f"(run with --verbosity 4 for the reason). {FOLDSEEK_INSTALL_HINT}"
-    )
-    if alternative:
-        msg += f" {alternative}"
-    logger.critical(msg, extra=log_extra)
-    raise PocketMapperError(msg)
 
 
 def resolve_align_struct_method(align_struct_method, aligner):

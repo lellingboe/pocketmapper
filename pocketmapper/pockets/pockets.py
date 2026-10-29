@@ -11,7 +11,6 @@ import os
 
 import pandas as pd
 
-from pocketmapper.fetch.fetch import fetch_missing_entries
 from pocketmapper.lib.entries import (
     failure,
     fsdb_record,
@@ -33,7 +32,9 @@ from pocketmapper.lib.settings import (
     resolve_pisa_source,
     resolve_step_paths,
 )
-from pocketmapper.pockets.pocket_manager import PocketManager, write_pockets_file, write_pockets_table
+from pocketmapper.lib.structure_manager import fetch_missing_entries
+from pocketmapper.pockets.pocket_files import write_pockets_file, write_pockets_table
+from pocketmapper.pockets.pocket_manager import PocketManager
 
 logger = logging.getLogger(__name__)
 

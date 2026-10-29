@@ -18,7 +18,7 @@ from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope
 from pocketmapper.lib.settings import layer_settings, resolve_step_paths
 from pocketmapper.lib.structure_manager import StructureManager
-from pocketmapper.pockets.pocket_manager import read_pockets_file
+from pocketmapper.pockets.pocket_files import read_pockets_file
 
 logger = logging.getLogger(__name__)
 

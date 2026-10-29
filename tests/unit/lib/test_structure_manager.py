@@ -1,9 +1,11 @@
 """
-Unit tests for `lib.structure_manager`: path resolution, fetching from a `file://` source, and loading with validation.
+Unit tests for `lib.structure_manager`: path resolution, fetching from a `file://` source, loading with
+validation, and a missing Foldseek database with downloads turned off.
 """
 
 import logging
 import os
+import re
 from urllib.parse import urljoin
 from urllib.request import pathname2url
 
@@ -271,3 +273,36 @@ def test_get(file_source, local_root):
     st = StructureManager(pdb_dir=pdb_dir).get("pdb", "4q5j")
     assert st is not None and has_ca_residues(st)
     assert os.path.exists(os.path.join(pdb_dir, "4Q5J.cif.gz"))
+
+
+@pytest.fixture
+def no_foldseek(monkeypatch):
+    """Make any foldseek probe or run in `structure_manager` fail the test."""
+
+    def forbidden(*args, **kwargs):
+        """Fail the test: nothing may be downloaded."""
+        raise AssertionError("foldseek was called")
+
+    monkeypatch.setattr(structure_manager, "require_foldseek", forbidden)
+    monkeypatch.setattr(structure_manager, "run_foldseek", forbidden)
+
+
+def test_fetch_missing_fsdb_no_download(local_root, no_foldseek):
+    """A missing database with `download=False` raises, without probing or running foldseek."""
+    fsdb_path = os.path.join(local_root, "fsdb", "pdb")
+    record = {"struct_type": "foldseek_db", "struct_info": "pdb"}
+    manager = StructureManager(fsdb_dir=os.path.join(local_root, "fsdb"), download=False)
+
+    message = f"The Foldseek database 'PDB' is not at {fsdb_path}, and downloads are turned off"
+    with pytest.raises(PocketMapperError, match=f"^{re.escape(message)}"):
+        structure_manager.fetch_missing_fsdb(record, manager, 1, os.path.join(local_root, "tmp"))
+    assert not os.path.exists(os.path.dirname(fsdb_path))
+
+
+def test_fetch_missing_fsdb_cached_no_download(write_file, local_root, no_foldseek):
+    """A database already on disk passes with `download=False`."""
+    write_file(os.path.join("fsdb", "pdb"), "")
+    record = {"struct_type": "foldseek_db", "struct_info": "pdb"}
+    manager = StructureManager(fsdb_dir=os.path.join(local_root, "fsdb"), download=False)
+
+    structure_manager.fetch_missing_fsdb(record, manager, 1, os.path.join(local_root, "tmp"))

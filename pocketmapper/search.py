@@ -48,6 +48,7 @@ from pocketmapper.align.align import align
 from pocketmapper.compare.compare import compare
 from pocketmapper.fetch.fetch import fetch_structures
 from pocketmapper.lib.entries import entry_sides, fsdb_record, read_entries
+from pocketmapper.lib.foldseek import require_foldseek
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope, temp_dir_scope
 from pocketmapper.lib.settings import (
@@ -57,7 +58,6 @@ from pocketmapper.lib.settings import (
     check_offline_refresh,
     dump_settings,
     layer_settings,
-    require_foldseek,
     require_setting,
     resolve_align_struct_method,
     resolve_aligner,

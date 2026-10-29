@@ -8,6 +8,9 @@ doubles as the on-disk cache between runs. A local file is read where it is and 
 `StructureManager.path` works out where a structure or Foldseek database lives from its `struct_type` and
 `struct_info`, and `record_path` does the same for a record. `path`, `record_path`, `fetch` and `get` need the
 directory of each type they resolve. `load_structure` never downloads.
+
+The `fetch_missing_*` functions at the end download what the cache lacks: `fetch_missing_entries` and
+`fetch_missing_structures` the structures of records, `fetch_missing_fsdb` a bundled Foldseek database.
 """
 
 import logging
@@ -17,8 +20,8 @@ import gemmi
 
 from pocketmapper.lib.download import DOWNLOAD_WORKERS, DownloadJob, download_many
 from pocketmapper.lib.exceptions import PocketMapperError
-from pocketmapper.lib.files import gzip_file
-from pocketmapper.lib.foldseek import BUNDLED_FSDB_NAMES, bundled_foldseek_dbs
+from pocketmapper.lib.files import gzip_file, make_dir
+from pocketmapper.lib.foldseek import BUNDLED_FSDB_NAMES, bundled_foldseek_dbs, require_foldseek, run_foldseek
 
 logger = logging.getLogger(__name__)
 
@@ -270,3 +273,94 @@ def load_structure(struct, log_extra=None, entities=True):
     if entities:
         st.setup_entities()
     return st
+
+
+def fetch_missing_entries(sides, manager):
+    """
+    Download the structure of every record whose structure is not yet on disk.
+
+    Nothing is reported for a structure that cannot be fetched: the caller skips what is still
+    missing. Foldseek databases are left alone.
+
+    Args:
+        sides (dict): Side name, e.g. "query" -> that side's QTRecord dicts.
+        manager (StructureManager): Locates and fetches the structures, under its download policy.
+
+    Returns:
+        None
+
+    Raises:
+        PocketMapperError: If `manager` lacks a directory a record needs.
+    """
+    for name, records in sides.items():
+        structure_records = [record for record in records if record["struct_type"] != "foldseek_db"]
+        if structure_records:
+            fetch_missing_structures(name, structure_records, manager)
+
+
+def fetch_missing_structures(name, records, manager):
+    """
+    Download the reference structures a list of records needs.
+
+    Writes each structure to the path `manager` gives, unless a file is already there and `manager`
+    does not refresh. With `manager` not downloading, only checks the files.
+
+    Args:
+        name (str): Which records these are, e.g. "query" or "foldseek hit". Used in logging.
+        records (list): QTRecord dicts.
+        manager (StructureManager): Locates and fetches the structures, under its download policy.
+
+    Returns:
+        dict: struct_info -> whether its structure is available.
+
+    Raises:
+        PocketMapperError: If `manager` lacks a directory a record needs.
+    """
+    log_extra = {"stage": "Downloading Structures"}
+
+    # One download per structure, however many pockets sit on it: fetch dedupes by struct_info
+    found = manager.fetch(records)
+    logger.debug(f"Structure fetcher results: {found}", extra=log_extra)
+
+    logger.info(f"{sum(found.values())}/{len(found)} {name} required structures available", extra=log_extra)
+    return found
+
+
+def fetch_missing_fsdb(record, manager, threads, tmp_dir):
+    """
+    Download a bundled Foldseek database if it is not already on disk.
+
+    Probes the foldseek binary before downloading.
+
+    Args:
+        record (dict): The `foldseek_db` record; the database is named by its `struct_info` and
+            written to the path `manager` gives.
+        manager (StructureManager): Locates the database; with its downloads off, the database is only
+            checked for.
+        threads (int): Thread count for the download.
+        tmp_dir (str): Scratch directory for `foldseek databases`, created if needed.
+
+    Returns:
+        None
+
+    Raises:
+        PocketMapperError: If the database is missing and `manager` is not downloading, `manager` lacks
+            `fsdb_dir` for a bundled name, foldseek cannot run, the destination or `tmp_dir` cannot be
+            created, or -- from `run_foldseek` -- if the download fails.
+    """
+    log_extra = {"stage": "Fetching Missing Foldseek Database"}
+    fsdb_name = record["struct_info"].upper()
+    fsdb_path = manager.record_path(record)
+    if os.path.exists(fsdb_path):
+        return
+    if not manager.download:
+        msg = f"The Foldseek database '{fsdb_name}' is not at {fsdb_path}, and downloads are turned off"
+        logger.critical(msg, extra=log_extra)
+        raise PocketMapperError(msg)
+
+    require_foldseek(f"Downloading the Foldseek database '{fsdb_name}' needs foldseek")
+    logger.info(f"Fetching bundled Foldseek database '{fsdb_name}' to {fsdb_path}", extra=log_extra)
+    make_dir(os.path.dirname(fsdb_path), log_extra)
+    make_dir(tmp_dir, log_extra)
+    run_foldseek(["databases", fsdb_name, fsdb_path, tmp_dir, "--threads", str(threads)], log_extra)
+    logger.info(f"Successfully fetched Foldseek database '{fsdb_name}'", extra=log_extra)

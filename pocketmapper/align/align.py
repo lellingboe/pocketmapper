@@ -10,7 +10,6 @@ import os
 
 from pocketmapper.align.sequence_aligner import SequenceAligner
 from pocketmapper.align.structure_preprocessor import StructurePreprocessor
-from pocketmapper.fetch.fetch import fetch_missing_entries, fetch_missing_fsdb
 from pocketmapper.lib.constants import FOLDSEEK_FORMAT_OUTPUT, TEMP_SUBDIRS
 from pocketmapper.lib.entries import (
     failure,
@@ -22,13 +21,12 @@ from pocketmapper.lib.entries import (
 )
 from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.files import make_dir
-from pocketmapper.lib.foldseek import run_foldseek
+from pocketmapper.lib.foldseek import require_foldseek, run_foldseek
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope, temp_dir_scope
 from pocketmapper.lib.settings import (
     check_fsdb_aligner,
     layer_settings,
-    require_foldseek,
     resolve_aligner,
     resolve_delete_tmp,
     resolve_fetch_missing,
@@ -36,7 +34,7 @@ from pocketmapper.lib.settings import (
     resolve_step_paths,
     resolve_threads,
 )
-from pocketmapper.lib.structure_manager import StructureManager
+from pocketmapper.lib.structure_manager import StructureManager, fetch_missing_entries, fetch_missing_fsdb
 
 logger = logging.getLogger(__name__)
 

@@ -20,11 +20,11 @@ same delay and then fire together. The rule sits beside the pacer, so no caller 
 
 Four consequences no single file states:
 
-- **The download pools ignore `--threads`, on purpose.** `fetch.fetch.fetch_missing_structures` calls
-  `StructureManager.fetch`, and `pockets.pocket_manager.PocketManager` builds one `PisaDownloader` and one
-  `StructureManager`, each with the default width, `DOWNLOAD_WORKERS` (8), so `--threads` governs Foldseek
-  alone. A worker here waits on a socket rather than on a core, so a thread count says nothing useful
-  about how wide a pool should be. A library caller can still pass its own `max_workers`;
+- **The download pools ignore `--threads`, on purpose.** `lib.structure_manager.fetch_missing_structures`
+  calls `StructureManager.fetch`, and `pockets.pocket_manager.PocketManager` builds one `PisaDownloader` and
+  one `StructureManager`, each with the default width, `DOWNLOAD_WORKERS` (8), so `--threads` governs
+  Foldseek alone. A worker here waits on a socket rather than on a core, so a thread count says nothing
+  useful about how wide a pool should be. A library caller can still pass its own `max_workers`;
   `PocketManager(max_workers=...)` sets the width of both its pools.
 - **The pacing delay and the backoff delay are the same number.** That is what "carry the backoff
   forward" means here: the escalation one retry needed becomes the pace of every later request to that

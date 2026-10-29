@@ -3,8 +3,8 @@ The pockets step: building pockets from parsed query/target records.
 
 `pockets.py` holds the step itself. `pocket_manager.PocketManager` is the entry point for pockets: its
 `build` dispatches each record to the builder of its pocket method and returns one pocket_id -> Pocket
-dict of the pockets built, `expand_pdb_hits` turns Foldseek hits into pisa records, and the module's
-functions read and write the pocket files.
+dict of the pockets built, and `expand_pdb_hits` turns Foldseek hits into pisa records. `pocket_files`
+reads and writes the pocket files and imports no manager or builder.
 Each builder lives beside the primitive it wraps (`structure`, `pisa`, `vdw`), and `pocket.py` declares
 the shape they all return. `pisa_downloader` fills the PISA cache that `pisa` reads.
 

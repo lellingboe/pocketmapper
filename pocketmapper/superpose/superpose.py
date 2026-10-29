@@ -6,23 +6,21 @@ import logging
 
 import pandas as pd
 
-from pocketmapper.fetch.fetch import fetch_missing_entries
 from pocketmapper.lib.entries import fsdb_record, open_entries, require_file, split_missing_structures
-from pocketmapper.lib.foldseek import fsdb_pocket_mode
+from pocketmapper.lib.foldseek import fsdb_pocket_mode, require_foldseek
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope
 from pocketmapper.lib.settings import (
     check_fsdb_align_struct_method,
     layer_settings,
-    require_foldseek,
     resolve_align_struct_method,
     resolve_fetch_missing,
     resolve_offline,
     resolve_step_paths,
     resolve_threads,
 )
-from pocketmapper.lib.structure_manager import StructureManager
-from pocketmapper.pockets.pocket_manager import read_pockets_file
+from pocketmapper.lib.structure_manager import StructureManager, fetch_missing_entries
+from pocketmapper.pockets.pocket_files import read_pockets_file
 from pocketmapper.superpose.structure_aligner import StructureAligner
 
 logger = logging.getLogger(__name__)
