@@ -7,6 +7,7 @@ unless marked `network`.
 
 import json
 import os
+import shutil
 
 import pytest
 
@@ -250,3 +251,72 @@ def test_steps_20(tmp_path, seed_cache, run_cli):
 
     assert os.path.isfile(os.path.join(pdb_dir, "4Q5J.cif.gz"))
     assert os.path.isfile(results_file(results_dir, "pockets.json"))
+
+
+LOCAL_POCKET = "sub/local.cif.gz:A:1101,1104,1105,1108,1125"
+PDB_POCKET = "4Q5J:A:1101,1104,1105,1108,1125"
+
+
+def unfailed_ids(entries_path):
+    """The pocket ids of the entries table's rows that are not marked failed."""
+    return {row["pocket_id"] for row in read_entries(entries_path) if not row["failed_reason"]}
+
+
+@pytest.mark.parametrize("use_dump", [True, False], ids=["dump", "explicit_paths"])
+def test_local_root_later_step(use_dump, tmp_path, seed_cache, run_cli):
+    """A relative local path parsed from `local_root` resolves in a later step run from another cwd."""
+    local_root = str(tmp_path / "work")
+    elsewhere = str(tmp_path / "elsewhere")
+    os.makedirs(os.path.join(local_root, "sub"))
+    os.makedirs(elsewhere)
+    shutil.copyfile(
+        os.path.join(seed_cache, "pdb_structures", "4Q5J.cif.gz"), os.path.join(local_root, "sub", "local.cif.gz")
+    )
+    results_dir = os.path.join(str(tmp_path), "results")
+    job_file = results_file(results_dir, "parse_settings.json")
+    entries_path = results_file(results_dir, "entries.tsv")
+    pockets_path = results_file(results_dir, "pockets.json")
+
+    assert (
+        run_cli(*parse_args(LOCAL_POCKET, LOCAL_POCKET, results_dir=results_dir, cache_dir=seed_cache), cwd=local_root)
+        == 0
+    )
+    if use_dump:
+        # The dump holds local_root, so the step finds the file from another cwd
+        argv = ("pockets", "--job_file", job_file, "--offline", "1")
+    else:
+        argv = (
+            "pockets",
+            "--entries", entries_path,
+            "--alignment", results_file(results_dir, "alignment.tsv"),
+            "--pockets_path", pockets_path,
+            "--pdb_dir", os.path.join(seed_cache, "pdb_structures"),
+            "--alphafold_dir", os.path.join(seed_cache, "alphafold_structures"),
+            "--pocket_dir", os.path.join(seed_cache, "pockets"),
+            "--fsdb_dir", os.path.join(seed_cache, "foldseek_dbs"),
+            "--local_root", local_root,
+            "--offline", "1",
+        )  # fmt: skip
+    assert run_cli(*argv, cwd=elsewhere) == 0
+
+    assert unfailed_ids(entries_path) == {LOCAL_POCKET}
+    assert set(pocket_residues(pockets_path)) == {LOCAL_POCKET}
+    assert os.listdir(elsewhere) == []
+
+
+def test_pdb_dir_changed_after_parse(tmp_path, seed_cache, run_cli):
+    """A later step locates a PDB structure in its own `--pdb_dir`, not the one parse was given."""
+    results_dir = os.path.join(str(tmp_path), "results")
+    job_file = results_file(results_dir, "parse_settings.json")
+    entries_path = results_file(results_dir, "entries.tsv")
+    new_pdb_dir = str(tmp_path / "new_pdb")
+    os.makedirs(new_pdb_dir)
+    shutil.move(os.path.join(seed_cache, "pdb_structures", "4Q5J.cif.gz"), os.path.join(new_pdb_dir, "4Q5J.cif.gz"))
+
+    assert run_cli(*parse_args(PDB_POCKET, PDB_POCKET, results_dir=results_dir, cache_dir=seed_cache)) == 0
+    # The old dir no longer holds the structure, so only the new dir can satisfy the step
+    argv = ("pockets", "--job_file", job_file, "--offline", "1")
+    assert run_cli(*argv) == 0
+    assert unfailed_ids(entries_path) == set()
+    assert run_cli(*argv, "--pdb_dir", new_pdb_dir) == 0
+    assert unfailed_ids(entries_path) == {PDB_POCKET}
