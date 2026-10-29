@@ -34,6 +34,8 @@ def compare(
     verbosity=None,
     log_path=None,
     pocket_comparison_path=None,
+    fsdb_dir=None,
+    local_root=None,
 ):
     """
     Compare the pockets of every aligned query/target pair into a pocket comparison table.
@@ -51,6 +53,9 @@ def compare(
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
         log_path (str, optional): Where the log is appended. Defaults to the job file's, else none.
         pocket_comparison_path (str, optional): Defaults to the job file's.
+        fsdb_dir (str, optional): Cache of Foldseek databases. Defaults to the job file's.
+        local_root (str, optional): Directory that relative local structure files and Foldseek databases
+            resolve against. Defaults to the job file's, else the current directory.
 
     Returns:
         None
@@ -69,10 +74,14 @@ def compare(
             "verbosity": verbosity,
             "log_path": log_path,
             "pocket_comparison_path": pocket_comparison_path,
+            "fsdb_dir": fsdb_dir,
+            "local_root": local_root,
         },
     )
     values = resolve_step_paths(
-        values, ("entries_path", "alignment_path", "pockets_path", "pocket_comparison_path"), ("log_path",)
+        values,
+        ("entries_path", "alignment_path", "pockets_path", "pocket_comparison_path", "fsdb_dir"),
+        ("log_path", "local_root"),
     )
     with run_scope("compare"), log_to_file(values["log_path"], values["verbosity"]):
         sides = open_entries(values["entries_path"], "compare")

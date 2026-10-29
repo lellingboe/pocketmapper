@@ -42,6 +42,10 @@ def superpose(
     threads=None,
     fetch_missing=None,
     offline=None,
+    pdb_dir=None,
+    alphafold_dir=None,
+    fsdb_dir=None,
+    local_root=None,
 ):
     """
     Superpose the top targets of each query onto it, one PDB per query.
@@ -71,6 +75,11 @@ def superpose(
             the entry as `structure_not_found`. Defaults to DEFAULT_FETCH_MISSING.
         offline (int, optional): 1 downloads nothing, whatever `fetch_missing` says, so an uncached
             structure is skipped as with `fetch_missing` 0. Defaults to DEFAULT_OFFLINE.
+        pdb_dir (str, optional): Cache of PDB structures. Defaults to the job file's.
+        alphafold_dir (str, optional): Cache of AlphaFold structures. Defaults to the job file's.
+        fsdb_dir (str, optional): Cache of Foldseek databases. Defaults to the job file's.
+        local_root (str, optional): Directory that relative local structure files and Foldseek databases
+            resolve against. Defaults to the job file's, else the current directory.
 
     Returns:
         None
@@ -97,12 +106,25 @@ def superpose(
             "threads": threads,
             "fetch_missing": fetch_missing,
             "offline": offline,
+            "pdb_dir": pdb_dir,
+            "alphafold_dir": alphafold_dir,
+            "fsdb_dir": fsdb_dir,
+            "local_root": local_root,
         },
     )
     values = resolve_step_paths(
         values,
-        ("entries_path", "pocket_comparison_path", "alignment_path", "pockets_path", "aligned_structure_dir"),
-        ("log_path",),
+        (
+            "entries_path",
+            "pocket_comparison_path",
+            "alignment_path",
+            "pockets_path",
+            "aligned_structure_dir",
+            "pdb_dir",
+            "alphafold_dir",
+            "fsdb_dir",
+        ),
+        ("log_path", "local_root"),
     )
     alignment = values["alignment_path"]
     with run_scope("superpose"), log_to_file(values["log_path"], values["verbosity"]):

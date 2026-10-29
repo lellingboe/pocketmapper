@@ -123,9 +123,10 @@ OPTIONS = {
         dict(
             default=None,
             metavar="DIR",
-            help="Directory that entries, entries files and relative paths resolve against. A run's "
-            "settings dump records it, so a later step run from elsewhere resolves them the same way. "
-            "(default: the current directory)",
+            help="Directory that relative local structure files and Foldseek databases resolve against. "
+            "Other paths resolve against the current directory. A run's settings dump records it, so a later "
+            "step run from elsewhere resolves them the same way. (default: the job file's, else the current "
+            "directory)",
         ),
     ),
     "verbosity": (
@@ -394,7 +395,8 @@ COMMANDS = {
         "Download the structures and Foldseek databases the entries table names.",
         [
             (None, ["job_file", "verbosity", "threads"]),
-            ("in options", ["entries"]),
+            ("in options", ["entries", "local_root"]),
+            ("cache options", ["pdb_dir", "alphafold_dir", "fsdb_dir"]),
             ("out options", ["log_path"]),
             ("temp options", ["temp_dir", "delete_tmp"]),
             ("advanced options", ["offline", "refresh_structures"]),
@@ -404,8 +406,8 @@ COMMANDS = {
         "Align the query chains against the target chains.",
         [
             (None, ["job_file", "verbosity", "aligner", "threads", "fetch_missing"]),
-            ("in options", ["entries"]),
-            ("cache options", ["foldseek_preprocessed_structure_dir"]),
+            ("in options", ["entries", "local_root"]),
+            ("cache options", ["pdb_dir", "alphafold_dir", "fsdb_dir", "foldseek_preprocessed_structure_dir"]),
             ("out options", ["alignment_path", "log_path"]),
             ("temp options", ["temp_dir", "delete_tmp"]),
             ("advanced options", ["offline"]),
@@ -415,7 +417,7 @@ COMMANDS = {
         "Build the pocket of every query and target entry.",
         [
             (None, ["job_file", "verbosity", "fetch_missing"]),
-            ("in options", ["entries", "alignment"]),
+            ("in options", ["entries", "alignment", "local_root"]),
             ("cache options", ["pdb_dir", "alphafold_dir", "pocket_dir", "fsdb_dir"]),
             ("out options", ["pockets_path", "pockets_tsv_path", "log_path"]),
             ("advanced options", ["pisa_source", "pisa_bsa_threshold", "offline"]),
@@ -425,7 +427,8 @@ COMMANDS = {
         "Compare the pockets of every aligned query/target pair.",
         [
             (None, ["job_file", "verbosity"]),
-            ("in options", ["entries", "alignment", "pockets"]),
+            ("in options", ["entries", "alignment", "pockets", "local_root"]),
+            ("cache options", ["fsdb_dir"]),
             ("out options", ["pocket_comparison_path", "log_path"]),
         ],
     ),
@@ -433,7 +436,8 @@ COMMANDS = {
         "Superpose the top targets of each query onto it.",
         [
             (None, ["job_file", "verbosity", "threads", "fetch_missing"]),
-            ("in options", ["entries", "pocket_comparison", "alignment", "pockets"]),
+            ("in options", ["entries", "pocket_comparison", "alignment", "pockets", "local_root"]),
+            ("cache options", ["pdb_dir", "alphafold_dir", "fsdb_dir"]),
             ("aligned structure options", ["align_count", "align_struct_method"]),
             ("out options", ["aligned_structure_dir", "log_path"]),
             ("advanced options", ["offline"]),

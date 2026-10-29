@@ -12,15 +12,16 @@ in `resolve_settings` (`resolve_*`). `Settings` has no defaults and is built onc
 file) keyed by job keys, never a `Settings`, and call the same `lib.settings.resolve_*` validators.
 
 **Job keys are separate from `Settings`.** `lib.settings.JOB_KEYS` = `fields(Settings)` + `STEP_ONLY_KEYS`
-(options only some steps take; `STEP_ONLY_PATH_KEYS` among them resolve against `work_dir` in
+(options only some steps take; `STEP_ONLY_PATH_KEYS` among them resolve against the cwd in
 `resolve_paths`) is what a job file may hold and what `layer_settings` seeds. Unknown
 keys are rejected; one in `REMOVED_JOB_KEYS` gets its replacement named. Search drops keys `Settings`
 lacks before building one.
 
-**Only search and parse take `cache_dir`, `results_dir` and `work_dir`.** `resolve_paths` derives every
-path from them and stores it absolute (`work_dir`, default cwd, is what relative ones join onto). Every
-other step takes each path it uses from its job file or arguments (`resolve_step_paths`: required ones
-checked, a relative one made absolute against the cwd). A step's input argument (`--entries`,
+**Only search and parse take `cache_dir` and `results_dir`.** `resolve_paths` derives every
+path from them and stores it absolute against the cwd; `local_root` (default cwd, absolute) joins only
+local files. Every other step takes each path it uses from its job file or arguments
+(`resolve_step_paths`: required ones checked, a relative one made absolute against the cwd, an unset
+optional `local_root` the cwd). A step's input argument (`--entries`,
 `--alignment`, ...) is layered over the matching `*_path` key, so `entries` sets `entries_path`. A step
 run from a dump elsewhere resolves as the first did, since the dump holds absolute paths.
 

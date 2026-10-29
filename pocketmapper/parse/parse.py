@@ -54,8 +54,8 @@ def parse(
             already loaded. Any argument given overrides it.
         results_dir (str, optional): Where the log, the settings and the entries table go by default.
             Defaults to None, for none.
-        local_root (str, optional): Directory that entries and relative paths resolve against.
-            Defaults to the working directory.
+        local_root (str, optional): Directory that relative local structure files and Foldseek databases resolve
+            against. Defaults to the working directory.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
         log_path (str, optional): Defaults to <results_dir>/info.log.
         job_settings_path (str, optional): Where these settings are written, as a job file for later
@@ -144,8 +144,8 @@ def parse_entries(
         target_pocket_method (str): As `query_pocket_method`, for the target side.
         cache_dirs (dict): Holds "pdb_dir", "alphafold_dir" and "fsdb_dir", which give the
             records' structure paths.
-        local_root (str): Directory that entries files, local structure files, a user Foldseek
-            database and relative cache directories resolve against.
+        local_root (str): Directory that local structure files and a user Foldseek database
+            resolve against.
         entries_path (str, optional): Where the entries table is written. Defaults to None, for
             nowhere.
 

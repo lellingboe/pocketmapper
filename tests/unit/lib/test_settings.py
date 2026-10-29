@@ -24,9 +24,11 @@ from pocketmapper.lib.settings import (
     resolve_delete_tmp,
     resolve_fetch_missing,
     resolve_offline,
+    resolve_paths,
     resolve_pisa_bsa_threshold,
     resolve_pisa_source,
     resolve_refresh_structures,
+    resolve_step_paths,
     resolve_threads,
 )
 from pocketmapper.search import PocketMapper
@@ -331,3 +333,49 @@ def test_read_job_file_unknown_key_in_dict():
     """An unknown key in a job dict is rejected the same way as in a file."""
     with raises("Unknown setting(s) in the job settings: bogus"):
         read_job_file({"bogus": 1})
+
+
+# resolve_paths, resolve_step_paths
+
+
+@pytest.mark.parametrize("local_root_given", [False, True])
+def test_resolve_paths_against_cwd(local_root, tmp_path, monkeypatch, local_root_given):
+    """Every path resolves against the working directory whatever `local_root` is; `local_root` is absolute."""
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    root = os.path.join(local_root, "root")
+    values = layer_settings(None, {"local_root": root if local_root_given else None, "results_dir": "out"})
+    values["pockets_tsv_path"] = "pockets.tsv"
+    values["fsdb_dir"] = os.path.join("rel", "fsdb")
+    resolved = resolve_paths(values, "parse")
+    assert resolved["local_root"] == (root if local_root_given else str(cwd.resolve()))
+    for key in (
+        "results_dir",
+        "cache_dir",
+        "pdb_dir",
+        "fsdb_dir",
+        "entries_path",
+        "job_settings_path",
+        "pockets_tsv_path",
+    ):
+        assert resolved[key].startswith(str(cwd.resolve())), key
+    assert resolved["fsdb_dir"] == os.path.join(str(cwd.resolve()), "rel", "fsdb")
+
+
+def test_resolve_paths_relative_local_root(tmp_path, monkeypatch):
+    """A relative `local_root` is made absolute against the working directory."""
+    monkeypatch.chdir(tmp_path)
+    resolved = resolve_paths(layer_settings(None, {"local_root": "data"}), "parse")
+    assert resolved["local_root"] == os.path.join(str(tmp_path.resolve()), "data")
+
+
+@pytest.mark.parametrize("local_root_given", [None, "data"])
+def test_resolve_step_paths_local_root(tmp_path, monkeypatch, local_root_given):
+    """An optional `local_root` is made absolute against the working directory, and is the cwd when unset."""
+    monkeypatch.chdir(tmp_path)
+    cwd = os.getcwd()
+    values = layer_settings(None, {"local_root": local_root_given, "fsdb_dir": "fsdb"})
+    resolved = resolve_step_paths(values, ("fsdb_dir",), ("local_root",))
+    assert resolved["fsdb_dir"] == os.path.join(cwd, "fsdb")
+    assert resolved["local_root"] == (os.path.join(cwd, "data") if local_root_given else cwd)

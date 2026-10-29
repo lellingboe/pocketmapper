@@ -86,6 +86,21 @@ def test_job_keys():
     assert set(SETTING_DEFAULTS) <= set(JOB_KEYS)
 
 
+@pytest.mark.parametrize(
+    "command, expected",
+    [
+        ("fetch_structures", {"pdb_dir", "alphafold_dir", "fsdb_dir", "local_root"}),
+        ("align", {"pdb_dir", "alphafold_dir", "fsdb_dir", "local_root"}),
+        ("superpose", {"pdb_dir", "alphafold_dir", "fsdb_dir", "local_root"}),
+        ("compare", {"fsdb_dir", "local_root"}),
+        ("pockets", {"pdb_dir", "alphafold_dir", "fsdb_dir", "local_root"}),
+    ],
+)
+def test_step_path_options(command, expected):
+    """A step takes the cache directories and `local_root` it needs to locate a record's structure."""
+    assert expected <= set(option_dests(subparsers()[command]))
+
+
 @pytest.mark.parametrize("command", list(cli.COMMANDS))
 def test_options_default_none(command):
     """Every option defaults to None, so the job file and SETTING_DEFAULTS apply under it."""

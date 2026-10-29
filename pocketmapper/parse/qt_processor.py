@@ -91,9 +91,9 @@ class QTProcessor:
                 `alphafold` records get their `struct_path`.
             fsdb_dir (str): Directory holding downloaded Foldseek databases, used to locate the
                 bundled `pdb` database.
-            local_root (str, optional): Directory that the cache directories, an entries file, a local
-                structure file and a user Foldseek database are resolved against. Defaults to None,
-                the working directory.
+            local_root (str, optional): Directory that the cache directories, a local structure file
+                and a user Foldseek database are resolved against. An entries file resolves against the
+                working directory. Defaults to None, the working directory.
         """
         # On the instance so every helper logs under the side process_qt_cmdline_input names
         self.log_extra = {"stage": "Processing Inputs"}
@@ -199,8 +199,8 @@ class QTProcessor:
         The entries one input holds: the lines of an entries file, else the input itself.
 
         Args:
-            qt_input (str): An entry, or a path, resolved against `local_root`, to a file of them. A file
-                named like a structure (`is_structure_file`) is an entry.
+            qt_input (str): An entry, or a path, resolved against the working directory, to a file of
+                them. A file named like a structure (`is_structure_file`) is an entry.
             read_file (bool): Whether a file at `qt_input` holds entries. False for a Foldseek
                 database, which is a file but no list of entries.
 
@@ -210,7 +210,7 @@ class QTProcessor:
         Raises:
             PocketMapperError: If the file cannot be read.
         """
-        entries_path = self.local_path(qt_input)
+        entries_path = os.path.abspath(qt_input)
         if not read_file or not os.path.isfile(entries_path) or is_structure_file(entries_path):
             return [qt_input]
         try:

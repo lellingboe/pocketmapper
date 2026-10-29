@@ -71,8 +71,9 @@ def test_parse_side_sources(cache_dirs, local_root, entries, expected):
     assert all(row["side"] == "query" for row in rows)
 
 
-def test_parse_side_order(cache_dirs, local_root, write_file):
+def test_parse_side_order(cache_dirs, local_root, write_file, monkeypatch):
     """Rows follow source order, and within a source the order of its entries, parsed or rejected."""
+    monkeypatch.chdir(local_root)
     write_file("first.txt", "XYZ\n4Q5J:A\n1abc:B\n")
     write_file("second.txt", "4Q5J:AB\nP24941\n")
     rows = parse_side(["first.txt", "second.txt", "2ER6"], "target", "auto", cache_dirs, local_root)

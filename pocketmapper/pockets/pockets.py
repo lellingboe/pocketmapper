@@ -54,6 +54,7 @@ def pockets(
     pisa_bsa_threshold=None,
     fetch_missing=None,
     offline=None,
+    local_root=None,
 ):
     """
     Build the pocket of every query and target entry into one pockets file.
@@ -87,6 +88,8 @@ def pockets(
         offline (int, optional): 1 downloads nothing, whatever `fetch_missing` says: an uncached
             structure is skipped as with `fetch_missing` 0, and a pisa pocket whose PISA data is not
             cached is not built. Defaults to DEFAULT_OFFLINE.
+        local_root (str, optional): Directory that relative local structure files and Foldseek databases
+            resolve against. Defaults to the job file's, else the current directory.
 
     Returns:
         None
@@ -113,12 +116,13 @@ def pockets(
             "pisa_bsa_threshold": pisa_bsa_threshold,
             "fetch_missing": fetch_missing,
             "offline": offline,
+            "local_root": local_root,
         },
     )
     values = resolve_step_paths(
         values,
         ("entries_path", "alignment_path", "pdb_dir", "alphafold_dir", "pocket_dir", "fsdb_dir", "pockets_path"),
-        ("log_path", "pockets_tsv_path"),
+        ("log_path", "pockets_tsv_path", "local_root"),
     )
     with run_scope("pockets"), log_to_file(values["log_path"], values["verbosity"]):
         pisa_source = resolve_pisa_source(values["pisa_source"])

@@ -40,6 +40,10 @@ def fetch_structures(
     delete_tmp=None,
     offline=None,
     refresh_structures=None,
+    pdb_dir=None,
+    alphafold_dir=None,
+    fsdb_dir=None,
+    local_root=None,
 ):
     """
     Download the structures and Foldseek databases the entries table names.
@@ -64,6 +68,11 @@ def fetch_structures(
             Foldseek database is an error. Defaults to DEFAULT_OFFLINE.
         refresh_structures (int, optional): 1 re-downloads PDB and AlphaFold structures even when they
             are cached. Defaults to DEFAULT_REFRESH_STRUCTURES.
+        pdb_dir (str, optional): Cache of PDB structures. Defaults to the job file's.
+        alphafold_dir (str, optional): Cache of AlphaFold structures. Defaults to the job file's.
+        fsdb_dir (str, optional): Cache of Foldseek databases. Defaults to the job file's.
+        local_root (str, optional): Directory that relative local structure files and Foldseek databases
+            resolve against. Defaults to the job file's, else the current directory.
 
     Returns:
         None
@@ -85,9 +94,15 @@ def fetch_structures(
             "delete_tmp": delete_tmp,
             "offline": offline,
             "refresh_structures": refresh_structures,
+            "pdb_dir": pdb_dir,
+            "alphafold_dir": alphafold_dir,
+            "fsdb_dir": fsdb_dir,
+            "local_root": local_root,
         },
     )
-    values = resolve_step_paths(values, ("entries_path", "temp_dir"), ("log_path",))
+    values = resolve_step_paths(
+        values, ("entries_path", "temp_dir", "pdb_dir", "alphafold_dir", "fsdb_dir"), ("log_path", "local_root")
+    )
     with run_scope("fetch_structures"), log_to_file(values["log_path"], values["verbosity"]):
         threads = resolve_threads(values["threads"])
         delete_tmp = resolve_delete_tmp(values["delete_tmp"])

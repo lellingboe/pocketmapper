@@ -210,11 +210,11 @@ what they do for `search`.
 | Command | Options |
 | --- | --- |
 | `parse` | `QUERY`, `TARGET` (or from the job file), `--query_pocket_method`, `--target_pocket_method`, `--work_dir`, the [cache options](#cache-options), `--results_dir`, `--entries_path`, `--job_settings_path` |
-| `fetch_structures` | `--threads`, the [temp options](#temp-options), `--offline`, `--refresh_structures` |
-| `align` | `--aligner`, `--threads`, `--fetch_missing`, `--foldseek_preprocessed_structure_dir`, `--alignment_path`, the [temp options](#temp-options), `--offline` |
-| `pockets` | `--alignment`, `--pdb_dir`, `--alphafold_dir`, `--pocket_dir`, `--fsdb_dir`, `--pockets_path`, `--pockets_tsv_path` (a table of `pocket_id`, `chain`, `res_auth_ids`, `method`), `--pisa_source`, `--pisa_bsa_threshold`, `--fetch_missing`, `--offline` |
-| `compare` | `--alignment`, `--pockets`, `--pocket_comparison_path` |
-| `superpose` | `--pocket_comparison`, `--alignment`, `--pockets`, the [aligned structure options](#aligned-structure-options), `--aligned_structure_dir`, `--threads`, `--fetch_missing`, `--offline` |
+| `fetch_structures` | `--local_root`, `--pdb_dir`, `--alphafold_dir`, `--fsdb_dir`, `--threads`, the [temp options](#temp-options), `--offline`, `--refresh_structures` |
+| `align` | `--local_root`, `--pdb_dir`, `--alphafold_dir`, `--fsdb_dir`, `--aligner`, `--threads`, `--fetch_missing`, `--foldseek_preprocessed_structure_dir`, `--alignment_path`, the [temp options](#temp-options), `--offline` |
+| `pockets` | `--alignment`, `--local_root`, `--pdb_dir`, `--alphafold_dir`, `--pocket_dir`, `--fsdb_dir`, `--pockets_path`, `--pockets_tsv_path` (a table of `pocket_id`, `chain`, `res_auth_ids`, `method`), `--pisa_source`, `--pisa_bsa_threshold`, `--fetch_missing`, `--offline` |
+| `compare` | `--local_root`, `--fsdb_dir`, `--alignment`, `--pockets`, `--pocket_comparison_path` |
+| `superpose` | `--local_root`, `--pdb_dir`, `--alphafold_dir`, `--fsdb_dir`, `--pocket_comparison`, `--alignment`, `--pockets`, the [aligned structure options](#aligned-structure-options), `--aligned_structure_dir`, `--threads`, `--fetch_missing`, `--offline` |
 
 Only `parse` and `search` write their settings, as a job file for the steps after them. See
 [Advanced options](#advanced-options).

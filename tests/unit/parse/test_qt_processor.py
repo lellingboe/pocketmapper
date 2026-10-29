@@ -463,8 +463,9 @@ def test_single_entry_record_fields(processor):
     assert tuple(record) == RECORD_FIELDS
 
 
-def test_entries_file(processor, write_file):
+def test_entries_file(processor, write_file, local_root, monkeypatch):
     """An entries file gives an entry per line in file order, stripped, blank lines skipped, a bad line rejected."""
+    monkeypatch.chdir(local_root)
     write_file(os.path.join("inputs", "entries.txt"), "4Q5J:A\n\n  P24941:A:1,2  \nXYZ:A\n   \n4Q5J:B_F\n\n")
     results = processor.process_qt_cmdline_input(os.path.join("inputs", "entries.txt"), "target")
     assert [(entry, record is not None) for entry, record, _ in results] == [
@@ -479,10 +480,20 @@ def test_entries_file(processor, write_file):
 @pytest.mark.parametrize(
     "name, is_entry", [("x.cif", True), ("x.cif.gz", True), ("X.PDB", True), ("x.ent.gz", True), ("x.txt", False)]
 )
-def test_structure_file_not_read_as_entries(processor, write_file, name, is_entry):
+def test_structure_file_not_read_as_entries(processor, write_file, local_root, monkeypatch, name, is_entry):
     """An existing file named like a structure is itself an entry; any other file is a file of entries."""
+    monkeypatch.chdir(local_root)
     write_file(name, "4Q5J:A\n")
     assert processor.read_entries(name, read_file=True) == ([name] if is_entry else ["4Q5J:A"])
+
+
+def test_entries_file_only_under_local_root_is_an_entry(processor, write_file, tmp_path, monkeypatch):
+    """A file that exists only under `local_root`, not the working directory, is not read as an entries file."""
+    write_file("entries.txt", "4Q5J:A\n")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    assert processor.read_entries("entries.txt", read_file=True) == ["entries.txt"]
 
 
 def test_entries_file_forced_method(processor, write_file):
@@ -513,8 +524,9 @@ def test_log_stage_names_side(processor):
     assert processor.log_extra["stage"] == "Processing query"
 
 
-def test_unreadable_entries_file_raises(processor, write_file, monkeypatch):
+def test_unreadable_entries_file_raises(processor, write_file, local_root, monkeypatch):
     """An entries file that cannot be read raises."""
+    monkeypatch.chdir(local_root)
     path = write_file("entries.txt", "4Q5J:A\n")
     real_open = builtins.open
 

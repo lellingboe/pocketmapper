@@ -137,8 +137,8 @@ class PocketMapper:
                 Defaults to DEFAULT_CACHE_DIR.
             results_dir (str, optional): Directory to output results to.
                 Defaults to pocketmapper_results_<YYMMDD_HHMMSS>.
-            local_root (str, optional): Directory that entries and relative paths resolve against.
-                Defaults to the working directory.
+            local_root (str, optional): Directory that relative local structure files and Foldseek databases
+                resolve against. Defaults to the working directory.
             verbosity (int, optional): Control logging level. Defaults to DEFAULT_VERBOSITY.
             threads (int, optional): Cap on the cores Foldseek uses. Defaults to one per available core.
             aligner (str, optional): Chain aligner -- 'foldseek', which needs the foldseek binary, or
