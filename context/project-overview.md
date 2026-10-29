@@ -31,7 +31,7 @@ checks that live nowhere else.
   other way, it gives zero overlap and no error. Check: a pocket compared with itself gives
   `overlap_count == pocket_len` (`test_self_comparison`).
 - **`res_auth_ids` ascending** in every producer (`Pocket`); nothing checks it. `pockets.json` round-trips
-  this order and `seq_pos` (`read_pockets_file`).
+  this order and `seq_pos` (`pockets.pocket_files.read_pockets_file`).
 - **Residue letters mirror Foldseek, not gemmi** (`lib.constants.FOLDSEEK_AA_CODES`). They compare
   case-insensitively (`compare_pockets`), because Foldseek lowercases some residues; 4ER4, 2ER6 and 2ER9
   are lowercased wholesale.
@@ -86,14 +86,18 @@ places must agree: `requires-python`, the classifiers, `[tool.ruff] target-versi
 - **Delete `build/` before building or testing a wheel.** Stale, gitignored, but setuptools reuses
   `build/lib/`, so `pip install .` ships dead modules (`align.py`, `local_aligner.py`, a 3.12-only
   `pisa.py`, top-level `structure_fetcher.py`/`pisa_downloader.py`). Never edit it.
+- **Imports run one way.** No `lib` module imports a step package, `search` or `cli`, and no step imports
+  another step's entry module (`<other>.<other>`), only its components. `tests/unit/test_imports.py` checks
+  both from the source text, deriving the steps from the subpackages, so a new step needs no test edit.
 
 ## As a library
 
 `PocketMapper().search(...)`, a step's entry or core function in `<step>.<step>`, or any component directly
-(`parse.qt_processor`, `lib.structure_manager` (`StructureManager.get` fetches and loads one structure),
-`pockets.pisa_downloader`, `align.structure_preprocessor`, `pockets.pocket_manager.PocketManager`
-(`build`, `expand_pdb_hits`) or one builder, `pockets.pisa` (`load_interfaces`, `interface_partners`,
-`pisa_pockets_from_records`), `pockets.vdw.vdw_contact_residues`, `align.sequence_aligner`,
+(`parse.qt_processor`, `lib.structure_manager` (`StructureManager.get` fetches and loads one structure;
+the `fetch_missing_*` functions fill the cache), `pockets.pisa_downloader`, `align.structure_preprocessor`,
+`pockets.pocket_manager.PocketManager` (`build`, `expand_pdb_hits`) or one builder, `pockets.pocket_files`
+(read and write `pockets.json`, without the manager), `pockets.pisa` (`load_interfaces`,
+`interface_partners`, `pisa_pockets_from_records`), `pockets.vdw.vdw_contact_residues`, `align.sequence_aligner`,
 `superpose.structure_aligner`, `lib.foldseek`).
 No component or step takes a `Settings`; the entry functions take its dict as `job_file`.
 
