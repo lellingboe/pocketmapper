@@ -116,16 +116,16 @@ def test_local_3(tmp_path, seed_cache, run_cli, comparison_rows):
 
 def test_local_7(tmp_path, seed_cache, run_cli, distinct_queries):
     """Same-named local files in different directories get distinct names, so neither query is lost."""
-    work_dir = str(tmp_path / "work")
+    local_root = str(tmp_path / "work")
     # Different contents under one basename, as the old same_name/ fixture had: a 4Q5J copy and a P24941 copy
     sources = {
         "a": os.path.join(seed_cache, "pdb_structures", "4Q5J.cif.gz"),
         "b": os.path.join(seed_cache, "alphafold_structures", "P24941.cif.gz"),
     }
     for name, source in sources.items():
-        os.makedirs(os.path.join(work_dir, name))
-        shutil.copyfile(source, os.path.join(work_dir, name, "structure.cif.gz"))
-    with open(os.path.join(work_dir, "same_name.txt"), "w") as f:
+        os.makedirs(os.path.join(local_root, name))
+        shutil.copyfile(source, os.path.join(local_root, name, "structure.cif.gz"))
+    with open(os.path.join(local_root, "same_name.txt"), "w") as f:
         f.write("a/structure.cif.gz:A:1101,1104,1105,1108,1125\nb/structure.cif.gz:A:160,161,162,163,164,165\n")
 
     results_dir = run_search(
@@ -136,7 +136,7 @@ def test_local_7(tmp_path, seed_cache, run_cli, distinct_queries):
         "same_name.txt",
         "--aligner",
         "seq",
-        cwd=work_dir,
+        cwd=local_root,
     )
     entries = unfailed(os.path.join(results_dir, "entries.tsv"))
     assert len({row["preprocess_name"] for row in entries}) == 2

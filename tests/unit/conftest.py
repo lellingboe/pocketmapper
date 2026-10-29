@@ -10,24 +10,24 @@ from pocketmapper.parse.qt_processor import QTProcessor
 
 
 @pytest.fixture
-def work_dir(tmp_path):
+def local_root(tmp_path):
     """The test's scratch directory, as a string."""
     return str(tmp_path)
 
 
 @pytest.fixture
-def processor(work_dir):
-    """A QTProcessor with relative cache directories, resolved against `work_dir`."""
-    return QTProcessor(pdb_dir="pdb", alphafold_dir="af", fsdb_dir="fsdb", work_dir=work_dir)
+def processor(local_root):
+    """A QTProcessor with relative cache directories, resolved against `local_root`."""
+    return QTProcessor(pdb_dir="pdb", alphafold_dir="af", fsdb_dir="fsdb", local_root=local_root)
 
 
 @pytest.fixture
-def write_file(work_dir):
-    """A factory that writes `content` to `name` under `work_dir` and returns the file's absolute path."""
+def write_file(local_root):
+    """A factory that writes `content` to `name` under `local_root` and returns the file's absolute path."""
 
     def write(name, content):
-        """Write `content` (str or bytes) to `name` under `work_dir` and return the absolute path."""
-        path = os.path.join(work_dir, name)
+        """Write `content` (str or bytes) to `name` under `local_root` and return the absolute path."""
+        path = os.path.join(local_root, name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         mode = "wb" if isinstance(content, bytes) else "w"
         with open(path, mode) as f:
@@ -38,10 +38,10 @@ def write_file(work_dir):
 
 
 @pytest.fixture
-def cache_dirs(work_dir):
-    """The cache directory arguments of the step functions, each under `work_dir`."""
+def cache_dirs(local_root):
+    """The cache directory arguments of the step functions, each under `local_root`."""
     return {
-        "pdb_dir": os.path.join(work_dir, "pdb"),
-        "alphafold_dir": os.path.join(work_dir, "af"),
-        "fsdb_dir": os.path.join(work_dir, "fsdb"),
+        "pdb_dir": os.path.join(local_root, "pdb"),
+        "alphafold_dir": os.path.join(local_root, "af"),
+        "fsdb_dir": os.path.join(local_root, "fsdb"),
     }

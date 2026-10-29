@@ -63,7 +63,7 @@ class Settings:
     cache_dir: str
     results_dir: str
     # Absolute. Entries, a user Foldseek database and every relative path setting resolve against it.
-    work_dir: str
+    local_root: str
     # A forced pocket method, or "auto" to infer one per entry. Unlike align_struct_method, "auto"
     # is kept here: it is resolved for each entry, not once for the run.
     query_pocket_method: str
@@ -105,7 +105,7 @@ class Settings:
 # take. `layer_settings` seeds every key.
 STEP_ONLY_KEYS = ("pockets_tsv_path", "fetch_missing")
 
-# Step-only paths, resolved against work_dir like every path setting
+# Step-only paths, resolved against local_root like every path setting
 STEP_ONLY_PATH_KEYS = ("pockets_tsv_path",)
 JOB_KEYS = tuple(field.name for field in fields(Settings)) + STEP_ONLY_KEYS
 
@@ -116,6 +116,7 @@ REMOVED_JOB_KEYS = {
 } | {
     "failed_entries_path": "entries.tsv records the entries each step dropped; rerun parse for a new job file",
     "pocket_method": "pockets builds the pocket method parse chose for each entry; rerun parse for a new job file",
+    "work_dir": "renamed to local_root; set local_root in the job file instead",
 }
 
 # Setting -> its static default. The others default to None: resolved at run time, or required.
@@ -276,7 +277,7 @@ def require_setting(values, key):
 
 def resolve_paths(values, command):
     """
-    Fill in `work_dir`, `results_dir` and any derived path left unset, and make every path absolute.
+    Fill in `local_root`, `results_dir` and any derived path left unset, and make every path absolute.
 
     For search and parse, the commands that take `cache_dir` and `results_dir`.
 
@@ -286,34 +287,34 @@ def resolve_paths(values, command):
             SEARCH_SETTINGS_NAME for "search", else <command>_settings.json.
 
     Returns:
-        dict: A copy of `values` with every path absolute. `work_dir` defaults to the working
+        dict: A copy of `values` with every path absolute. `local_root` defaults to the working
             directory, and relative paths resolve against it. Paths already set are kept. For
             search, `results_dir` defaults to a timestamped name; for any other command it stays
             unset, and so does every results path not given, but `temp_dir`, which then defaults to
             <cache_dir>/tmp. The rest default to locations under `cache_dir` or `results_dir`.
     """
     values = dict(values)
-    work_dir = values["work_dir"] = os.path.abspath(
-        values["work_dir"] if values["work_dir"] is not None else os.getcwd()
+    local_root = values["local_root"] = os.path.abspath(
+        values["local_root"] if values["local_root"] is not None else os.getcwd()
     )
     if values["results_dir"] is None and command == "search":
         values["results_dir"] = default_results_dir()
-    results_dir = values["results_dir"] = work_path(work_dir, values["results_dir"])
-    values["cache_dir"] = work_path(work_dir, values["cache_dir"])
+    results_dir = values["results_dir"] = local_path(local_root, values["results_dir"])
+    values["cache_dir"] = local_path(local_root, values["cache_dir"])
     for key in CACHE_PATH_DEFAULTS:
-        values[key] = work_path(work_dir, cache_path(values["cache_dir"], key, values[key]))
+        values[key] = local_path(local_root, cache_path(values["cache_dir"], key, values[key]))
     for key in RESULTS_PATH_DEFAULTS:
         if values[key] is None and results_dir is not None:
             values[key] = results_path(results_dir, key)
-        values[key] = work_path(work_dir, values[key])
+        values[key] = local_path(local_root, values[key])
     if values["job_settings_path"] is None and results_dir is not None:
         name = SEARCH_SETTINGS_NAME if command == "search" else f"{command}_settings.json"
         values["job_settings_path"] = os.path.join(results_dir, name)
-    values["job_settings_path"] = work_path(work_dir, values["job_settings_path"])
+    values["job_settings_path"] = local_path(local_root, values["job_settings_path"])
     if values["temp_dir"] is None:
         values["temp_dir"] = os.path.join(values["cache_dir"], "tmp")
     for key in STEP_ONLY_PATH_KEYS:
-        values[key] = work_path(work_dir, values[key])
+        values[key] = local_path(local_root, values[key])
     return values
 
 
@@ -347,18 +348,18 @@ def dump_settings(values):
     logger.info(f"Settings written to {path}", extra=log_extra)
 
 
-def work_path(work_dir, path):
+def local_path(local_root, path):
     """
     Resolve a path against the working directory a run's settings name.
 
     Args:
-        work_dir (str): The run's absolute `work_dir`.
+        local_root (str): The run's absolute `local_root`.
         path (str or None): The path; an absolute one is kept.
 
     Returns:
         str: The absolute, normalised path, or None for none.
     """
-    return os.path.normpath(os.path.join(work_dir, path)) if path is not None else None
+    return os.path.normpath(os.path.join(local_root, path)) if path is not None else None
 
 
 def resolve_step_paths(values, required, optional=()):

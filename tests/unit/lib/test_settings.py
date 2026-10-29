@@ -298,9 +298,9 @@ def test_read_job_file_none_and_dict():
     assert copy is not job
 
 
-def test_read_job_file_missing(work_dir):
+def test_read_job_file_missing(local_root):
     """A path that does not exist is rejected, naming it."""
-    path = os.path.join(work_dir, "missing.json")
+    path = os.path.join(local_root, "missing.json")
     with raises(f"Job file not found: {path}"):
         read_job_file(path)
 
@@ -313,6 +313,11 @@ def test_read_job_file_missing(work_dir):
         ('["align_count", 3]', 'Job file {path} must hold a JSON object of {{"option": value}}.'),
         ('{"bogus": 1}', "Unknown setting(s) in {path}: bogus"),
         ('{"pocket_method": "pisa"}', "Unknown setting(s) in {path}: pocket_method. No longer used: pocket_method"),
+        (
+            '{"work_dir": "."}',
+            "Unknown setting(s) in {path}: work_dir. No longer used: work_dir "
+            "(renamed to local_root; set local_root in the job file instead)",
+        ),
     ],
 )
 def test_read_job_file_rejects(write_file, content, message):

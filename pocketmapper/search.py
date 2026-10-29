@@ -90,7 +90,7 @@ class PocketMapper:
         job_file=None,
         cache_dir=None,
         results_dir=None,
-        work_dir=None,
+        local_root=None,
         verbosity=None,
         threads=None,
         aligner=None,
@@ -137,7 +137,7 @@ class PocketMapper:
                 Defaults to DEFAULT_CACHE_DIR.
             results_dir (str, optional): Directory to output results to.
                 Defaults to pocketmapper_results_<YYMMDD_HHMMSS>.
-            work_dir (str, optional): Directory that entries and relative paths resolve against.
+            local_root (str, optional): Directory that entries and relative paths resolve against.
                 Defaults to the working directory.
             verbosity (int, optional): Control logging level. Defaults to DEFAULT_VERBOSITY.
             threads (int, optional): Cap on the cores Foldseek uses. Defaults to one per available core.
@@ -208,7 +208,7 @@ class PocketMapper:
             "target": target,
             "cache_dir": cache_dir,
             "results_dir": results_dir,
-            "work_dir": work_dir,
+            "local_root": local_root,
             "aligner": aligner,
             "verbosity": verbosity,
             "threads": threads,

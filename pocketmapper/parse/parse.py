@@ -24,7 +24,7 @@ def parse(
     target=None,
     job_file=None,
     results_dir=None,
-    work_dir=None,
+    local_root=None,
     verbosity=None,
     log_path=None,
     job_settings_path=None,
@@ -54,7 +54,7 @@ def parse(
             already loaded. Any argument given overrides it.
         results_dir (str, optional): Where the log, the settings and the entries table go by default.
             Defaults to None, for none.
-        work_dir (str, optional): Directory that entries and relative paths resolve against.
+        local_root (str, optional): Directory that entries and relative paths resolve against.
             Defaults to the working directory.
         verbosity (int, optional): 4=DEBUG, 3=INFO, 2=WARNING, else ERROR. Defaults to DEFAULT_VERBOSITY.
         log_path (str, optional): Defaults to <results_dir>/info.log.
@@ -88,7 +88,7 @@ def parse(
             "query": query,
             "target": target,
             "results_dir": results_dir,
-            "work_dir": work_dir,
+            "local_root": local_root,
             "verbosity": verbosity,
             "log_path": log_path,
             "job_settings_path": job_settings_path,
@@ -115,7 +115,7 @@ def parse(
             values["query_pocket_method"],
             values["target_pocket_method"],
             values,
-            values["work_dir"],
+            values["local_root"],
             values["entries_path"],
         )
         return pd.DataFrame(rows, columns=list(ENTRY_COLUMNS))
@@ -127,7 +127,7 @@ def parse_entries(
     query_pocket_method,
     target_pocket_method,
     cache_dirs,
-    work_dir,
+    local_root,
     entries_path=None,
 ):
     """
@@ -144,7 +144,7 @@ def parse_entries(
         target_pocket_method (str): As `query_pocket_method`, for the target side.
         cache_dirs (dict): Holds "pdb_dir", "alphafold_dir" and "fsdb_dir", which give the
             records' structure paths.
-        work_dir (str): Directory that entries files, local structure files, a user Foldseek
+        local_root (str): Directory that entries files, local structure files, a user Foldseek
             database and relative cache directories resolve against.
         entries_path (str, optional): Where the entries table is written. Defaults to None, for
             nowhere.
@@ -165,7 +165,7 @@ def parse_entries(
         ("query", query, query_pocket_method),
         ("target", target, target_pocket_method),
     ):
-        rows += parse_side(entries, name, pocket_method, cache_dirs, work_dir)
+        rows += parse_side(entries, name, pocket_method, cache_dirs, local_root)
     for row in rows:
         # A database can only be searched
         if row["side"] == "query" and row["struct_type"] == "foldseek_db" and row["failed_step"] is None:
@@ -197,7 +197,7 @@ def parse_entries(
     return sides, rows
 
 
-def parse_side(entries, name, pocket_method, cache_dirs, work_dir):
+def parse_side(entries, name, pocket_method, cache_dirs, local_root):
     """
     Parse one side's entries into rows of the entries table.
 
@@ -207,7 +207,7 @@ def parse_side(entries, name, pocket_method, cache_dirs, work_dir):
         pocket_method (str): Pocket method to force on every entry, or "auto".
         cache_dirs (dict): Holds "pdb_dir", "alphafold_dir" and "fsdb_dir", which give the
             records' structure paths.
-        work_dir (str): Directory that entries files, local structure files, a user Foldseek
+        local_root (str): Directory that entries files, local structure files, a user Foldseek
             database and relative cache directories resolve against.
 
     Returns:
@@ -221,7 +221,7 @@ def parse_side(entries, name, pocket_method, cache_dirs, work_dir):
         pdb_dir=cache_dirs["pdb_dir"],
         alphafold_dir=cache_dirs["alphafold_dir"],
         fsdb_dir=cache_dirs["fsdb_dir"],
-        work_dir=work_dir,
+        local_root=local_root,
     )
     rows = []
     for source in [entries] if isinstance(entries, str) else entries:

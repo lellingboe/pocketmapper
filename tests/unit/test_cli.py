@@ -95,7 +95,7 @@ def test_options_default_none(command):
             assert action.default is None, f"{command} --{action.dest} has a default"
 
 
-def test_bogus_aligner_fails_before_network(work_dir, monkeypatch, capsys):
+def test_bogus_aligner_fails_before_network(local_root, monkeypatch, capsys):
     """`search --aligner bogus` exits 1 with the reason, having tried no connection or name lookup."""
     attempts = []
 
@@ -114,8 +114,8 @@ def test_bogus_aligner_fails_before_network(work_dir, monkeypatch, capsys):
     package_logger = logging.getLogger(PACKAGE_LOGGER)
     handlers = list(package_logger.handlers)
     level = package_logger.level
-    results_dir = os.path.join(work_dir, "results")
-    cache_dir = os.path.join(work_dir, "cache")
+    results_dir = os.path.join(local_root, "results")
+    cache_dir = os.path.join(local_root, "cache")
     argv = ["search", "4Q5J:A_E", "4Q5J:B_F", "--aligner", "bogus", "--results_dir", results_dir]
 
     with pytest.raises(SystemExit) as exit_info:

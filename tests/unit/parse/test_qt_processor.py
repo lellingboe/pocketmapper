@@ -46,40 +46,40 @@ def md5(data):
 # Construction and paths
 
 
-def test_work_dir_defaults_to_cwd(tmp_path, monkeypatch):
-    """With no `work_dir`, the working directory is used and the cache directories resolve against it."""
+def test_local_root_defaults_to_cwd(tmp_path, monkeypatch):
+    """With no `local_root`, the working directory is used and the cache directories resolve against it."""
     monkeypatch.chdir(tmp_path)
     processor = QTProcessor(pdb_dir="pdb", alphafold_dir="af", fsdb_dir="fsdb")
-    assert processor.work_dir == os.getcwd()
-    assert os.path.samefile(processor.work_dir, str(tmp_path))
+    assert processor.local_root == os.getcwd()
+    assert os.path.samefile(processor.local_root, str(tmp_path))
     assert processor.pdb_dir == os.path.join(os.getcwd(), "pdb")
     assert processor.alphafold_dir == os.path.join(os.getcwd(), "af")
 
 
-def test_relative_cache_dirs_resolve_against_work_dir(processor, work_dir):
-    """Relative `pdb_dir`/`alphafold_dir` are made absolute against `work_dir`."""
-    assert processor.pdb_dir == os.path.join(work_dir, "pdb")
-    assert processor.alphafold_dir == os.path.join(work_dir, "af")
+def test_relative_cache_dirs_resolve_against_local_root(processor, local_root):
+    """Relative `pdb_dir`/`alphafold_dir` are made absolute against `local_root`."""
+    assert processor.pdb_dir == os.path.join(local_root, "pdb")
+    assert processor.alphafold_dir == os.path.join(local_root, "af")
 
 
-def test_absolute_cache_dirs_are_kept(work_dir):
+def test_absolute_cache_dirs_are_kept(local_root):
     """Absolute `pdb_dir`/`alphafold_dir` are kept as given."""
-    pdb_dir = os.path.join(work_dir, "cache", "pdb")
-    alphafold_dir = os.path.join(work_dir, "cache", "af")
-    processor = QTProcessor(pdb_dir, alphafold_dir, "fsdb", work_dir=os.path.join(work_dir, "work"))
+    pdb_dir = os.path.join(local_root, "cache", "pdb")
+    alphafold_dir = os.path.join(local_root, "cache", "af")
+    processor = QTProcessor(pdb_dir, alphafold_dir, "fsdb", local_root=os.path.join(local_root, "work"))
     assert processor.pdb_dir == pdb_dir
     assert processor.alphafold_dir == alphafold_dir
 
 
-def test_work_path_normalises(processor, work_dir):
-    """`work_path` resolves against `work_dir` and normalises `..`."""
-    assert processor.work_path(os.path.join("a", "..", "b")) == os.path.join(work_dir, "b")
+def test_local_path_normalises(processor, local_root):
+    """`local_path` resolves against `local_root` and normalises `..`."""
+    assert processor.local_path(os.path.join("a", "..", "b")) == os.path.join(local_root, "b")
 
 
-def test_work_path_keeps_absolute(processor, work_dir):
-    """`work_path` keeps an absolute path."""
-    path = os.path.join(work_dir, "elsewhere", "file.cif")
-    assert processor.work_path(path) == path
+def test_local_path_keeps_absolute(processor, local_root):
+    """`local_path` keeps an absolute path."""
+    path = os.path.join(local_root, "elsewhere", "file.cif")
+    assert processor.local_path(path) == path
 
 
 def test_accepted_pocket_methods(processor):
@@ -126,9 +126,9 @@ def test_accession_beats_file(processor, write_file, name, expected):
     assert processor.determine_struct_type(name) == (expected, None)
 
 
-def test_directory_struct_rejected(processor, work_dir):
+def test_directory_struct_rejected(processor, local_root):
     """A directory is not a supported structure."""
-    os.makedirs(os.path.join(work_dir, "somedir"))
+    os.makedirs(os.path.join(local_root, "somedir"))
     struct_type, reason = processor.determine_struct_type("somedir")
     assert struct_type is None
     assert "Directory input" in reason
@@ -146,9 +146,9 @@ def test_directory_struct_rejected(processor, work_dir):
         (os.path.join("sub", "struct.cif"), "local_file", ("sub", "struct.cif")),
     ],
 )
-def test_determine_ref_struct_path(processor, work_dir, struct_info, struct_type, expected_parts):
+def test_determine_ref_struct_path(processor, local_root, struct_info, struct_type, expected_parts):
     """Fetched structures live in their cache directory; a local file's path is made absolute."""
-    assert processor.determine_ref_struct_path(struct_info, struct_type) == os.path.join(work_dir, *expected_parts)
+    assert processor.determine_ref_struct_path(struct_info, struct_type) == os.path.join(local_root, *expected_parts)
 
 
 def test_determine_ref_struct_path_unknown_type(processor):
@@ -286,7 +286,7 @@ def test_parse_residue_info_rejected(processor, residue_info, bad_id):
 # build_record / parse_individual_qt
 
 
-def test_build_record_defaults(processor, work_dir):
+def test_build_record_defaults(processor, local_root):
     """A bare PDB id is an open search over the default chain."""
     record, reason = processor.parse_individual_qt("4Q5J", "auto")
     assert reason is None
@@ -295,7 +295,7 @@ def test_build_record_defaults(processor, work_dir):
     assert record.chain_info == "A"
     assert record.residue_info is None
     assert record.struct_type == "pdb"
-    assert record.struct_path == os.path.join(work_dir, "pdb", "4Q5J.cif.gz")
+    assert record.struct_path == os.path.join(local_root, "pdb", "4Q5J.cif.gz")
     assert record.pocket_method == "whole_chain"
 
 
@@ -406,22 +406,22 @@ def test_forced_method_match(processor):
     "entry, expected_path",
     [("human_domains", BUNDLED_HUMAN_DOMAINS_DB), ("pdb", None)],
 )
-def test_bundled_foldseek_db(processor, work_dir, entry, expected_path):
+def test_bundled_foldseek_db(processor, local_root, entry, expected_path):
     """A bundled DB name is a DB record even under "auto", with no chain or preprocess name."""
     record, reason = processor.parse_individual_qt(entry, "auto")
     assert reason is None
     assert record.struct_type == "foldseek_db"
-    assert record.struct_path == (expected_path or os.path.join(work_dir, "fsdb", "pdb"))
+    assert record.struct_path == (expected_path or os.path.join(local_root, "fsdb", "pdb"))
     assert record.chain_info is None
     assert record.preprocess_name is None
 
 
-def test_forced_foldseek_db_relative_path(processor, work_dir):
-    """A forced foldseek_db entry's path resolves against `work_dir`."""
+def test_forced_foldseek_db_relative_path(processor, local_root):
+    """A forced foldseek_db entry's path resolves against `local_root`."""
     record, reason = processor.parse_individual_qt(os.path.join("dbs", "mydb"), "foldseek_db")
     assert reason is None
     assert record.struct_type == "foldseek_db"
-    assert record.struct_path == os.path.join(work_dir, "dbs", "mydb")
+    assert record.struct_path == os.path.join(local_root, "dbs", "mydb")
 
 
 def test_unparseable_entry(processor):
@@ -431,9 +431,9 @@ def test_unparseable_entry(processor):
     assert "XYZ" in reason
 
 
-def test_directory_entry_rejected(processor, work_dir):
+def test_directory_entry_rejected(processor, local_root):
     """An entry naming a directory gives a reason."""
-    os.makedirs(os.path.join(work_dir, "somedir"))
+    os.makedirs(os.path.join(local_root, "somedir"))
     record, reason = processor.parse_individual_qt("somedir:A", "auto")
     assert record is None
     assert reason == "Directory input is not supported: somedir"
@@ -497,14 +497,14 @@ def test_entries_file_forced_method(processor, write_file):
     assert processor.pocket_methods["pisa"][1] in results[1][2]
 
 
-def test_foldseek_db_file_not_read(processor, write_file, work_dir):
+def test_foldseek_db_file_not_read(processor, write_file, local_root):
     """Under foldseek_db, an existing file is a DB, not an entries file."""
     write_file("mydb", "4Q5J:A\n4Q5J:B\n")
     ((entry, record, reason),) = processor.process_qt_cmdline_input("mydb", "target", pocket_method="foldseek_db")
     assert (entry, reason) == ("mydb", None)
     assert record["pocket_id"] == "mydb"
     assert record["struct_type"] == "foldseek_db"
-    assert record["struct_path"] == os.path.join(work_dir, "mydb")
+    assert record["struct_path"] == os.path.join(local_root, "mydb")
 
 
 def test_log_stage_names_side(processor):

@@ -43,9 +43,9 @@ def file_source(monkeypatch):
 
 
 @pytest.fixture
-def pdb_record(work_dir):
-    """A 4Q5J record whose `struct_path` is under `work_dir`, not yet written."""
-    return {"struct_type": "pdb", "struct_info": "4Q5J", "struct_path": os.path.join(work_dir, "pdb", "4Q5J.cif.gz")}
+def pdb_record(local_root):
+    """A 4Q5J record whose `struct_path` is under `local_root`, not yet written."""
+    return {"struct_type": "pdb", "struct_info": "4Q5J", "struct_path": os.path.join(local_root, "pdb", "4Q5J.cif.gz")}
 
 
 BUNDLED_PDB_DB = os.path.join("fsdb", "pdb")
@@ -144,22 +144,22 @@ def test_fetch(file_source, pdb_record, kwargs, existing, available, contents):
 
 
 @pytest.mark.parametrize("exists", [True, False])
-def test_fetch_local_file(work_dir, exists):
+def test_fetch_local_file(local_root, exists):
     """A local file is reported available only if it exists."""
-    struct_path = FIXTURE if exists else os.path.join(work_dir, "missing.cif")
+    struct_path = FIXTURE if exists else os.path.join(local_root, "missing.cif")
     record = {"struct_type": "local_file", "struct_info": "my_structure", "struct_path": struct_path}
     assert StructureManager().fetch([record]) == {"my_structure": exists}
 
 
-def test_fetch_unknown_type(work_dir, caplog):
+def test_fetch_unknown_type(local_root, caplog):
     """An unknown type is reported unavailable, with a warning."""
-    record = {"struct_type": "nonsense", "struct_info": "X", "struct_path": os.path.join(work_dir, "X")}
+    record = {"struct_type": "nonsense", "struct_info": "X", "struct_path": os.path.join(local_root, "X")}
     with caplog.at_level(logging.WARNING):
         assert StructureManager().fetch([record]) == {"X": False}
     assert "Unknown structure type nonsense" in caplog.text
 
 
-def test_fetch_dedupes(file_source, pdb_record, work_dir, monkeypatch):
+def test_fetch_dedupes(file_source, pdb_record, local_root, monkeypatch):
     """Records sharing a `struct_info` give one download job, to the first record's `struct_path`."""
     calls = []
     real_download_many = structure_manager.download_many
@@ -170,7 +170,7 @@ def test_fetch_dedupes(file_source, pdb_record, work_dir, monkeypatch):
         return real_download_many(jobs, **kwargs)
 
     monkeypatch.setattr(structure_manager, "download_many", recording_download_many)
-    duplicate = dict(pdb_record, struct_path=os.path.join(work_dir, "other", "4Q5J.cif.gz"))
+    duplicate = dict(pdb_record, struct_path=os.path.join(local_root, "other", "4Q5J.cif.gz"))
     found = StructureManager().fetch([pdb_record, duplicate])
     assert found == {"4Q5J": True}
     assert [[job.out_fpath for job in jobs.values()] for jobs in calls] == [[pdb_record["struct_path"]]]
@@ -183,12 +183,12 @@ def test_refresh_needs_download():
 
 
 @pytest.fixture
-def pdb_copy(work_dir):
-    """A factory that writes the fixture to `name` under `work_dir` in PDB format and returns its path."""
+def pdb_copy(local_root):
+    """A factory that writes the fixture to `name` under `local_root` in PDB format and returns its path."""
 
     def write(name, options=None):
         """Write the fixture as PDB to `name`, with `options` if given, and return the path."""
-        path = os.path.join(work_dir, name)
+        path = os.path.join(local_root, name)
         st = gemmi.read_structure(FIXTURE)
         if options is None:
             st.write_pdb(path)
@@ -239,17 +239,17 @@ def truncated_fixture():
         pytest.param("no_chain.pdb", "not a structure\n", "has no chain", id="no_chain"),
     ],
 )
-def test_load_structure_rejects(write_file, work_dir, caplog, name, content, message):
+def test_load_structure_rejects(write_file, local_root, caplog, name, content, message):
     """A missing, unreadable, model-less or chain-less file gives None and a warning."""
-    path = os.path.join(work_dir, name) if content is None else write_file(name, content)
+    path = os.path.join(local_root, name) if content is None else write_file(name, content)
     with caplog.at_level(logging.WARNING):
         assert load_structure(path) is None
     assert message in caplog.text
 
 
-def test_get(file_source, work_dir):
+def test_get(file_source, local_root):
     """`get` goes from no file to a loaded structure in one call, caching the file."""
-    pdb_dir = os.path.join(work_dir, "pdb")
+    pdb_dir = os.path.join(local_root, "pdb")
     st = StructureManager(pdb_dir=pdb_dir).get("pdb", "4q5j")
     assert st is not None and has_ca_residues(st)
     assert os.path.exists(os.path.join(pdb_dir, "4Q5J.cif.gz"))

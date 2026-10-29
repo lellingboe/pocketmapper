@@ -118,8 +118,8 @@ OPTIONS = {
             "(default: none)",
         ),
     ),
-    "work_dir": (
-        ["--work_dir"],
+    "local_root": (
+        ["--local_root"],
         dict(
             default=None,
             metavar="DIR",
@@ -372,7 +372,7 @@ COMMANDS = {
                     "target_pocket_method",
                 ],
             ),
-            ("in options", ["work_dir"]),
+            ("in options", ["local_root"]),
             (
                 "cache options",
                 [
@@ -455,7 +455,7 @@ COMMANDS = {
                     "threads",
                 ],
             ),
-            ("in options", ["work_dir"]),
+            ("in options", ["local_root"]),
             ("aligned structure options", ["align_count", "align_struct_method"]),
             (
                 "cache options",

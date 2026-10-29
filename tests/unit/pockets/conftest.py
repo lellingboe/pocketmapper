@@ -66,9 +66,9 @@ def pocket_dir(tmp_path):
 
 
 @pytest.fixture
-def pdb_dir(work_dir):
-    """`work_dir/pdb`, where the `processor` fixture's PDB records point, holding the 4Q5J structure."""
-    pdb_dir = os.path.join(work_dir, "pdb")
+def pdb_dir(local_root):
+    """`local_root/pdb`, where the `processor` fixture's PDB records point, holding the 4Q5J structure."""
+    pdb_dir = os.path.join(local_root, "pdb")
     os.makedirs(pdb_dir)
     shutil.copy(STRUCTURE_4Q5J, os.path.join(pdb_dir, "4Q5J.cif.gz"))
     return pdb_dir

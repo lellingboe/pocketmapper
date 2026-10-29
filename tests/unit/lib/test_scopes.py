@@ -39,9 +39,9 @@ def listing(temp_dir):
 
 
 @pytest.fixture
-def temp_dir(work_dir):
-    """The path of a scratch directory under `work_dir`, not yet created."""
-    return os.path.join(work_dir, "tmp")
+def temp_dir(local_root):
+    """The path of a scratch directory under `local_root`, not yet created."""
+    return os.path.join(local_root, "tmp")
 
 
 @pytest.mark.parametrize("extras", [[], ["user_file.txt", os.path.join("user_dir", "notes.txt")]])

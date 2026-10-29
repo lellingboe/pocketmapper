@@ -131,9 +131,9 @@ def test_expand_pdb_hits(no_downloads, network_attempts, pdb_dir, make_manager):
     assert network_attempts == []
 
 
-def test_expand_pdb_hits_no_structures(no_downloads, work_dir, make_manager):
+def test_expand_pdb_hits_no_structures(no_downloads, local_root, make_manager):
     """With no hit structure available, `expand_pdb_hits` raises."""
-    empty_pdb_dir = os.path.join(work_dir, "empty_pdb")
+    empty_pdb_dir = os.path.join(local_root, "empty_pdb")
     os.makedirs(empty_pdb_dir)
 
     with pytest.raises(PocketMapperError):
@@ -152,7 +152,7 @@ def test_expand_pdb_hits_missing_dir(no_downloads, processor, pdb_dir, pocket_di
     assert sorted(os.walk(pocket_dir)) == pisa_files
 
 
-def test_pockets_file_round_trip(work_dir):
+def test_pockets_file_round_trip(local_root):
     """A written pockets file reads back equal, keeping `res_auth_ids` order, `seq_pos`, None fields and None pockets."""
     residues = {
         "25": PocketResidue(res_code="GLY", res_code_single="G", seq_pos=20, ca_coords=[1.0, 2.0, 3.0]),
@@ -166,7 +166,7 @@ def test_pockets_file_round_trip(work_dir):
         "1ABC:A_B": None,
     }
     chains = {"4Q5J_A_hash": ["4Q5J:A_E"], "1ABC_A_hash": ["1ABC:A_B"], "empty_chain": []}
-    path = os.path.join(work_dir, "out", "pockets.json")
+    path = os.path.join(local_root, "out", "pockets.json")
 
     write_pockets_file(pockets, chains, path)
     read_pockets, read_chains = read_pockets_file(path)
@@ -187,12 +187,12 @@ def test_read_pockets_file_rejects(write_file, content):
 
 
 @pytest.mark.parametrize("built", [pytest.param(True, id="built"), pytest.param(False, id="not_built")])
-def test_write_pockets_table_once_per_pocket(hit_records, pocket_dir, work_dir, built):
+def test_write_pockets_table_once_per_pocket(hit_records, pocket_dir, local_root, built):
     """A pocket_id given by two hit records is written once, with its residues if built and empty if not."""
     records = [record for record in hit_records if record["pocket_id"] == "4Q5J:B_F"]
     assert len(records) == 2
     pockets = PocketManager(pocket_dir, download=False).build(records) if built else {"4Q5J:B_F": None}
-    path = os.path.join(work_dir, "out", "pockets.tsv")
+    path = os.path.join(local_root, "out", "pockets.tsv")
 
     write_pockets_table(records, pockets, path)
     table = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)

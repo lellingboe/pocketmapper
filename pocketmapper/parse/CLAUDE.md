@@ -19,7 +19,7 @@ grammar is the two tables in `QTProcessor.__init__`; README "Input format" is th
 - **`QTRecord`'s fields are `lib.entries.RECORD_FIELDS`, in the same order.** Neither is derived from the
   other. A new field goes in both places; `test_qt_processor` checks the order.
 - **`pockets.pocket_manager.PocketManager.expand_pdb_hits` also calls `QTProcessor`.** It builds one
-  without `work_dir`, reads `pocket_methods["pisa"][0]` to skip chain pairs the grammar cannot spell, calls
+  without `local_root`, reads `pocket_methods["pisa"][0]` to skip chain pairs the grammar cannot spell, calls
   `parse_individual_qt(..., pocket_method="pisa")`, and replaces `preprocess_name` with the Foldseek hit
   name. A change to that table's layout or to that method's signature breaks the PDB-database path. Only
   the `pdb_fsdb` and `huge` tests (`tests/integration/test_databases.py`) cover that path.
