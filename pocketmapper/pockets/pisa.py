@@ -205,7 +205,7 @@ def buried_residues(molecule, bsa_threshold):
     return residues
 
 
-def pisa_pockets(records, downloader, bsa_threshold=None):
+def pisa_pockets(records, structures, downloader, bsa_threshold=None):
     """
     Build a Pocket per record from the PDBe PISA interface it names, with coordinates from its structure.
 
@@ -215,6 +215,7 @@ def pisa_pockets(records, downloader, bsa_threshold=None):
 
     Args:
         records (list): QTRecord dicts with `pocket_method == "pisa"`.
+        structures (StructureManager): Locates the records' structures.
         downloader (PisaDownloader): The PISA cache, its source and its download policy.
         bsa_threshold (float or None, optional): Percent of a residue's accessible surface the partner
             must bury, strictly exceeded, for the residue to join. Not validated here. Defaults to None,
@@ -238,7 +239,7 @@ def pisa_pockets(records, downloader, bsa_threshold=None):
     # The interfaces give residue ids only; seq_pos and CA coordinates are added to the same Pocket
     pockets = {}
     parsed_records = [record for record in records if record["pocket_id"] in parsed]
-    for st, group in records_by_structure(parsed_records, log_extra):
+    for st, group in records_by_structure(parsed_records, structures, log_extra):
         for record in group:
             domain_chain, _ = split_chain_info(record["chain_info"])
             parsed_pocket = parsed[record["pocket_id"]]

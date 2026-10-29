@@ -7,6 +7,7 @@ import os
 
 import pytest
 
+from pocketmapper.lib.structure_manager import StructureManager
 from pocketmapper.pockets.pisa import pisa_pockets, pisa_pockets_from_records
 from pocketmapper.pockets.pisa_downloader import PisaDownloader
 
@@ -102,7 +103,8 @@ def test_pisa_pockets_offline(no_downloads, processor, pdb_dir, pocket_dir):
         assert reason is None
         records.append(record)
 
-    pockets = pisa_pockets(records, PisaDownloader(os.path.join(pocket_dir, "pisa"), download=False))
+    structures = StructureManager(pdb_dir, download=False)
+    pockets = pisa_pockets(records, structures, PisaDownloader(os.path.join(pocket_dir, "pisa"), download=False))
 
     assert list(pockets) == ["4Q5J:A_E"]
     assert pockets["4Q5J:A_E"].pocket_exists

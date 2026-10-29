@@ -23,15 +23,16 @@ from pocketmapper.pockets.pocket import Pocket, PocketResidue
 logger = logging.getLogger(__name__)
 
 
-def records_by_structure(records, log_extra):
+def records_by_structure(records, structures, log_extra):
     """
-    Group records by `struct_path` and read each group's structure once.
+    Group records by the path of their structure and read each group's structure once.
 
     Groups come in order of each path's first appearance, and keep the records' order within a group.
     Each structure is read only when its group is reached, so one is held in memory at a time.
 
     Args:
-        records (list): QTRecord dicts; `struct_path` is read.
+        records (list): QTRecord dicts.
+        structures (StructureManager): Locates each record's structure, by `record_path`.
         log_extra (dict): `extra` for `load_structure`'s warning about a missing or unreadable file.
 
     Yields:
@@ -40,7 +41,7 @@ def records_by_structure(records, log_extra):
     """
     groups = {}
     for record in records:
-        groups.setdefault(record["struct_path"], []).append(record)
+        groups.setdefault(structures.record_path(record), []).append(record)
     for path, group in tqdm(groups.items()):
         yield load_structure(path, log_extra), group
 
@@ -120,12 +121,13 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
     return pocket
 
 
-def residue_list_pockets(records, residue_ids, log_extra):
+def residue_list_pockets(records, structures, residue_ids, log_extra):
     """
     Build a Pocket per record from one structure chain and a residue list, reading each structure once.
 
     Args:
         records (list): QTRecord dicts.
+        structures (StructureManager): Locates the records' structures.
         residue_ids (callable): Takes a record and returns the author seqids (int) of its pocket in
             ascending order, or None for the whole chain.
         log_extra (dict): `extra` for the warnings, naming the builder's stage.
@@ -136,7 +138,7 @@ def residue_list_pockets(records, residue_ids, log_extra):
             warning.
     """
     pockets = {}
-    for st, group in records_by_structure(records, log_extra):
+    for st, group in records_by_structure(records, structures, log_extra):
         for record in group:
             domain_chain, _ = split_chain_info(record["chain_info"])
             pocket = None if st is None else parse_pocket_from_struct(st, domain_chain, residue_ids(record))
@@ -160,12 +162,13 @@ def residue_list_pockets(records, residue_ids, log_extra):
     return pockets
 
 
-def passthrough_pockets(records):
+def passthrough_pockets(records, structures):
     """
     Build a Pocket per record from the residue ids listed in its `residue_info`.
 
     Args:
         records (list): QTRecord dicts with `pocket_method == "passthrough"`.
+        structures (StructureManager): Locates the records' structures.
 
     Returns:
         dict: pocket_id -> Pocket, with `res_auth_ids` in ascending order whatever order they were
@@ -173,21 +176,23 @@ def passthrough_pockets(records):
     """
     return residue_list_pockets(
         records,
+        structures,
         # Ascending, whatever order the ids were typed in
         lambda record: sorted(int(x) for x in record["residue_info"].split(",")),
         {"stage": "Retrieving Passthrough Pockets"},
     )
 
 
-def whole_chain_pockets(records):
+def whole_chain_pockets(records, structures):
     """
     Build a Pocket per record from every CA residue of its chain.
 
     Args:
         records (list): QTRecord dicts with `pocket_method == "whole_chain"`.
+        structures (StructureManager): Locates the records' structures.
 
     Returns:
         dict: pocket_id -> Pocket. Records that cannot be built are left out (see
             `residue_list_pockets`).
     """
-    return residue_list_pockets(records, lambda record: None, {"stage": "Retrieving Whole Chain Pockets"})
+    return residue_list_pockets(records, structures, lambda record: None, {"stage": "Retrieving Whole Chain Pockets"})

@@ -1,9 +1,9 @@
 """
 Pockets through one interface: building them, the PISA cache, Foldseek hit expansion and the pocket files.
 
-`POCKET_BUILDERS` is the whole table of pocket methods. Every builder takes `(records, **options)` and
-returns pocket_id -> Pocket for the pockets it built, leaving out (and logging) the records it could not
-build. `PocketManager` sets each method's options once, so `build` needs to know nothing about any one
+`POCKET_BUILDERS` is the whole table of pocket methods. Every builder takes `(records, structures, **options)`,
+where `structures` is the manager's `StructureManager`, and returns pocket_id -> Pocket for the pockets it
+built, leaving out (and logging) the records it could not build. `PocketManager` sets each method's options once, so `build` needs to know nothing about any one
 method. Built pockets are not cached: every `build` builds them afresh.
 
 The pocket files are module-level functions and need no manager: `write_pockets_file`/`read_pockets_file`
@@ -55,8 +55,8 @@ class PocketManager:
 
     Holds one `PisaDownloader`, caching under `pocket_dir/pisa/` and shared by the pisa builder and
     `expand_pdb_hits`, and one `StructureManager` for the hits' structures. `download` governs both, and
-    `max_workers` sets the width of both download pools. Builders read structures through
-    `lib.structure_manager.load_structure`, which never downloads.
+    `max_workers` sets the width of both download pools. Builders locate structures with that
+    manager's `record_path` and read them with `lib.structure_manager.load_structure`, which never downloads.
     """
 
     def __init__(
@@ -103,7 +103,7 @@ class PocketManager:
             os.path.join(pocket_dir, "pisa"), source=pisa_source, max_workers=max_workers, download=download
         )
         self.structures = StructureManager(
-            pdb_dir, alphafold_dir, local_root=local_root, download=download, max_workers=max_workers
+            pdb_dir, alphafold_dir, fsdb_dir, local_root, download=download, max_workers=max_workers
         )
         # pocket_method -> keyword arguments of its builder; a method absent here takes none
         self.builder_options = {"pisa": {"downloader": self.pisa, "bsa_threshold": bsa_threshold}}
@@ -120,7 +120,7 @@ class PocketManager:
 
         Args:
             records (list): QTRecord dicts; reads `pocket_id`, `pocket_method`, `struct_info`,
-                `struct_path`, `chain_info` and `residue_info`. Query and target records may be mixed.
+                `struct_type`, `chain_info` and `residue_info`. Query and target records may be mixed.
                 Used as given: filter out any whose structure is unavailable before calling.
 
         Returns:
@@ -147,7 +147,7 @@ class PocketManager:
                 continue
             logger.info(f"{len(method_records)} {label} pockets to retrieve", extra=method_log_extra)
 
-            method_pockets = builder(method_records, **self.builder_options.get(pocket_method, {}))
+            method_pockets = builder(method_records, self.structures, **self.builder_options.get(pocket_method, {}))
             logger.debug(f"Built {len(method_pockets)} {label} pockets", extra=method_log_extra)
             pockets |= method_pockets
 

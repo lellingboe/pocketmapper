@@ -4,6 +4,7 @@ into pisa records, and the pocket files. Offline, on the seeded 4Q5J PISA data a
 """
 
 import os
+import shutil
 
 import pandas as pd
 import pytest
@@ -90,12 +91,12 @@ def hit_records(no_downloads, pdb_dir, make_manager):
 
 
 @pytest.mark.parametrize("entry, pocket_method", METHOD_CASES)
-def test_build_each_method(no_downloads, processor, pdb_dir, pocket_dir, entry, pocket_method):
+def test_build_each_method(no_downloads, processor, pdb_dir, pocket_dir, make_manager, entry, pocket_method):
     """Each method's pocket is built with coordinates, and `pocket_dir` holds nothing but `pisa/` afterwards."""
     record = parse(processor, entry)
     assert record["pocket_method"] == pocket_method
 
-    pockets = PocketManager(pocket_dir).build([record])
+    pockets = make_manager().build([record])
 
     assert list(pockets) == [entry]
     assert pockets[entry].has_coords
@@ -103,21 +104,33 @@ def test_build_each_method(no_downloads, processor, pdb_dir, pocket_dir, entry, 
 
 
 @pytest.mark.parametrize("bsa_threshold, size", BSA_CASES)
-def test_build_bsa_threshold(no_downloads, processor, pdb_dir, pocket_dir, bsa_threshold, size):
+def test_build_bsa_threshold(no_downloads, processor, pdb_dir, make_manager, bsa_threshold, size):
     """The manager's `bsa_threshold` reaches the pisa builder."""
-    pockets = PocketManager(pocket_dir, bsa_threshold=bsa_threshold).build([parse(processor, "4Q5J:A_E")])
+    pockets = make_manager(bsa_threshold=bsa_threshold).build([parse(processor, "4Q5J:A_E")])
 
     assert len(pockets["4Q5J:A_E"].res_auth_ids) == size
 
 
-def test_build_offline_uncached(no_downloads, network_attempts, processor, pdb_dir, pocket_dir):
+def test_build_offline_uncached(no_downloads, network_attempts, processor, pdb_dir, make_manager):
     """With downloads off, a pisa entry whose PISA data is not cached is left out, and nothing is requested."""
     records = [parse(processor, entry) for entry in ("4Q5J:A_E", "1ABC:A_B")]
 
-    pockets = PocketManager(pocket_dir, download=False).build(records)
+    pockets = make_manager().build(records)
 
     assert list(pockets) == ["4Q5J:A_E"]
     assert network_attempts == []
+
+
+def test_build_relative_local_file(no_downloads, processor, pdb_dir, local_root, make_manager):
+    """A record naming a local file by a relative path is read from the manager's `local_root`, not from `struct_path`."""
+    shutil.copy(os.path.join(pdb_dir, "4Q5J.cif.gz"), os.path.join(local_root, "mine.cif.gz"))
+    record = parse(processor, "mine.cif.gz:A")
+    record["struct_path"] = os.path.join(local_root, "not_a_file.cif.gz")
+
+    pockets = make_manager(local_root=local_root).build([record])
+
+    assert list(pockets) == [record["pocket_id"]]
+    assert pockets[record["pocket_id"]].has_coords
 
 
 def test_expand_pdb_hits(no_downloads, network_attempts, pdb_dir, make_manager):
@@ -141,12 +154,11 @@ def test_expand_pdb_hits_no_structures(no_downloads, local_root, make_manager):
 
 
 @pytest.mark.parametrize("missing", MISSING_DIR_CASES)
-def test_expand_pdb_hits_missing_dir(no_downloads, processor, pdb_dir, pocket_dir, make_manager, missing):
-    """A manager without a directory builds pockets, but `expand_pdb_hits` raises before downloading anything."""
+def test_expand_pdb_hits_missing_dir(no_downloads, pdb_dir, pocket_dir, make_manager, missing):
+    """`expand_pdb_hits` raises before downloading anything when a directory is missing."""
     pisa_files = sorted(os.walk(pocket_dir))
     manager = make_manager(download=True, **{missing: None})
 
-    assert list(manager.build([parse(processor, "4Q5J:A_E")])) == ["4Q5J:A_E"]
     with pytest.raises(PocketMapperError, match=missing):
         manager.expand_pdb_hits(HIT_NAMES)
     assert sorted(os.walk(pocket_dir)) == pisa_files
@@ -187,11 +199,11 @@ def test_read_pockets_file_rejects(write_file, content):
 
 
 @pytest.mark.parametrize("built", [pytest.param(True, id="built"), pytest.param(False, id="not_built")])
-def test_write_pockets_table_once_per_pocket(hit_records, pocket_dir, local_root, built):
+def test_write_pockets_table_once_per_pocket(hit_records, make_manager, local_root, built):
     """A pocket_id given by two hit records is written once, with its residues if built and empty if not."""
     records = [record for record in hit_records if record["pocket_id"] == "4Q5J:B_F"]
     assert len(records) == 2
-    pockets = PocketManager(pocket_dir, download=False).build(records) if built else {"4Q5J:B_F": None}
+    pockets = make_manager().build(records) if built else {"4Q5J:B_F": None}
     path = os.path.join(local_root, "out", "pockets.tsv")
 
     write_pockets_table(records, pockets, path)

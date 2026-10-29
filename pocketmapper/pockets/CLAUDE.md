@@ -11,8 +11,8 @@ Facts about `pockets/`, moved out of `context/project-overview.md` so they load 
   is left out with a warning, never mapped to None; the step then marks it `pocket_not_built` in
   `entries.tsv`. A pocket built but empty (pisa with no residue under the rule, vdw with no contacts) is
   kept, with `pocket_exists=False`. Each builder reads every structure once per call
-  (`records_by_structure`, through `lib.structure_manager.load_structure`, which gives None for a file it
-  cannot use).
+  (`records_by_structure`: paths from `StructureManager.record_path`, read through
+  `lib.structure_manager.load_structure`, which gives None for a file it cannot use).
 - Records are dicts, not DataFrames. `PocketManager.build` passes every record it is given to its
   method's builder, so a caller filters out records whose structure is unavailable first.
 - **`PocketManager.expand_pdb_hits` lives in the manager, not beside the builders** (it builds records

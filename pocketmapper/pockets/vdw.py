@@ -68,7 +68,7 @@ def vdw_contact_residues(residues, partner_residues):
     return list(dict.fromkeys(contacts))
 
 
-def vdw_pockets(records):
+def vdw_pockets(records, structures):
     """
     Build a Pocket per record from the residues of its first chain in van der Waals contact with its second.
 
@@ -77,6 +77,7 @@ def vdw_pockets(records):
 
     Args:
         records (list): QTRecord dicts with `pocket_method == "vdw"`.
+        structures (StructureManager): Locates the records' structures.
 
     Returns:
         dict: pocket_id -> Pocket, for built pockets only. A record whose structure or either chain cannot
@@ -84,7 +85,7 @@ def vdw_pockets(records):
     """
     log_extra = {"stage": "Retrieving VdW Pockets"}
     pockets = {}
-    for st, group in records_by_structure(records, log_extra):
+    for st, group in records_by_structure(records, structures, log_extra):
         for record in group:
             names = split_chain_info(record["chain_info"])
             chains = [None if st is None else st[0].find_chain(name) for name in names]  # first model only
