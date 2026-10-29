@@ -95,7 +95,7 @@ left off the command line.
 
 | Option | Default | Summary |
 | --- | --- | --- |
-| `--work_dir` | the current directory | Directory that entries, entries files and every relative path resolve against. Recorded absolute in the settings dump, so a step run later from another directory resolves them the same way. |
+| `--local_root` | the current directory | Directory that relative local structure files and user Foldseek database paths resolve against. Every other path, entries files included, resolves against the current directory. Recorded absolute in the settings dump, so a step run later from another directory resolves them the same way. |
 
 #### Aligned structure options
 
@@ -170,7 +170,7 @@ pocketmapper superpose --job_file ./out/parse_settings.json
 | `compare` | Compares the pockets of every aligned pair. | `entries.tsv`, `alignment.tsv`, `pockets.json` | `pocket_comparison.tsv`, `unknown_ids.json`, `incorrect_mapping.json` |
 | `superpose` | Superposes the top targets onto each query. | `entries.tsv`, the cache, `pocket_comparison.tsv`, `alignment.tsv`, `pockets.json` (`pdb` database target only) | `aligned_structures/` |
 
-- **Only `parse` reads the entries.** It writes `entries.tsv`, a row per query and target entry
+- **Only `parse` reads the query and target inputs.** It writes `entries.tsv`, a row per query and target entry
   (see [Outputs](#outputs)), and every later step reads its records from there. A step skips the
   entries an earlier step dropped, and marks the ones it drops itself with the step and the reason.
   When a step starts, it clears its own marks and those of every later step, so a rerun gives the same
@@ -180,8 +180,9 @@ pocketmapper superpose --job_file ./out/parse_settings.json
   takes each path it uses from that job file, and an argument moves only the path it names. An option
   without `_path` (`--entries`, `--alignment`, `--pockets`) names a file the step reads, and one ending
   in `_path` names a file it writes. A relative path given to a step resolves against the current
-  directory. The settings hold absolute paths, so the commands after `parse` can run from any working
-  directory.
+  directory, except that a relative local structure file or user Foldseek database named in an entry
+  resolves against `--local_root`. The settings hold absolute paths, so the commands after `parse` can
+  run from any working directory.
 - **Without `--results_dir`, `parse` writes nothing** but a file whose own path is given. The steps after
   it need its `entries.tsv`.
 - **Only `fetch_structures` downloads the entries' structures**, unless asked. `align`, `pockets` and
@@ -209,7 +210,7 @@ what they do for `search`.
 
 | Command | Options |
 | --- | --- |
-| `parse` | `QUERY`, `TARGET` (or from the job file), `--query_pocket_method`, `--target_pocket_method`, `--work_dir`, the [cache options](#cache-options), `--results_dir`, `--entries_path`, `--job_settings_path` |
+| `parse` | `QUERY`, `TARGET` (or from the job file), `--query_pocket_method`, `--target_pocket_method`, `--local_root`, the [cache options](#cache-options), `--results_dir`, `--entries_path`, `--job_settings_path` |
 | `fetch_structures` | `--local_root`, `--pdb_dir`, `--alphafold_dir`, `--fsdb_dir`, `--threads`, the [temp options](#temp-options), `--offline`, `--refresh_structures` |
 | `align` | `--local_root`, `--pdb_dir`, `--alphafold_dir`, `--fsdb_dir`, `--aligner`, `--threads`, `--fetch_missing`, `--foldseek_preprocessed_structure_dir`, `--alignment_path`, the [temp options](#temp-options), `--offline` |
 | `pockets` | `--alignment`, `--local_root`, `--pdb_dir`, `--alphafold_dir`, `--pocket_dir`, `--fsdb_dir`, `--pockets_path`, `--pockets_tsv_path` (a table of `pocket_id`, `chain`, `res_auth_ids`, `method`), `--pisa_source`, `--pisa_bsa_threshold`, `--fetch_missing`, `--offline` |
@@ -336,7 +337,7 @@ Everything is written under `--results_dir`:
 | `job_settings.json` | The fully resolved settings for the run. `parse` run on its own writes `parse_settings.json` instead. |
 | `info.log` | The run log. |
 | `pockets.json` | Every entry's pocket, keyed by pocket id (`null` where it could not be built), and `chains`: each aligned chain's name -> the pocket ids on it. Each pocket is an object of metadata fields plus a `residues` map keyed by author residue number. Versioned; a file from an older version is rejected, so rerun `pockets`. |
-| `entries.tsv` | A row per query and target entry: `side`, `pocket_id` (the entry as typed), how it parsed (`struct_info`, `chain_info`, `residue_info`, `struct_type`, `struct_path`, `preprocess_name`, `pocket_method`), `source` (the input or file it came from), and, once a step has dropped it, `failed_step`, `failed_reason` (`invalid_entry`, `structure_not_found`, `structure_preprocessing_failed`, `pocket_not_built`) and `failed_detail`. A Foldseek-database hit is no entry, so one dropped is only logged. |
+| `entries.tsv` | A row per query and target entry: `side`, `pocket_id` (the entry as typed), how it parsed (`struct_info`, `chain_info`, `residue_info`, `struct_type`, `preprocess_name`, `pocket_method`), `source` (the input or file it came from), and, once a step has dropped it, `failed_step`, `failed_reason` (`invalid_entry`, `structure_not_found`, `structure_preprocessing_failed`, `pocket_not_built`) and `failed_detail`. The table holds no paths: a step finds each structure from its `struct_type` and `struct_info`, in its own cache dirs. A Foldseek-database hit is no entry, so one dropped is only logged. |
 | `unknown_ids.json` | Pocket residues whose one-letter code in the alignment differs from the structure's. Only written if any were seen, beside `pocket_comparison.tsv`. |
 | `incorrect_mapping.json` | Pockets dropped because their own sequence disagreed with the aligner's for that chain — typically assembly vs asymmetric unit numbering. Only written if any were dropped, beside `pocket_comparison.tsv`. |
 
@@ -498,22 +499,31 @@ from `verbosity` for the length of the call. For the CLI's console format, use
 `logging.getLogger("pocketmapper")`.
 
 The last step is the one you can defer: run with `align_count=0` and no aligned structures are written,
-then run `pocketmapper.superpose.superpose.superpose(job_file=settings)`. For finer control, hand
-`StructureAligner.align_structs` the run's records, read from its `entries.tsv` with
+then run `pocketmapper.superpose.superpose.superpose(job_file=settings)`. For finer control, use
+a `StructureAligner` built on a `StructureManager` (which finds each structure from the run's cache dirs
+and `local_root`) and hand its `align_structs` the run's records, read from its `entries.tsv` with
 `pocketmapper.lib.entries.entry_sides(pocketmapper.lib.entries.read_entries(path))`, and its result
 files: it takes `query_ids` and `target_ids` to superpose only part of the run, and `overwrite=False` to
-leave alone what it has already written. (Against a Foldseek database target it also needs `fsdb_path`;
-`superpose.superpose` handles that.)
+leave alone what it has already written. (Against a Foldseek database target it also needs `fsdb_path`,
+`manager.record_path(pocketmapper.lib.entries.fsdb_record(sides["target"]))`; `superpose.superpose`
+handles that.)
 
 ```python
 from pocketmapper import PocketMapper
 from pocketmapper.lib.entries import entry_sides, read_entries
+from pocketmapper.lib.structure_manager import StructureManager
 from pocketmapper.superpose.structure_aligner import StructureAligner
 
 settings = PocketMapper().search("4Q5J:A_E", "4Q5J:B_F", align_count=0, results_dir="results")
 sides = entry_sides(read_entries(settings["entries_path"]))
+manager = StructureManager(
+    pdb_dir=settings["pdb_dir"],
+    alphafold_dir=settings["alphafold_dir"],
+    fsdb_dir=settings["fsdb_dir"],
+    local_root=settings["local_root"],
+)
 
-StructureAligner().align_structs(
+StructureAligner(manager).align_structs(
     query_records=sides["query"],
     target_records=sides["target"],
     pocket_comparison=settings["pocket_comparison_path"],

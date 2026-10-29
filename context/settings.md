@@ -18,8 +18,9 @@ keys are rejected; one in `REMOVED_JOB_KEYS` gets its replacement named. Search 
 lacks before building one.
 
 **Only search and parse take `cache_dir` and `results_dir`.** `resolve_paths` derives every
-path from them and stores it absolute against the cwd; `local_root` (default cwd, absolute) joins only
-local files. Every other step takes each path it uses from its job file or arguments
+path from them and stores it absolute against the cwd. `local_root` (default cwd, absolute) is the base
+only for relative local structure files and user Foldseek database paths; every other path, `local_root`
+included, resolves against the cwd. Every other step takes each path it uses from its job file or arguments
 (`resolve_step_paths`: required ones checked, a relative one made absolute against the cwd, an unset
 optional `local_root` the cwd). A step's input argument (`--entries`,
 `--alignment`, ...) is layered over the matching `*_path` key, so `entries` sets `entries_path`. A step

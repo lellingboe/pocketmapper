@@ -6,9 +6,10 @@ grammar is the two tables in `QTProcessor.__init__`; README "Input format" is th
 ## Where it sits
 
 - **Step 1, and the only code that turns entry strings into records.** It uses no network and reads no
-  structure; it opens a local file only to hash it. It writes `entries.tsv` afresh. Every later step reads
-  its records from that file (`lib.entries`) and never parses again, so a change here reaches an existing
-  run only when parse and the later steps are rerun.
+  structure; it opens a local file only to hash it, under `local_root`. It writes `entries.tsv` afresh.
+  Every later step reads its records from that file (`lib.entries`) and never parses again, so a change
+  here reaches an existing run only when parse and the later steps are rerun. The table holds no paths:
+  a later step locates each record's structure with `StructureManager.record_path`, from its own cache dirs.
 - **Two layers.** `parse.py` is the step: settings, log, the entries table and the checks that need both
   sides (a Foldseek-DB query is dropped, a DB target must be the only target, each side needs a record).
   `qt_processor.py` is the component. It treats both sides the same way and knows nothing of settings
@@ -26,7 +27,10 @@ grammar is the two tables in `QTProcessor.__init__`; README "Input format" is th
 - **`preprocess_name` names the domain chain, not the pocket** (invariant in `project-overview.md`). So
   `4Q5J:B`, `4Q5J:B_F` and `4Q5J:B:10,11` share one name and are aligned once. It also names the files in
   `foldseek_preprocessed_structure_dir`, so a new naming scheme leaves the old cached files unused and
-  every chain is preprocessed again.
+  every chain is preprocessed again. Its hash covers the local file parse resolved under `local_root`; a
+  later step run with another `local_root` can load a different file of the same name, undetected.
+- **`parse()` takes the cache dirs but reads none of them.** It dumps them into `parse_settings.json` for
+  the later steps. `QTProcessor(local_root=...)` is its only path input.
 
 ## Changing the grammar
 
@@ -38,9 +42,11 @@ grammar is the two tables in `QTProcessor.__init__`; README "Input format" is th
 - **A residue list is spelled `\d+(,\d+)*,?`.** The older `(\d+,?)+` matches the same strings but
   backtracks exponentially when a long list has a bad last character; keep new patterns free of nested
   quantifiers (`test_residue_pattern_linear`).
-- **A top-level input that is an existing file is a file of entries**, unless `is_structure_file` says
-  its name is a structure's (`STRUCTURE_EXTENSIONS`). Inside an entries file, any existing file is a
-  `local_file` entry.
+- **A top-level input that is an existing file, resolved against the working directory, is a file of
+  entries**, unless `is_structure_file` says its name is a structure's (`STRUCTURE_EXTENSIONS`). A file
+  that exists only under `local_root` is not read as an entries file: it is parsed as one entry, and is a
+  `local_file` entry because it exists there. Inside an entries file, each local file resolves against
+  `local_root`.
 - **Every pattern allows only single-character chains.** To allow longer chain ids, also check
   `lib.residues.split_chain_info` and the PDB-database skip described in `pockets/CLAUDE.md`.
 - `context/settings.md` covers `query_pocket_method` / `target_pocket_method` as settings; read it before
