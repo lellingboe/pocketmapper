@@ -2,13 +2,12 @@
 Finding, fetching and loading the reference structures PocketMapper works on.
 
 `STRUCTURE_SOURCES` maps each downloadable `struct_type` to its URL builder and the transform its response
-needs; a new source is one row. Structures land as gzipped mmCIF at each record's `struct_path`, which
+needs; a new source is one row. Structures land as gzipped mmCIF in the cache directory of their type, which
 doubles as the on-disk cache between runs. A local file is read where it is and never copied.
 
 `StructureManager.path` works out where a structure or Foldseek database lives from its `struct_type` and
-`struct_info`, and `record_path` does the same for a record. For now `fetch` still reads each record's own
-`struct_path`, so it needs no directory; `path`, `record_path` and `get` need the directory of the type they
-resolve. `load_structure` never downloads.
+`struct_info`, and `record_path` does the same for a record. `path`, `record_path`, `fetch` and `get` need the
+directory of each type they resolve. `load_structure` never downloads.
 """
 
 import logging
@@ -77,7 +76,7 @@ class StructureManager:
 
         Args:
             pdb_dir (str or None, optional): Cache directory of PDB structures, needed only to resolve a
-                `pdb` structure (`path`, `record_path`, `get`). Defaults to None.
+                `pdb` structure (`path`, `record_path`, `fetch`, `get`). Defaults to None.
             alphafold_dir (str or None, optional): Cache directory of AlphaFold models, needed only to
                 resolve an `alphafold` structure. Defaults to None.
             fsdb_dir (str or None, optional): Cache directory of downloaded Foldseek databases, needed only
@@ -176,17 +175,19 @@ class StructureManager:
         """
         Concurrently fetch the structures a list of records names.
 
-        Writes each PDB and AlphaFold structure to its record's `struct_path`, unless a file is already
+        Writes each PDB and AlphaFold structure to the path `record_path` gives, unless a file is already
         there and `refresh` is off. With `download` off, nothing is fetched. Records sharing a
         `struct_info` give one download, from the first of them.
 
         Args:
-            records (list of dict): Records, each with `struct_type`, `struct_info` and, for every type but
-                `foldseek_db`, `struct_path`.
+            records (list of dict): Records, each with `struct_type` and `struct_info`.
 
         Returns:
             dict: struct_info -> whether its structure is available. A local file is available if it
                 exists, a Foldseek database always, and an unknown type never (with a warning).
+
+        Raises:
+            PocketMapperError: If a record's type is known but the directory it needs was not given.
         """
         log_extra = {"stage": "Downloading Structures"}
         found = {}
@@ -197,9 +198,9 @@ class StructureManager:
                 continue
             if struct_type in STRUCTURE_SOURCES and self.download:
                 url_for, transform = STRUCTURE_SOURCES[struct_type]
-                jobs[struct_info] = DownloadJob(url_for(struct_info), record["struct_path"], transform)
+                jobs[struct_info] = DownloadJob(url_for(struct_info), self.record_path(record), transform)
             elif struct_type in STRUCTURE_SOURCES or struct_type == "local_file":
-                found[struct_info] = os.path.exists(record["struct_path"])
+                found[struct_info] = os.path.exists(self.record_path(record))
             elif struct_type in NOT_DOWNLOADED:
                 found[struct_info] = True
             else:
@@ -226,7 +227,7 @@ class StructureManager:
         struct_path = self.path(struct_type, struct_info)
         if struct_type != "local_file":
             struct_info = struct_info.upper()  # as parse writes it, so the URL builders get it upper-cased
-        self.fetch([{"struct_type": struct_type, "struct_info": struct_info, "struct_path": struct_path}])
+        self.fetch([{"struct_type": struct_type, "struct_info": struct_info}])
         return load_structure(struct_path, {"stage": "Loading Structures"})
 
 

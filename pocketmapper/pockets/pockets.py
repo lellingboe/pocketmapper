@@ -135,6 +135,7 @@ def pockets(
             pdb_dir=values["pdb_dir"],
             alphafold_dir=values["alphafold_dir"],
             fsdb_dir=values["fsdb_dir"],
+            local_root=values["local_root"],
             pisa_source=pisa_source,
             bsa_threshold=pisa_bsa_threshold,
             download=not offline,
@@ -193,7 +194,7 @@ def build_pockets(sides, entries_path, alignment, pockets_path, manager, pockets
     # (side, record) in build order; the side is None for a Foldseek hit
     buildable = []
     for name, records in entry_records.items():
-        kept = split_missing_structures(records, name, "pockets", entries_path, log_extra)
+        kept = split_missing_structures(records, manager.structures, name, "pockets", entries_path, log_extra)
         buildable += [(name, record) for record in kept]
 
     hits = []

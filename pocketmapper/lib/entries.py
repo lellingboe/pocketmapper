@@ -253,7 +253,7 @@ def report_failures(path, step, failures, log_extra, message=None):
     logger.info(f"{len(marks)} entries skipped; see {path}", extra=log_extra)
 
 
-def split_missing_structures(records, side, step, entries_path, log_extra):
+def split_missing_structures(records, manager, side, step, entries_path, log_extra):
     """
     Set aside the records whose structure, or Foldseek database, is not on disk.
 
@@ -262,6 +262,7 @@ def split_missing_structures(records, side, step, entries_path, log_extra):
 
     Args:
         records (list): One side's QTRecord dicts.
+        manager (StructureManager): Locates each record's structure or database.
         side (str): Which side they are, "query" or "target".
         step (str): The step skipping them.
         entries_path (str): The entries table, marked.
@@ -269,11 +270,14 @@ def split_missing_structures(records, side, step, entries_path, log_extra):
 
     Returns:
         list: The records whose structure is on disk.
+
+    Raises:
+        PocketMapperError: If `manager` lacks the directory a record needs.
     """
     kept = []
     failures = []
     for record in records:
-        if os.path.exists(record["struct_path"]):
+        if os.path.exists(manager.record_path(record)):
             kept.append(record)
         else:
             failures.append(failure(side, record, "structure_not_found"))

@@ -65,6 +65,7 @@ class PocketManager:
         pdb_dir=None,
         alphafold_dir=None,
         fsdb_dir=None,
+        local_root=None,
         pisa_source=DEFAULT_PISA_SOURCE,
         bsa_threshold=None,
         download=True,
@@ -83,6 +84,8 @@ class PocketManager:
                 `expand_pdb_hits`. Defaults to None.
             fsdb_dir (str or None, optional): Directory of downloaded Foldseek databases. Needed only by
                 `expand_pdb_hits`. Defaults to None.
+            local_root (str or None, optional): Directory a relative local structure file resolves against.
+                Defaults to None, the current directory.
             pisa_source (str, optional): Where PISA assembly interfaces are fetched from: "ftp" or "api".
                 Defaults to DEFAULT_PISA_SOURCE.
             bsa_threshold (float or None, optional): Percent of a residue's accessible surface the partner
@@ -99,7 +102,9 @@ class PocketManager:
         self.pisa = PisaDownloader(
             os.path.join(pocket_dir, "pisa"), source=pisa_source, max_workers=max_workers, download=download
         )
-        self.structures = StructureManager(pdb_dir, alphafold_dir, download=download, max_workers=max_workers)
+        self.structures = StructureManager(
+            pdb_dir, alphafold_dir, local_root=local_root, download=download, max_workers=max_workers
+        )
         # pocket_method -> keyword arguments of its builder; a method absent here takes none
         self.builder_options = {"pisa": {"downloader": self.pisa, "bsa_threshold": bsa_threshold}}
         # The directories QTProcessor needs, in its argument order

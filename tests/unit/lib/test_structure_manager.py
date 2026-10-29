@@ -43,9 +43,21 @@ def file_source(monkeypatch):
 
 
 @pytest.fixture
-def pdb_record(local_root):
-    """A 4Q5J record whose `struct_path` is under `local_root`, not yet written."""
-    return {"struct_type": "pdb", "struct_info": "4Q5J", "struct_path": os.path.join(local_root, "pdb", "4Q5J.cif.gz")}
+def pdb_dir(local_root):
+    """The PDB cache directory under `local_root`."""
+    return os.path.join(local_root, "pdb")
+
+
+@pytest.fixture
+def pdb_record():
+    """A 4Q5J record."""
+    return {"struct_type": "pdb", "struct_info": "4Q5J"}
+
+
+@pytest.fixture
+def pdb_path(pdb_dir):
+    """Where `pdb_record` is cached, not yet written."""
+    return os.path.join(pdb_dir, "4Q5J.cif.gz")
 
 
 BUNDLED_PDB_DB = os.path.join("fsdb", "pdb")
@@ -131,36 +143,43 @@ def test_path_rejects(kwargs, struct_type, struct_info, match):
         pytest.param({"download": False}, SENTINEL, True, SENTINEL, id="offline_cached"),
     ],
 )
-def test_fetch(file_source, pdb_record, kwargs, existing, available, contents):
+def test_fetch(file_source, pdb_record, pdb_dir, pdb_path, kwargs, existing, available, contents):
     """`fetch` downloads a missing file, keeps a cached one unless refreshing, and sends nothing when offline."""
     if existing is not None:
-        os.makedirs(os.path.dirname(pdb_record["struct_path"]))
-        with open(pdb_record["struct_path"], "wb") as f:
+        os.makedirs(pdb_dir)
+        with open(pdb_path, "wb") as f:
             f.write(existing)
-    found = StructureManager(**kwargs).fetch([pdb_record])
+    found = StructureManager(pdb_dir, **kwargs).fetch([pdb_record])
     assert found == {"4Q5J": available}
     expected = read_bytes(FIXTURE) if contents == "fixture" else contents
-    assert read_bytes(pdb_record["struct_path"]) == expected
+    assert read_bytes(pdb_path) == expected
 
 
 @pytest.mark.parametrize("exists", [True, False])
 def test_fetch_local_file(local_root, exists):
     """A local file is reported available only if it exists."""
-    struct_path = FIXTURE if exists else os.path.join(local_root, "missing.cif")
-    record = {"struct_type": "local_file", "struct_info": "my_structure", "struct_path": struct_path}
-    assert StructureManager().fetch([record]) == {"my_structure": exists}
+    struct_info = FIXTURE if exists else "missing.cif"
+    record = {"struct_type": "local_file", "struct_info": struct_info}
+    assert StructureManager(local_root=local_root).fetch([record]) == {struct_info: exists}
 
 
 def test_fetch_unknown_type(local_root, caplog):
     """An unknown type is reported unavailable, with a warning."""
-    record = {"struct_type": "nonsense", "struct_info": "X", "struct_path": os.path.join(local_root, "X")}
+    record = {"struct_type": "nonsense", "struct_info": "X"}
     with caplog.at_level(logging.WARNING):
         assert StructureManager().fetch([record]) == {"X": False}
     assert "Unknown structure type nonsense" in caplog.text
 
 
-def test_fetch_dedupes(file_source, pdb_record, local_root, monkeypatch):
-    """Records sharing a `struct_info` give one download job, to the first record's `struct_path`."""
+@pytest.mark.parametrize("struct_type, needs", [("pdb", "pdb_dir"), ("alphafold", "alphafold_dir")])
+def test_fetch_needs_dir(struct_type, needs):
+    """`fetch` raises for a downloadable type whose cache directory was not given."""
+    with pytest.raises(PocketMapperError, match=f"needs {needs}"):
+        StructureManager().fetch([{"struct_type": struct_type, "struct_info": "4Q5J"}])
+
+
+def test_fetch_dedupes(file_source, pdb_record, pdb_dir, pdb_path, monkeypatch):
+    """Records sharing a `struct_info` give one download job."""
     calls = []
     real_download_many = structure_manager.download_many
 
@@ -170,10 +189,9 @@ def test_fetch_dedupes(file_source, pdb_record, local_root, monkeypatch):
         return real_download_many(jobs, **kwargs)
 
     monkeypatch.setattr(structure_manager, "download_many", recording_download_many)
-    duplicate = dict(pdb_record, struct_path=os.path.join(local_root, "other", "4Q5J.cif.gz"))
-    found = StructureManager().fetch([pdb_record, duplicate])
+    found = StructureManager(pdb_dir).fetch([pdb_record, dict(pdb_record)])
     assert found == {"4Q5J": True}
-    assert [[job.out_fpath for job in jobs.values()] for jobs in calls] == [[pdb_record["struct_path"]]]
+    assert [[job.out_fpath for job in jobs.values()] for jobs in calls] == [[pdb_path]]
 
 
 def test_refresh_needs_download():

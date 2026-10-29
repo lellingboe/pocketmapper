@@ -139,8 +139,15 @@ def superpose(
         fetch_missing = resolve_fetch_missing(values["fetch_missing"])
         offline = resolve_offline(values["offline"])
         sides = open_entries(values["entries_path"], "superpose")
+        manager = StructureManager(
+            values["pdb_dir"],
+            values["alphafold_dir"],
+            values["fsdb_dir"],
+            values["local_root"],
+            download=not offline,
+        )
         if fetch_missing and not offline:
-            fetch_missing_entries(sides, StructureManager())
+            fetch_missing_entries(sides, manager)
         if fsdb_record(sides["target"]) is not None:
             check_fsdb_align_struct_method(align_struct_method)
             require_foldseek("Rebuilding the target structures out of the Foldseek database needs foldseek")
@@ -148,6 +155,7 @@ def superpose(
 
         superpose_top_targets(
             sides,
+            manager,
             values["entries_path"],
             values["pocket_comparison_path"],
             alignment,
@@ -161,6 +169,7 @@ def superpose(
 
 def superpose_top_targets(
     sides,
+    manager,
     entries_path,
     pocket_comparison,
     alignment,
@@ -179,6 +188,7 @@ def superpose_top_targets(
 
     Args:
         sides (dict): "query" and "target" -> that side's QTRecord dicts.
+        manager (StructureManager): Locates the records' structures.
         entries_path (str or None): The entries table, marked, or None for none.
         pocket_comparison (str): The pocket comparison table.
         alignment (str): The alignment table; its transforms are read with the "foldseek" method.
@@ -199,7 +209,7 @@ def superpose_top_targets(
     log_extra = {"stage": "Structural Alignment"}
 
     # A structure fetch never produced, or one removed since
-    query = split_missing_structures(sides["query"], "query", "superpose", entries_path, log_extra)
+    query = split_missing_structures(sides["query"], manager, "query", "superpose", entries_path, log_extra)
     target = sides["target"]
 
     # With a Foldseek database, a hit's transform fits the database's own structure, so that is
@@ -208,7 +218,7 @@ def superpose_top_targets(
     database = fsdb_record(target)
     fsdb_path = database["struct_path"] if database is not None else None
     if database is None:
-        target = split_missing_structures(target, "target", "superpose", entries_path, log_extra)
+        target = split_missing_structures(target, manager, "target", "superpose", entries_path, log_extra)
     else:
         hit_names = pd.read_csv(alignment, sep="\t", usecols=["target"], dtype=str)["target"].unique()
         target = []

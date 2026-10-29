@@ -151,12 +151,22 @@ def align(
 
         with temp_dir_scope(values["temp_dir"], delete_tmp):
             database = fsdb_record(sides["target"])
+            manager = StructureManager(
+                values["pdb_dir"],
+                values["alphafold_dir"],
+                values["fsdb_dir"],
+                values["local_root"],
+                download=not offline,
+            )
             if fetch_missing and not offline:
-                fetch_missing_entries(sides, StructureManager())
+                fetch_missing_entries(sides, manager)
                 if database is not None:
-                    fetch_missing_fsdb(database, threads, os.path.join(values["temp_dir"], TEMP_SUBDIRS["foldseek"]))
+                    fetch_missing_fsdb(
+                        database, manager, threads, os.path.join(values["temp_dir"], TEMP_SUBDIRS["foldseek"])
+                    )
             align_chains(
                 sides,
+                manager,
                 values["entries_path"],
                 values["alignment_path"],
                 aligner,
@@ -169,6 +179,7 @@ def align(
 
 def align_chains(
     sides,
+    manager,
     entries_path,
     alignment_path,
     aligner,
@@ -186,6 +197,7 @@ def align_chains(
 
     Args:
         sides (dict): "query" and "target" -> that side's QTRecord dicts.
+        manager (StructureManager): Locates the records' structures and Foldseek database.
         entries_path (str or None): The entries table, marked, or None for none.
         alignment_path (str): Where the alignment table is written.
         aligner (str): "foldseek" or "seq". A Foldseek-database target needs "foldseek".
@@ -206,7 +218,7 @@ def align_chains(
 
     # A structure fetch never produced, or one removed since
     usable = {
-        name: split_missing_structures(records, name, "align", entries_path, log_extra)
+        name: split_missing_structures(records, manager, name, "align", entries_path, log_extra)
         for name, records in sides.items()
     }
 
