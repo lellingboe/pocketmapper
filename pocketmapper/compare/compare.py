@@ -17,6 +17,7 @@ from pocketmapper.lib.foldseek import bundled_offset_table, fsdb_pocket_mode
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope
 from pocketmapper.lib.settings import layer_settings, resolve_step_paths
+from pocketmapper.lib.structure_manager import StructureManager
 from pocketmapper.pockets.pocket_manager import read_pockets_file
 
 logger = logging.getLogger(__name__)
@@ -87,13 +88,14 @@ def compare(
         sides = open_entries(values["entries_path"], "compare")
         compare_aligned_pockets(
             sides["target"],
+            StructureManager(fsdb_dir=values["fsdb_dir"], local_root=values["local_root"]),
             values["alignment_path"],
             values["pockets_path"],
             values["pocket_comparison_path"],
         )
 
 
-def compare_aligned_pockets(target_records, alignment, pockets, pocket_comparison_path):
+def compare_aligned_pockets(target_records, manager, alignment, pockets, pocket_comparison_path):
     """
     Compare the pockets of every aligned query/target pair and write `pocket_comparison_path`.
 
@@ -103,6 +105,7 @@ def compare_aligned_pockets(target_records, alignment, pockets, pocket_compariso
     Args:
         target_records (list): The target QTRecord dicts; read for whether the target is a Foldseek
             database.
+        manager (StructureManager): Locates a Foldseek-database target's database.
         alignment (str): The alignment table.
         pockets (str): The pockets file. Its `chains` must name every chain in the alignment, but
             the hits of a Foldseek database whose pockets are synthesised.
@@ -142,7 +145,7 @@ def compare_aligned_pockets(target_records, alignment, pockets, pocket_compariso
     synthesise = database is not None and fsdb_pocket_mode(alignment_df["target"].unique()) == "whole_chain"
     offset_table_path = None
     if synthesise:
-        offset_table_path = bundled_offset_table(database["struct_path"])
+        offset_table_path = bundled_offset_table(manager.record_path(database))
         if offset_table_path is None:
             logger.info(
                 "Foldseek database ships no offset table; target residue ids will be positions "

@@ -226,7 +226,9 @@ def align_chains(
     if aligner == "foldseek":
         logger.info("Preprocessing structures for Foldseek...", extra=log_extra)
         for name in ("query",) if database is not None else ("query", "target"):
-            usable[name], failures = foldseek_preprocessing(usable[name], name, preprocessed_dir, tmp_dirs[name])
+            usable[name], failures = foldseek_preprocessing(
+                usable[name], manager, name, preprocessed_dir, tmp_dirs[name]
+            )
             report_failures(entries_path, "align", failures, log_extra, "Structure preprocessing failed, skipping")
         logger.info("Finished preprocessing structures", extra={"stage": "Preprocessing Structures"})
 
@@ -240,7 +242,7 @@ def align_chains(
 
     if aligner == "foldseek":
         logger.info("Running Foldseek easy-search...", extra=log_extra)
-        target_db_path = database["struct_path"] if database is not None else None
+        target_db_path = manager.record_path(database) if database is not None else None
         foldseek_alignment(
             tmp_dirs,
             target_db_path,
@@ -251,10 +253,10 @@ def align_chains(
         )
     else:
         logger.info("Running local pairwise aligner...", extra=log_extra)
-        local_alignment(usable["query"], usable["target"], alignment_path)
+        local_alignment(usable["query"], usable["target"], manager, alignment_path)
 
 
-def foldseek_preprocessing(records, side, cache_dir, search_dir):
+def foldseek_preprocessing(records, manager, side, cache_dir, search_dir):
     """
     Write each record's alignment chain as a single-chain structure for Foldseek to index.
 
@@ -263,6 +265,7 @@ def foldseek_preprocessing(records, side, cache_dir, search_dir):
 
     Args:
         records (list): One side's QTRecord dicts. Foldseek-database records are passed through.
+        manager (StructureManager): Locates the records' structures.
         side (str): Which side they are, for the failures.
         cache_dir (str): Directory the single-chain copies are cached in.
         search_dir (str): The side's scratch directory for Foldseek's input.
@@ -280,7 +283,7 @@ def foldseek_preprocessing(records, side, cache_dir, search_dir):
     logger.debug(f"Records to preprocess: {unique_records}", extra=log_extra)
     make_dir(search_dir, log_extra)
 
-    results = StructurePreprocessor().preprocess_records(
+    results = StructurePreprocessor(manager).preprocess_records(
         records=unique_records, cache_dir=cache_dir, search_dir=search_dir
     )
     logger.debug(f"Preprocessing results: {results}", extra=log_extra)
@@ -361,13 +364,14 @@ def foldseek_alignment(tmp_dirs, target_db_path, alignment_path, foldseek_tmp_di
     logger.debug("Foldseek alignment completed successfully", extra=log_extra)
 
 
-def local_alignment(query_records, target_records, alignment_path):
+def local_alignment(query_records, target_records, manager, alignment_path):
     """
     Align every query chain against every target chain by sequence.
 
     Args:
         query_records (list): Query QTRecord dicts. Records sharing a chain are aligned once.
         target_records (list): Target QTRecord dicts, as `query_records`.
+        manager (StructureManager): Locates the records' structures.
         alignment_path (str): Where the alignment table is written.
 
     Returns:
@@ -379,7 +383,7 @@ def local_alignment(query_records, target_records, alignment_path):
     log_extra = {"stage": "Local Alignment"}
     logger.info("Running local sequence alignments...", extra=log_extra)
 
-    alignment = SequenceAligner().align_records(
+    alignment = SequenceAligner(manager).align_records(
         unique_by(query_records, "preprocess_name"), unique_by(target_records, "preprocess_name")
     )
     make_dir(os.path.dirname(alignment_path), log_extra)

@@ -28,12 +28,14 @@ class StructurePreprocessor:
     Each record's cached copy is named by its `preprocess_name`, so there is no call order to observe.
     """
 
-    def __init__(
-        self,
-    ):
+    def __init__(self, manager):
         """
-        Initialise the logging stage. The preprocessor holds no other state.
+        Initialise the logging stage and keep the structure locator.
+
+        Args:
+            manager (StructureManager): Locates each record's reference structure.
         """
+        self.manager = manager
         self.log_extra = {"stage": "Preprocessing Structures"}
         logger.debug("Initialized")
 
@@ -45,7 +47,7 @@ class StructurePreprocessor:
         unless a file is already there, and copies it into `search_dir` under the same name.
 
         Args:
-            records (list): QTRecord dicts carrying `struct_path` and `preprocess_name`.
+            records (list): QTRecord dicts carrying `preprocess_name`; their structures are located by the manager.
             cache_dir (str): Directory the single-chain copies are cached in.
             search_dir (str): Directory Foldseek will read the single-chain structures from.
 
@@ -69,7 +71,7 @@ class StructurePreprocessor:
             out_path = out_path_gz.removesuffix(".gz")  # scratch copy, deleted once gzipped
 
             if not os.path.exists(out_path_gz):
-                ref_path = record["struct_path"]  # e.g., /path/to/alphafold_dir/P12345.cif.gz
+                ref_path = self.manager.record_path(record)  # e.g., /path/to/alphafold_dir/P12345.cif.gz
                 st = load_structure(ref_path, self.log_extra, entities=False)
                 if st is None:
                     status_dict[record["pocket_id"]] = False

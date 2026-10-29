@@ -26,6 +26,15 @@ class SequenceAligner:
     Produces the alignment table from sequence alone, without Foldseek.
     """
 
+    def __init__(self, manager):
+        """
+        Keep the structure locator.
+
+        Args:
+            manager (StructureManager): Locates each record's reference structure.
+        """
+        self.manager = manager
+
     def replaceNonCommonResidues(self, peptide):
         """
         Map anything outside the 20 standard amino acids to "X".
@@ -90,7 +99,7 @@ class SequenceAligner:
             name = record["preprocess_name"]
             if name in name_to_seq:
                 continue  # skip if already processed
-            path = record["struct_path"]
+            path = self.manager.record_path(record)
             # Format inferred from the extension, so local .pdb inputs work too; ca_residues reads the
             # entity types load_structure sets
             st = load_structure(path, log_extra)
