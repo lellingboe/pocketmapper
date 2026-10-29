@@ -91,9 +91,10 @@ places must agree: `requires-python`, the classifiers, `[tool.ruff] target-versi
 
 `PocketMapper().search(...)`, a step's entry or core function in `<step>.<step>`, or any component directly
 (`parse.qt_processor`, `lib.structure_manager` (`StructureManager.get` fetches and loads one structure),
-`pockets.pisa_downloader`, `align.structure_preprocessor`, `pockets.pocket_fetcher.fetch_pockets` or one
-builder, `pockets.pisa` (`load_interfaces`, `interface_partners`, `pisa_pockets_from_records`),
-`pockets.vdw.vdw_contact_residues`, `align.sequence_aligner`, `superpose.structure_aligner`, `lib.foldseek`).
+`pockets.pisa_downloader`, `align.structure_preprocessor`, `pockets.pocket_manager.PocketManager`
+(`build`, `expand_pdb_hits`) or one builder, `pockets.pisa` (`load_interfaces`, `interface_partners`,
+`pisa_pockets_from_records`), `pockets.vdw.vdw_contact_residues`, `align.sequence_aligner`,
+`superpose.structure_aligner`, `lib.foldseek`).
 No component or step takes a `Settings`; the entry functions take its dict as `job_file`.
 
 - **Records come from `parse.parse.parse_entries`**: the side checks parse makes, with no files written.

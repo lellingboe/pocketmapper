@@ -18,8 +18,8 @@ grammar is the two tables in `QTProcessor.__init__`; README "Input format" is th
 
 - **`QTRecord`'s fields are `lib.entries.RECORD_FIELDS`, in the same order.** Neither is derived from the
   other. A new field goes in both places; `test_qt_processor` checks the order.
-- **`pockets.pockets.expand_fsdb_pdb_targets` also calls `QTProcessor`.** It builds one without
-  `work_dir`, reads `pocket_methods["pisa"][0]` to skip chain pairs the grammar cannot spell, calls
+- **`pockets.pocket_manager.PocketManager.expand_pdb_hits` also calls `QTProcessor`.** It builds one
+  without `work_dir`, reads `pocket_methods["pisa"][0]` to skip chain pairs the grammar cannot spell, calls
   `parse_individual_qt(..., pocket_method="pisa")`, and replaces `preprocess_name` with the Foldseek hit
   name. A change to that table's layout or to that method's signature breaks the PDB-database path. Only
   the `pdb_fsdb` and `huge` tests (`tests/integration/test_databases.py`) cover that path.
@@ -32,7 +32,7 @@ grammar is the two tables in `QTProcessor.__init__`; README "Input format" is th
 
 - **A new pocket method needs:** a row in `pocket_methods`; a place in each `struct_type_pocket_methods`
   tuple that should offer it (tuple order is precedence, and `whole_chain` stays first); a builder in
-  `pockets.pocket_fetcher.POCKET_BUILDERS`; and the hand-written method lists in `cli.py`
+  `pockets.pocket_manager.POCKET_BUILDERS`; and the hand-written method lists in `cli.py`
   (`--query_pocket_method` help) and the README (Options table, both "Input format" tables).
   `accepted_pocket_methods` reads the table, so validation needs no other change.
 - **A residue list is spelled `\d+(,\d+)*,?`.** The older `(\d+,?)+` matches the same strings but

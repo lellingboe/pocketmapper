@@ -160,13 +160,12 @@ def residue_list_pockets(records, residue_ids, log_extra):
     return pockets
 
 
-def passthrough_pockets(records, pocket_dir):
+def passthrough_pockets(records):
     """
     Build a Pocket per record from the residue ids listed in its `residue_info`.
 
     Args:
         records (list): QTRecord dicts with `pocket_method == "passthrough"`.
-        pocket_dir (str): Unused.
 
     Returns:
         dict: pocket_id -> Pocket, with `res_auth_ids` in ascending order whatever order they were
@@ -180,13 +179,12 @@ def passthrough_pockets(records, pocket_dir):
     )
 
 
-def whole_chain_pockets(records, pocket_dir):
+def whole_chain_pockets(records):
     """
     Build a Pocket per record from every CA residue of its chain.
 
     Args:
         records (list): QTRecord dicts with `pocket_method == "whole_chain"`.
-        pocket_dir (str): Unused.
 
     Returns:
         dict: pocket_id -> Pocket. Records that cannot be built are left out (see

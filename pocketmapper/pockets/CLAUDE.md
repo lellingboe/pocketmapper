@@ -2,10 +2,10 @@
 
 Facts about `pockets/`, moved out of `context/project-overview.md` so they load only when working here.
 
-- **`POCKET_BUILDERS` in `pocket_fetcher` is the whole method table.** Builders live beside their
-  primitive and all take `(records, pocket_dir)`, plus keyword options the caller passes per method
-  through the module function `fetch_pockets(builder_options=...)` (pisa's `pisa_source`,
-  `bsa_threshold` and `download` today). A new method = one row + one builder.
+- **`POCKET_BUILDERS` in `pocket_manager` is the whole method table.** Builders live beside their
+  primitive and all take `(records, **options)`. `PocketManager.__init__` sets each method's options once,
+  in `builder_options` (pisa's `downloader`, the manager's `PisaDownloader`, and `bsa_threshold` today).
+  A new method = one row + one builder, plus an options entry if it takes options.
 - **One builder contract.** A builder returns pocket_id -> Pocket for the pockets it built only. A record
   it cannot build (missing or unreadable structure, missing chain, unusable residue, unresolved interface)
   is left out with a warning, never mapped to None; the step then marks it `pocket_not_built` in
@@ -13,11 +13,12 @@ Facts about `pockets/`, moved out of `context/project-overview.md` so they load 
   kept, with `pocket_exists=False`. Each builder reads every structure once per call
   (`records_by_structure`, through `lib.structure_manager.load_structure`, which gives None for a file it
   cannot use).
-- Records are dicts, not DataFrames. The fetcher passes every record it is given to its method's
-  builder, so a caller filters out records whose structure is unavailable first.
-- **`expand_fsdb_pdb_targets` lives in `pockets.py`, not beside the builders** (it builds records and
-  downloads). It shares `pocket_dir/pisa/` with `pisa_pockets`; both go through
-  `pockets.pisa.download_pisa_interfaces`, which picks `pisa/`, and `PisaDownloader` names its contents.
+- Records are dicts, not DataFrames. `PocketManager.build` passes every record it is given to its
+  method's builder, so a caller filters out records whose structure is unavailable first.
+- **`PocketManager.expand_pdb_hits` lives in the manager, not beside the builders** (it builds records
+  and downloads). It shares `pocket_dir/pisa/` with `pisa_pockets`: both go through the manager's one
+  `PisaDownloader`, which the manager places at `pisa/` and which names its contents. It fetches the
+  hits' structures through the manager's `StructureManager`, under the same `download` flag.
 
 ## PISA
 
@@ -53,8 +54,8 @@ takes one assembly per call and has no batched form. Three behaviours of the API
 
 **The PISA failure report is the caller's file, not the downloader's.** `download_missing_interfaces`
 returns what each stage could not handle and writes `error_path` only when there is something to write;
-`pisa_pockets` and `expand_fsdb_pdb_targets` both reach it through `download_pisa_interfaces`, so both
-use the same `pocket_dir/pisa/errors.json`. In `search`, `expand_fsdb_pdb_targets` writes it against a
+`pisa_pockets` and `PocketManager.expand_pdb_hits` both reach it through the manager's `PisaDownloader`,
+so both use the same `pocket_dir/pisa/errors.json`. In `search`, `expand_pdb_hits` writes it against a
 PDB database, then the pockets step's `pisa_pockets`. A second call with failures replaces the first call's
 report, and a clean second call leaves the first's file in place. Date it by its mtime, not by its
 existence.
@@ -72,16 +73,16 @@ Two things that file does not say about itself:
   cost, but it is also why such an entry reappears in every report.
 
 **Offline, "cached" means `interface_pairs/<code>.json` exists, and nothing else is read.**
-`PisaDownloader(download=False)` (through `download_pisa_interfaces` and the `pisa_pockets` builder option
-`download`) runs no stage for an entry without that file: one warning gives their count, no request is
-sent, and nothing is written, `errors.json` included. `pisa_pockets_from_records` then finds no interface
-file for those records and leaves them out, so the step marks them `pocket_not_built`. Accepted
+A `PisaDownloader` with `download=False`, which a `PocketManager(download=False)` builds, runs no stage
+for an entry without that file: one warning gives their count, no request is sent, and nothing is
+written, `errors.json` included. `pisa_pockets_from_records` then finds no interface file for those
+records and leaves them out, so the step marks them `pocket_not_built`. Accepted
 limitation: an entry with cached summaries and assemblies but no `interface_pairs/<code>.json` (an
 interrupted run, or every interface skipped, as above) is not reparsed offline, although that would cost
-no request. The download stages called directly ignore the flag. `expand_fsdb_pdb_targets(download=False)`
-(the pockets step's `offline`, through `build_pockets`) reads the same cache: a hit entry not in it gives
-no records, so its `chains` key is `[]`, and a hit structure not cached is a `structure_not_found` failure,
-as a failed download is.
+no request. The download stages called directly ignore the flag. `expand_pdb_hits` on a
+`PocketManager(download=False)` (the pockets step's `offline`) reads the same cache: a hit entry not in
+it gives no records, so its `chains` key is `[]`, and a hit structure not cached is a
+`structure_not_found` failure, as a failed download is.
 
 **The cache lives under `pocket_dir/pisa/`; an existing `pocket_dir/pisa_responses/` is dead** and can
 be deleted. Nothing migrates it, so the first run after the move refetches every entry from PISA. Its
@@ -97,7 +98,7 @@ cache every bonded residue has ASA > 0 and BSA > 0. When a seq id appears twice 
 
 **The input grammar still allows only single-character chains**, so a multi-character interface is
 reachable from the cache but not from an input entry. On the Foldseek PDB-DB path,
-`expand_fsdb_pdb_targets` checks each chain pair against the `pisa` pattern and skips the ones it
+`PocketManager.expand_pdb_hits` checks each chain pair against the `pisa` pattern and skips the ones it
 cannot spell, logging one count rather than a warning per record. The patterns also reject a symmetry
 copy (`A-2`), which a library caller can still name: as the domain chain it is left out of `pisa_pockets`
 with a warning, because the structure holds only the asymmetric unit.

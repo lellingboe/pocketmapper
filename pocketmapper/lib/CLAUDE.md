@@ -21,16 +21,17 @@ same delay and then fire together. The rule sits beside the pacer, so no caller 
 Four consequences no single file states:
 
 - **The download pools ignore `--threads`, on purpose.** `fetch.fetch.fetch_missing_structures` calls
-  `StructureManager.fetch`, and `pockets.pisa.download_pisa_interfaces` builds `PisaDownloader`, each with
-  the default width, `DOWNLOAD_WORKERS` (8), so `--threads` governs Foldseek alone. A worker here waits
-  on a socket rather than on a core, so a thread count says nothing useful about how wide a pool should
-  be. A library caller can still pass its own `max_workers`.
+  `StructureManager.fetch`, and `pockets.pocket_manager.PocketManager` builds one `PisaDownloader` and one
+  `StructureManager`, each with the default width, `DOWNLOAD_WORKERS` (8), so `--threads` governs Foldseek
+  alone. A worker here waits on a socket rather than on a core, so a thread count says nothing useful
+  about how wide a pool should be. A library caller can still pass its own `max_workers`;
+  `PocketManager(max_workers=...)` sets the width of both its pools.
 - **The pacing delay and the backoff delay are the same number.** That is what "carry the backoff
   forward" means here: the escalation one retry needed becomes the pace of every later request to that
   host. It is also why `download_missing_summaries` and `download_missing_assemblies` no longer sleep
   themselves — the helper owns pacing, and a caller-side sleep would double it.
 - **The delay registry is module-level and never decays**, so it outlives any one `PisaDownloader` —
-  which matters, because `pisa_pockets` and `expand_fsdb_pdb_targets` each build a fresh one per run.
+  which matters, because each `PocketManager` builds its own, one per pockets run.
   It equally outlives a whole `search()`, so a library caller running several in one process carries an
   elevated delay across all of them; `reset_host_delays` is the escape hatch.
 - **Only 5xx and 408/425/429 are retried.** A whitelist among 4xx rather than a blacklist of 404, so an

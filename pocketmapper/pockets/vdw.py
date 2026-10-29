@@ -68,7 +68,7 @@ def vdw_contact_residues(residues, partner_residues):
     return list(dict.fromkeys(contacts))
 
 
-def vdw_pockets(records, pocket_dir):
+def vdw_pockets(records):
     """
     Build a Pocket per record from the residues of its first chain in van der Waals contact with its second.
 
@@ -77,7 +77,6 @@ def vdw_pockets(records, pocket_dir):
 
     Args:
         records (list): QTRecord dicts with `pocket_method == "vdw"`.
-        pocket_dir (str): Unused.
 
     Returns:
         dict: pocket_id -> Pocket, for built pockets only. A record whose structure or either chain cannot

@@ -196,7 +196,7 @@ OPTIONS = {
         dict(
             default=None,
             metavar="DIR",
-            help=f"Where structures, pockets and PISA responses are cached. (default: {DEFAULT_CACHE_DIR})",
+            help=f"Where structures and PISA responses are cached. (default: {DEFAULT_CACHE_DIR})",
         ),
     ),
     "pdb_dir": (
@@ -215,7 +215,7 @@ OPTIONS = {
     ),
     "pocket_dir": (
         ["--pocket_dir"],
-        dict(default=None, metavar="DIR", help="Cache of parsed pockets. (default: <cache_dir>/pockets)"),
+        dict(default=None, metavar="DIR", help="Cache of PISA data. (default: <cache_dir>/pockets)"),
     ),
     "foldseek_preprocessed_structure_dir": (
         ["--foldseek_preprocessed_structure_dir"],

@@ -22,7 +22,7 @@ from pocketmapper.lib.settings import (
     resolve_threads,
 )
 from pocketmapper.lib.structure_manager import StructureManager
-from pocketmapper.pockets.pocket_fetcher import read_pockets_file
+from pocketmapper.pockets.pocket_manager import read_pockets_file
 from pocketmapper.superpose.structure_aligner import StructureAligner
 
 logger = logging.getLogger(__name__)

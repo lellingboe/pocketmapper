@@ -79,7 +79,7 @@ step downloads a missing entry only with `fetch_missing and not offline` (align,
 skip the fetch call; fetch_structures builds `StructureManager(download=False)`). An uncached structure
 is marked `structure_not_found`, as a failed download is; an uncached Foldseek database is an error
 (fetch_structures: `fetch.fetch.fetch_missing_fsdb(download=False)`; align: no usable target). pockets
-passes `download=not offline` to `build_pockets`, for PISA and the Foldseek hits' structures.
+passes `download=not offline` to `PocketManager`, for PISA and the Foldseek hits' structures.
 `refresh_structures` 1 re-downloads only PDB and AlphaFold structures, and only in the fetch step
 (`StructureManager(refresh=True)`); PISA interfaces and Foldseek databases are never refreshed. Both 1 is
 an error, checked before anything is fetched or dumped by one helper, `lib.settings.check_offline_refresh`,

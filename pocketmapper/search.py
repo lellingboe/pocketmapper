@@ -171,7 +171,7 @@ class PocketMapper:
                 Defaults to <cache_dir>/pdb_structures.
             alphafold_dir (str, optional): Cache of fetched AlphaFold structures.
                 Defaults to <cache_dir>/alphafold_structures.
-            pocket_dir (str, optional): Cache of parsed pockets. Defaults to <cache_dir>/pockets.
+            pocket_dir (str, optional): Cache of PISA data. Defaults to <cache_dir>/pockets.
             foldseek_preprocessed_structure_dir (str, optional): Cache of the single-chain structures
                 Foldseek is given. Defaults to <cache_dir>/foldseek_preprocessed_structures.
             temp_dir (str, optional): Per-run scratch, wiped before use and deleted at the end of a

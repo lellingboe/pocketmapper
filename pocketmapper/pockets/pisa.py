@@ -7,18 +7,16 @@ available for PDB entries only -- AlphaFold models and local files have no PISA 
 domain chain's residues in any bond of the interface (`bonded_residues`) or, given a threshold, those
 whose accessible surface the partner buries past it (`buried_residues`).
 
-`pisa_pockets` is the method's builder: download, parse, then add coordinates from the structure.
-`download_pisa_interfaces` places the PISA cache at `pocket_dir/pisa/`; `PisaDownloader` names what is
-inside it.
+`pisa_pockets` is the method's builder: download, parse, then add coordinates from the structure. It
+downloads through the `PisaDownloader` it is given, which names what is inside the PISA cache;
+`pocket_manager.PocketManager` places that cache at `pocket_dir/pisa/`.
 """
 
 import json
 import logging
 import os
 
-from pocketmapper.lib.constants import DEFAULT_PISA_SOURCE
 from pocketmapper.lib.residues import one_letter_code, split_chain_info
-from pocketmapper.pockets.pisa_downloader import PisaDownloader
 from pocketmapper.pockets.pocket import Pocket, PocketResidue
 from pocketmapper.pockets.structure import parse_pocket_from_struct, records_by_structure
 
@@ -207,58 +205,34 @@ def buried_residues(molecule, bsa_threshold):
     return residues
 
 
-def download_pisa_interfaces(pdb_list, pocket_dir, pisa_source, download=True):
-    """
-    Populate the PISA interface cache under `pocket_dir/pisa/` for a list of PDB entries.
-
-    When any entry fails, `pisa/errors.json` is overwritten with the failures. With `download` False,
-    nothing is fetched or written, and an entry not cached is only counted in a warning.
-
-    Args:
-        pdb_list (list): PDB codes, in any case.
-        pocket_dir (str): Pocket cache directory.
-        pisa_source (str): Where assembly interfaces are fetched from: "ftp" or "api".
-        download (bool, optional): Whether entries not cached may be downloaded. Defaults to True.
-
-    Returns:
-        str: The directory of per-entry interface files, for `load_interfaces`.
-    """
-    downloader = PisaDownloader(os.path.join(pocket_dir, "pisa"), source=pisa_source, download=download)
-    downloader.download_missing_interfaces(pdb_list)
-    return downloader.interface_dir
-
-
-def pisa_pockets(records, pocket_dir, pisa_source=DEFAULT_PISA_SOURCE, bsa_threshold=None, download=True):
+def pisa_pockets(records, downloader, bsa_threshold=None):
     """
     Build a Pocket per record from the PDBe PISA interface it names, with coordinates from its structure.
 
-    Downloads any PISA files not already cached under `pocket_dir/pisa/`, unless `download` is False.
-    With the "api" source that is one paced request per assembly, so an uncached list can take a long
-    time. When any entry fails, `pisa/errors.json` is overwritten with the failures.
+    Downloads any PISA files not already in `downloader`'s cache, unless its downloads are off. With the
+    "api" source that is one paced request per assembly, so an uncached list can take a long time. When
+    any entry fails, the downloader's `errors.json` is overwritten with the failures.
 
     Args:
         records (list): QTRecord dicts with `pocket_method == "pisa"`.
-        pocket_dir (str): Pocket cache directory.
-        pisa_source (str, optional): Where assembly interfaces are fetched from: "ftp" or "api".
-            Defaults to DEFAULT_PISA_SOURCE.
+        downloader (PisaDownloader): The PISA cache, its source and its download policy.
         bsa_threshold (float or None, optional): Percent of a residue's accessible surface the partner
             must bury, strictly exceeded, for the residue to join. Not validated here. Defaults to None,
             which builds the pocket from interface bonds instead.
-        download (bool, optional): Whether PISA entries not cached may be downloaded. Defaults to True.
 
     Returns:
         dict: pocket_id -> Pocket, for built pockets only. A record whose interface cannot be resolved
-            (see `pisa_pockets_from_records`; with `download` False, also one whose entry is not cached),
-            or whose structure or chain cannot be read, is left out with a warning. One with no residue
-            under the rule keeps `pocket_exists` False.
+            (see `pisa_pockets_from_records`; with downloads off, also one whose entry is not cached), or
+            whose structure or chain cannot be read, is left out with a warning. One with no residue under
+            the rule keeps `pocket_exists` False.
     """
     log_extra = {"stage": "Retrieving PISA Pockets"}
 
     pdb_list = list(dict.fromkeys(record["struct_info"] for record in records))
     logger.debug(f"PDBs for which to retrieve PISA pockets: {pdb_list}", extra=log_extra)
-    interface_dir = download_pisa_interfaces(pdb_list, pocket_dir, pisa_source, download=download)
+    downloader.download_missing_interfaces(pdb_list)
 
-    parsed = pisa_pockets_from_records(records, interface_dir, bsa_threshold=bsa_threshold)
+    parsed = pisa_pockets_from_records(records, downloader.interface_dir, bsa_threshold=bsa_threshold)
     logger.debug(f"{len(parsed)} PISA pockets parsed from interfaces", extra=log_extra)
 
     # The interfaces give residue ids only; seq_pos and CA coordinates are added to the same Pocket

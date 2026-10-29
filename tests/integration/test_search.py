@@ -206,7 +206,8 @@ def test_settings_1(tmp_path, seed_cache, run_cli):
     for key in ("alignment_path", "log_path"):
         assert os.path.getsize(custom[key]) > 0, key
     assert os.listdir(custom["aligned_structure_dir"])
-    assert os.path.isfile(os.path.join(custom["pocket_dir"], "pisa_pockets.json"))
+    # The PISA data is only under the custom pocket_dir and the network is blocked, so a built pocket shows it was used
+    assert read_json(settings["pockets_path"])["pockets"][QUERY_ID] is not None
     entries = read_entries(settings["entries_path"])
     assert all(os.path.dirname(row["struct_path"]) == custom["pdb_dir"] for row in entries)
 

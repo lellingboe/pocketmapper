@@ -4,7 +4,7 @@ The declared shape of a pocket: the one structure every pocket method returns.
 This module imports nothing, for the same reason `lib/constants.py` gives: a shape that four producers
 and one consumer must agree on belongs beside none of them. `structure` builds a Pocket from a
 structure's chain (the vdw pockets too, from their contact residues), `pisa` from interface data before
-`structure` adds its coordinates, `pocket_fetcher` rebuilds one from a pockets file, and
+`structure` adds its coordinates, `pocket_manager` rebuilds one from a pockets file, and
 `compare.pocket_comparison` synthesises one for a Foldseek-database hit -- all four then hand the same
 thing to `compare.pocket_comparison.compare_pockets`.
 

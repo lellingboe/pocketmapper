@@ -110,10 +110,10 @@ What survives a run and makes the next one fast. Each defaults to a location und
 
 | Option | Default | Summary |
 | --- | --- | --- |
-| `--cache_dir` | `pocketmapper_cache` | Where structures, pockets and PISA responses are cached. |
+| `--cache_dir` | `pocketmapper_cache` | Where structures and PISA responses are cached. |
 | `--pdb_dir` | `<cache_dir>/pdb_structures` | Cache of fetched PDB structures. |
 | `--alphafold_dir` | `<cache_dir>/alphafold_structures` | Cache of fetched AlphaFold structures. |
-| `--pocket_dir` | `<cache_dir>/pockets` | Cache of parsed pockets. |
+| `--pocket_dir` | `<cache_dir>/pockets` | Cache of PISA data. |
 | `--foldseek_preprocessed_structure_dir` | `<cache_dir>/foldseek_preprocessed_structures` | Cache of the single-chain structures Foldseek is given. |
 | `--fsdb_dir` | `<cache_dir>/fsdb` | Cache of bundled Foldseek databases. |
 
@@ -335,18 +335,15 @@ Everything is written under `--results_dir`:
 | `aligned_structures/*.pdb` | The top `--align_count` targets superposed onto each query. Named after the query, so identify a file by its `MOLECULE` records rather than its filename. |
 | `job_settings.json` | The fully resolved settings for the run. `parse` run on its own writes `parse_settings.json` instead. |
 | `info.log` | The run log. |
-| `pockets.json` | Every entry's pocket, keyed by pocket id (`null` where it could not be built), and `chains`: each aligned chain's name -> the pocket ids on it. Versioned; a file from an older version is rejected, so rerun `pockets`. |
+| `pockets.json` | Every entry's pocket, keyed by pocket id (`null` where it could not be built), and `chains`: each aligned chain's name -> the pocket ids on it. Each pocket is an object of metadata fields plus a `residues` map keyed by author residue number. Versioned; a file from an older version is rejected, so rerun `pockets`. |
 | `entries.tsv` | A row per query and target entry: `side`, `pocket_id` (the entry as typed), how it parsed (`struct_info`, `chain_info`, `residue_info`, `struct_type`, `struct_path`, `preprocess_name`, `pocket_method`), `source` (the input or file it came from), and, once a step has dropped it, `failed_step`, `failed_reason` (`invalid_entry`, `structure_not_found`, `structure_preprocessing_failed`, `pocket_not_built`) and `failed_detail`. A Foldseek-database hit is no entry, so one dropped is only logged. |
 | `unknown_ids.json` | Pocket residues whose one-letter code in the alignment differs from the structure's. Only written if any were seen, beside `pocket_comparison.tsv`. |
 | `incorrect_mapping.json` | Pockets dropped because their own sequence disagreed with the aligner's for that chain — typically assembly vs asymmetric unit numbering. Only written if any were dropped, beside `pocket_comparison.tsv`. |
 
 Under `--cache_dir` and surviving between runs: the downloaded mmCIF files (`pdb_structures/` and
 `alphafold_structures/`), the single-chain copies Foldseek is given
-(`foldseek_preprocessed_structures/`), the downloaded `pdb` Foldseek database (`fsdb/`), the raw PISA
-responses (`pockets/pisa/`), and the derived
-pockets themselves (`pockets/pisa_pockets.json`, `passthrough_pockets.json`, `vdw_pockets.json`,
-`whole_chain_pockets.json`). The pocket files are written for inspection only and never read back;
-each pocket is an object of metadata fields plus a `residues` map keyed by author residue number.
+(`foldseek_preprocessed_structures/`), the downloaded `pdb` Foldseek database (`fsdb/`) and the raw PISA
+responses (`pockets/pisa/`). Pockets are not cached: every run builds them afresh into `pockets.json`.
 
 #### `pocket_comparison.tsv` columns
 
@@ -491,7 +488,7 @@ command is a function, `pocketmapper.<step>.<step>.<command>` (such as `pocketma
 `fetch_structures` is `pocketmapper.fetch.fetch.fetch_structures`), taking its CLI options as keyword
 arguments; its `job_file` also takes a dict, such as the settings `search()` returns. The individual
 components (`parse.qt_processor`, `lib.structure_manager`, `pockets.pisa_downloader`,
-`align.sequence_aligner`, `superpose.structure_aligner`, `pockets.pocket_fetcher`, ...) are each usable on
+`align.sequence_aligner`, `superpose.structure_aligner`, `pockets.pocket_manager`, ...) are each usable on
 their own. Note that `search()` deletes its temporary directories on the way out.
 
 Logging goes through the `pocketmapper` logger and never touches the root logger, so your own logging
