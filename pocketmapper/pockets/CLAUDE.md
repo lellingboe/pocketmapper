@@ -3,8 +3,10 @@
 Facts about `pockets/`, moved out of `context/project-overview.md` so they load only when working here.
 
 - **`POCKET_BUILDERS` in `pocket_manager` is the whole method table.** Builders live beside their
-  primitive and all take `(records, **options)`. `PocketManager.__init__` sets each method's options once,
-  in `builder_options` (pisa's `downloader`, the manager's `PisaDownloader`, and `bsa_threshold` today).
+  primitive and all take `(records, structures, **options)`, where `structures` is the manager's
+  `StructureManager`, which locates each record's structure. `PocketManager.__init__` sets each method's
+  options once, in `builder_options` (pisa's `downloader`, the manager's `PisaDownloader`, and
+  `bsa_threshold` today).
   A new method = one row + one builder, plus an options entry if it takes options.
 - **One builder contract.** A builder returns pocket_id -> Pocket for the pockets it built only. A record
   it cannot build (missing or unreadable structure, missing chain, unusable residue, unresolved interface)

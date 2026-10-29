@@ -3,8 +3,9 @@ Pockets through one interface: building them, the PISA cache, Foldseek hit expan
 
 `POCKET_BUILDERS` is the whole table of pocket methods. Every builder takes `(records, structures, **options)`,
 where `structures` is the manager's `StructureManager`, and returns pocket_id -> Pocket for the pockets it
-built, leaving out (and logging) the records it could not build. `PocketManager` sets each method's options once, so `build` needs to know nothing about any one
-method. Built pockets are not cached: every `build` builds them afresh.
+built, leaving out (and logging) the records it could not build. `PocketManager` sets each method's options
+once, so `build` needs to know nothing about any one method. Built pockets are not cached: every `build`
+builds them afresh.
 
 The pocket files are module-level functions and need no manager: `write_pockets_file`/`read_pockets_file`
 for the versioned pockets file, which also maps each aligned chain to the pockets on it, and
@@ -78,12 +79,12 @@ class PocketManager:
 
         Args:
             pocket_dir (str): Parent of the PISA cache, `pocket_dir/pisa/`.
-            pdb_dir (str or None, optional): Cache directory of PDB structures. Needed only by
-                `expand_pdb_hits`. Defaults to None.
-            alphafold_dir (str or None, optional): Cache directory of AlphaFold models. Needed only by
-                `expand_pdb_hits`. Defaults to None.
-            fsdb_dir (str or None, optional): Directory of downloaded Foldseek databases. Needed only by
-                `expand_pdb_hits`. Defaults to None.
+            pdb_dir (str or None, optional): Cache directory of PDB structures. Needed to locate a `pdb`
+                record's structure, so by `build` for such records and by `expand_pdb_hits`. Defaults to None.
+            alphafold_dir (str or None, optional): Cache directory of AlphaFold models. Needed to locate an
+                `alphafold` record's structure. Defaults to None.
+            fsdb_dir (str or None, optional): Directory of downloaded Foldseek databases. Needed to locate a
+                bundled Foldseek database. Defaults to None.
             local_root (str or None, optional): Directory a relative local structure file resolves against.
                 Defaults to None, the current directory.
             pisa_source (str, optional): Where PISA assembly interfaces are fetched from: "ftp" or "api".
