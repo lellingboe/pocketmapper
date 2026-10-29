@@ -8,7 +8,8 @@ translations, rename chains so each structure stays distinguishable, and emit a 
 COMPND metadata naming each model.
 
 `StructureAligner.align_structs` drives the whole step from a finished pocket comparison, so a caller
-holding one of those needs nothing else from the pipeline to produce the aligned structures.
+holding one of those, and a `StructureManager` that locates its records' structures, needs nothing else from
+the pipeline to produce the aligned structures.
 """
 
 import json
@@ -61,10 +62,15 @@ class StructureAligner:
     which structures to superpose.
     """
 
-    def __init__(self):
+    def __init__(self, manager):
         """
-        Initialise the logging stage. The aligner holds no other state.
+        Keep the manager that locates each record's structure, and set the logging stage.
+
+        Args:
+            manager (StructureManager): Locates each record's structure through `record_path`. Nothing is
+                downloaded through it.
         """
+        self.manager = manager
         self.log_extra = {"stage": "Structural Alignment"}
         logger.debug("Initialized")
 
@@ -126,7 +132,7 @@ class StructureAligner:
 
         Args:
             aln_records (list): Ordered records, reference first; the reference is placed untransformed.
-                Fields read: `pocket_id`, `struct_path`, `chain_info`.
+                Fields read: `pocket_id`, `struct_type`, `struct_info`, `chain_info`.
             transforms (list): Parallel to `aln_records`, since the reference and a target may share a
                 `pocket_id`. Entry 0 is ignored; entry i is either a `(u, t)` pair -- a 3x3 rotation in
                 gemmi's LEFT-multiplying convention plus a 3-vector translation -- or None to drop that
@@ -136,6 +142,9 @@ class StructureAligner:
         Returns:
             str: `out_path`, once the merged PDB is written; None when no structure could be placed
                 and nothing was written. A record whose structure is missing or unreadable is dropped.
+
+        Raises:
+            PocketMapperError: If the manager lacks the directory a record's structure needs.
         """
         structs = []
         domain_chains = []
@@ -146,6 +155,8 @@ class StructureAligner:
         dropped = []
 
         for i, record in enumerate(aln_records):
+            # Outside the try: a missing directory is a setup error, not one unusable record
+            struct_path = self.manager.record_path(record)
             try:
                 if i == 0:
                     struct_u = np.eye(3)
@@ -157,7 +168,7 @@ class StructureAligner:
                     struct_u, struct_t = transforms[i]
 
                 # The merged structure gets setup_entities() in apply_transformation
-                struct = load_structure(record["struct_path"], self.log_extra, entities=False)
+                struct = load_structure(struct_path, self.log_extra, entities=False)
                 if struct is None:
                     dropped.append(record["pocket_id"])
                     logger.error(
@@ -237,8 +248,8 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
 
         Args:
             aln_records (list): Ordered alignment records, reference first; each other record needs a
-                row in `alignment_df`. Fields read: `pocket_id`, `preprocess_name`, `struct_path`,
-                `chain_info`.
+                row in `alignment_df`. Fields read: `pocket_id`, `preprocess_name`, `struct_type`,
+                `struct_info`, `chain_info`.
             alignment_df (pandas.DataFrame): Alignment table carrying the Foldseek transforms, indexed by
                 (query, target) `preprocess_name`.
             out_path (str): Destination path for the aligned PDB file.
@@ -247,6 +258,9 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
             str: `out_path`, once the merged PDB is written; None when no structure could be placed
                 and nothing was written. A target whose row has no parseable `u` and `t` -- the seq
                 aligner writes "-" -- is dropped.
+
+        Raises:
+            PocketMapperError: If the manager lacks the directory a record's structure needs.
         """
         query_preprocess_name = aln_records[0]["preprocess_name"]
 
@@ -319,7 +333,8 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
         """
         Build target records by rebuilding the needed structures out of a Foldseek database.
 
-        Writes the rebuilt structures, and the sub-database they come from, under `out_dir`.
+        Writes the rebuilt structures, and the sub-database they come from, under `out_dir`. Each record
+        names its structure as a `local_file` by absolute path, so any `StructureManager` locates it.
 
         Args:
             fsdb_path (str): Path to the Foldseek database.
@@ -331,8 +346,8 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
             threads (int): Thread count for the extraction.
 
         Returns:
-            dict: Target `pocket_id` -> a record carrying `preprocess_name`, `struct_path` and a None
-                `chain_info`.
+            dict: Target `pocket_id` -> a record carrying `preprocess_name`, `struct_type` "local_file",
+                the absolute path of the rebuilt structure as `struct_info`, and a None `chain_info`.
         """
         if target_records:
             named = [record for record in target_records if not pd.isna(record.get("preprocess_name"))]
@@ -349,7 +364,7 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
         struct_paths = extract_fsdb_structures(
             fsdb_path,
             list(dict.fromkeys(entry_names.values())),
-            out_dir,
+            os.path.abspath(out_dir),
             threads,
             self.log_extra,
         )
@@ -360,7 +375,8 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
                 "pocket_id": target_id,
                 "preprocess_name": entry_name,
                 "chain_info": None,
-                "struct_path": struct_paths[entry_name],
+                "struct_type": "local_file",
+                "struct_info": struct_paths[entry_name],
             }
             for target_id, entry_name in entry_names.items()
         }
@@ -450,7 +466,7 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
         A query whose targets all turn out to be unusable is skipped rather than written empty.
 
         Args:
-            query_records (list): Query records. Fields read: `pocket_id`, `struct_path`,
+            query_records (list): Query records. Fields read: `pocket_id`, `struct_type`, `struct_info`,
                 `chain_info`, and `preprocess_name` for the "foldseek" method.
             target_records (list): Target records, same fields. Empty is allowed only alongside
                 `fsdb_path`, where it means the target ids are database entry names.
@@ -466,8 +482,9 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
                 of the TSV holding it. Required by the "foldseek" method and ignored otherwise.
             threads (int, optional): Thread count for rebuilding structures out of a Foldseek
                 database. Defaults to 1 and is ignored without `fsdb_path`.
-            fsdb_path (str, optional): Foldseek database to rebuild the target structures from, for a
-                run whose targets were a database rather than structures of their own.
+            fsdb_path (str, optional): Path of the Foldseek database to rebuild the target structures
+                from, for a run whose targets were a database rather than structures of their own.
+                Defaults to None.
             query_ids (list, optional): Only superpose onto these queries. Defaults to None, all of
                 them.
             target_ids (list, optional): Only consider these targets. Defaults to None, all of them.
@@ -479,7 +496,8 @@ COMPND {next(line_nums).zfill(3)} CHAIN: {chain_name};
                 absent, so an empty dict means nothing was written.
 
         Raises:
-            PocketMapperError: If `method` is neither "pocket" nor "foldseek".
+            PocketMapperError: If `method` is neither "pocket" nor "foldseek", or the manager lacks the
+                directory a record's structure needs.
         """
         if method not in RESOLVED_ALIGN_STRUCT_METHODS:
             msg = f"Unknown align_struct_method {method!r}. Choose one of: {', '.join(RESOLVED_ALIGN_STRUCT_METHODS)}."

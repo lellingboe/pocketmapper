@@ -188,7 +188,7 @@ def superpose_top_targets(
 
     Args:
         sides (dict): "query" and "target" -> that side's QTRecord dicts.
-        manager (StructureManager): Locates the records' structures.
+        manager (StructureManager): Locates the records' structures and the Foldseek database.
         entries_path (str or None): The entries table, marked, or None for none.
         pocket_comparison (str): The pocket comparison table.
         alignment (str): The alignment table; its transforms are read with the "foldseek" method.
@@ -203,8 +203,8 @@ def superpose_top_targets(
         None
 
     Raises:
-        PocketMapperError: If the pockets file cannot be read, or Foldseek fails rebuilding
-            structures.
+        PocketMapperError: If the pockets file cannot be read, Foldseek fails rebuilding structures, or
+            `manager` lacks a directory a record needs.
     """
     log_extra = {"stage": "Structural Alignment"}
 
@@ -216,7 +216,7 @@ def superpose_top_targets(
     # what is superposed. Given no target records, the aligner reads target ids as entry names: only
     # a PDB database's hits have pockets of their own, each found on its hit by `chains`.
     database = fsdb_record(target)
-    fsdb_path = database["struct_path"] if database is not None else None
+    fsdb_path = manager.record_path(database) if database is not None else None
     if database is None:
         target = split_missing_structures(target, manager, "target", "superpose", entries_path, log_extra)
     else:
@@ -233,7 +233,7 @@ def superpose_top_targets(
                 for pocket_id in pocket_ids
             ]
 
-    StructureAligner().align_structs(
+    StructureAligner(manager).align_structs(
         query_records=query,
         target_records=target,
         pocket_comparison=pocket_comparison,
