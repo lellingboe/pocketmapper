@@ -1,5 +1,5 @@
 """
-Unit tests for `lib.structure_manager`: cache paths, fetching from a `file://` source, and loading with validation.
+Unit tests for `lib.structure_manager`: path resolution, fetching from a `file://` source, and loading with validation.
 """
 
 import logging
@@ -12,6 +12,7 @@ import pytest
 
 from pocketmapper.lib import structure_manager
 from pocketmapper.lib.exceptions import PocketMapperError
+from pocketmapper.lib.foldseek import BUNDLED_HUMAN_DOMAINS_DB
 from pocketmapper.lib.residues import ca_residues
 from pocketmapper.lib.structure_manager import StructureManager, load_structure
 
@@ -47,6 +48,11 @@ def pdb_record(work_dir):
     return {"struct_type": "pdb", "struct_info": "4Q5J", "struct_path": os.path.join(work_dir, "pdb", "4Q5J.cif.gz")}
 
 
+BUNDLED_PDB_DB = os.path.join("fsdb", "pdb")
+ABS_ROOT = os.path.abspath(os.path.join(os.sep, "root"))
+ABS_FILE = os.path.abspath(os.path.join(os.sep, "abs", "my.pdb"))
+
+
 @pytest.mark.parametrize(
     "kwargs, struct_type, struct_info, expected",
     [
@@ -55,27 +61,64 @@ def pdb_record(work_dir):
         pytest.param(
             {"alphafold_dir": "af"}, "alphafold", "p06493", os.path.join("af", "P06493.cif.gz"), id="alphafold"
         ),
-        pytest.param({}, "local_file", os.path.join("in", "my.pdb"), os.path.join("in", "my.pdb"), id="local_file"),
+        pytest.param(
+            {"local_root": ABS_ROOT},
+            "local_file",
+            os.path.join("in", "my.pdb"),
+            os.path.join(ABS_ROOT, "in", "my.pdb"),
+            id="local_file_root",
+        ),
+        pytest.param({"local_root": ABS_ROOT}, "local_file", ABS_FILE, ABS_FILE, id="local_file_absolute"),
+        pytest.param({"fsdb_dir": "fsdb"}, "foldseek_db", "pdb", BUNDLED_PDB_DB, id="bundled_pdb"),
+        pytest.param(
+            {"fsdb_dir": "fsdb"}, "foldseek_db", "human_domains", BUNDLED_HUMAN_DOMAINS_DB, id="bundled_human"
+        ),
+        pytest.param(
+            {"local_root": ABS_ROOT},
+            "foldseek_db",
+            os.path.join("dbs", "mine"),
+            os.path.join(ABS_ROOT, "dbs", "mine"),
+            id="user_db_root",
+        ),
+        pytest.param({"local_root": ABS_ROOT}, "foldseek_db", ABS_FILE, ABS_FILE, id="user_db_absolute"),
     ],
 )
 def test_path(kwargs, struct_type, struct_info, expected):
-    """`path` builds `<dir>/<ID upper-cased>.cif.gz`, and leaves a local file's path unchanged."""
+    """`path` builds each type's path: cache dirs for pdb/alphafold, `local_root` for user paths, bundled DBs."""
     assert StructureManager(**kwargs).path(struct_type, struct_info) == expected
 
 
 @pytest.mark.parametrize(
-    "kwargs, struct_type, match",
+    "struct_type, struct_info",
+    [("local_file", os.path.join("in", "my.pdb")), ("foldseek_db", os.path.join("dbs", "mine"))],
+)
+def test_path_local_root_default_cwd(tmp_path, monkeypatch, struct_type, struct_info):
+    """With `local_root` None a relative local path resolves against the cwd at call time."""
+    monkeypatch.chdir(tmp_path)
+    expected = os.path.join(os.getcwd(), struct_info)
+    assert StructureManager().path(struct_type, struct_info) == expected
+
+
+def test_record_path():
+    """`record_path` gives `path` of the record's `struct_type` and `struct_info`."""
+    manager = StructureManager(pdb_dir="pdb", local_root=ABS_ROOT)
+    assert manager.record_path({"struct_type": "pdb", "struct_info": "4q5j"}) == os.path.join("pdb", "4Q5J.cif.gz")
+    assert manager.record_path({"struct_type": "local_file", "struct_info": "a.pdb"}) == os.path.join(ABS_ROOT, "a.pdb")
+
+
+@pytest.mark.parametrize(
+    "kwargs, struct_type, struct_info, match",
     [
-        pytest.param({"pdb_dir": "pdb"}, "foldseek_db", "Unknown structure type", id="foldseek_db"),
-        pytest.param({"pdb_dir": "pdb"}, "nonsense", "Unknown structure type", id="unknown"),
-        pytest.param({"alphafold_dir": "af"}, "pdb", "needs pdb_dir", id="no_pdb_dir"),
-        pytest.param({"pdb_dir": "pdb"}, "alphafold", "needs alphafold_dir", id="no_alphafold_dir"),
+        pytest.param({"pdb_dir": "pdb"}, "nonsense", "4Q5J", "Unknown structure type", id="unknown"),
+        pytest.param({"alphafold_dir": "af"}, "pdb", "4Q5J", "needs pdb_dir", id="no_pdb_dir"),
+        pytest.param({"pdb_dir": "pdb"}, "alphafold", "4Q5J", "needs alphafold_dir", id="no_alphafold_dir"),
+        pytest.param({}, "foldseek_db", "pdb", "needs fsdb_dir", id="no_fsdb_dir"),
     ],
 )
-def test_path_rejects(kwargs, struct_type, match):
+def test_path_rejects(kwargs, struct_type, struct_info, match):
     """`path` raises for an unknown type, or when the directory the type needs was not given."""
     with pytest.raises(PocketMapperError, match=match):
-        StructureManager(**kwargs).path(struct_type, "4Q5J")
+        StructureManager(**kwargs).path(struct_type, struct_info)
 
 
 @pytest.mark.parametrize(

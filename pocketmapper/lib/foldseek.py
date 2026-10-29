@@ -174,6 +174,10 @@ def bundled_foldseek_dbs(fsdb_dir):
     }
 
 
+# The names `bundled_foldseek_dbs` accepts, readable without an `fsdb_dir`. Derived from it, so the two agree.
+BUNDLED_FSDB_NAMES = tuple(bundled_foldseek_dbs(""))
+
+
 def bundled_offset_table(db_path):
     """
     The UniProt offset table shipped beside a Foldseek database, if it ships one.

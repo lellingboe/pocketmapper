@@ -5,8 +5,10 @@ Finding, fetching and loading the reference structures PocketMapper works on.
 needs; a new source is one row. Structures land as gzipped mmCIF at each record's `struct_path`, which
 doubles as the on-disk cache between runs. A local file is read where it is and never copied.
 
-`StructureManager.fetch` works on records, which carry their own `struct_path`, so it needs no cache
-directory; `path` and `get` do. `load_structure` never downloads.
+`StructureManager.path` works out where a structure or Foldseek database lives from its `struct_type` and
+`struct_info`, and `record_path` does the same for a record. For now `fetch` still reads each record's own
+`struct_path`, so it needs no directory; `path`, `record_path` and `get` need the directory of the type they
+resolve. `load_structure` never downloads.
 """
 
 import logging
@@ -17,6 +19,7 @@ import gemmi
 from pocketmapper.lib.download import DOWNLOAD_WORKERS, DownloadJob, download_many
 from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.files import gzip_file
+from pocketmapper.lib.foldseek import BUNDLED_FSDB_NAMES, bundled_foldseek_dbs
 
 logger = logging.getLogger(__name__)
 
@@ -59,15 +62,29 @@ class StructureManager:
     The cache layout, downloads and loading of reference structures.
     """
 
-    def __init__(self, pdb_dir=None, alphafold_dir=None, download=True, refresh=False, max_workers=DOWNLOAD_WORKERS):
+    def __init__(
+        self,
+        pdb_dir=None,
+        alphafold_dir=None,
+        fsdb_dir=None,
+        local_root=None,
+        download=True,
+        refresh=False,
+        max_workers=DOWNLOAD_WORKERS,
+    ):
         """
         Set up the cache directories and the download policy.
 
         Args:
-            pdb_dir (str or None, optional): Cache directory of PDB structures, needed only by `path` and
-                `get`. Defaults to None.
-            alphafold_dir (str or None, optional): Cache directory of AlphaFold models, needed only by
-                `path` and `get`. Defaults to None.
+            pdb_dir (str or None, optional): Cache directory of PDB structures, needed only to resolve a
+                `pdb` structure (`path`, `record_path`, `get`). Defaults to None.
+            alphafold_dir (str or None, optional): Cache directory of AlphaFold models, needed only to
+                resolve an `alphafold` structure. Defaults to None.
+            fsdb_dir (str or None, optional): Cache directory of downloaded Foldseek databases, needed only
+                to resolve a bundled `foldseek_db` name. Defaults to None.
+            local_root (str or None, optional): Directory that a relative local file or user Foldseek
+                database path resolves against, read when `path` is called. Defaults to None, the current
+                directory.
             download (bool, optional): False sends no request: a structure is available only if its file
                 exists. Defaults to True.
             refresh (bool, optional): True downloads PDB and AlphaFold structures even when a cached file
@@ -82,28 +99,40 @@ class StructureManager:
             logger.critical(msg, extra={"stage": "Downloading Structures"})
             raise PocketMapperError(msg)
         self.dirs = {"pdb": pdb_dir, "alphafold": alphafold_dir}
+        self.fsdb_dir = fsdb_dir
+        self.local_root = local_root
         self.download = download
         self.refresh = refresh
         self.max_workers = max_workers
 
     def path(self, struct_type, struct_info):
         """
-        Build the path a structure is cached at, or read from for a local file.
+        Build the path a structure or Foldseek database is cached at, or read from.
 
         Args:
-            struct_type (str): "pdb", "alphafold" or "local_file".
-            struct_info (str): The PDB code or UniProt accession, in any case, or the local file's path.
+            struct_type (str): "pdb", "alphafold", "local_file" or "foldseek_db".
+            struct_info (str): The PDB code or UniProt accession, in any case; the local file's path; or
+                a bundled Foldseek database name or a user database path.
 
         Returns:
-            str: `<dir>/<struct_info upper-cased>.cif.gz` for pdb and alphafold; `struct_info` unchanged for
-                a local file.
+            str: `<dir>/<struct_info upper-cased>.cif.gz` for pdb and alphafold; for a local file or a user
+                database, `struct_info` joined onto `local_root` (an absolute path comes back unchanged);
+                for a bundled database name, its path from `lib.foldseek.bundled_foldseek_dbs`.
 
         Raises:
-            PocketMapperError: If the type is unknown, or the cache directory it needs was not given.
+            PocketMapperError: If the type is unknown, or the directory it needs was not given.
         """
         log_extra = {"stage": "Locating Structures"}
         if struct_type == "local_file":
-            return struct_info
+            return self.local_path(struct_info)
+        if struct_type == "foldseek_db":
+            if struct_info not in BUNDLED_FSDB_NAMES:
+                return self.local_path(struct_info)
+            if self.fsdb_dir is None:
+                msg = f"The path of bundled Foldseek database {struct_info} needs fsdb_dir"
+                logger.critical(msg, extra=log_extra)
+                raise PocketMapperError(msg)
+            return bundled_foldseek_dbs(self.fsdb_dir)[struct_info]
         if struct_type not in self.dirs:
             msg = f"Unknown structure type {struct_type} for struct_info {struct_info}"
             logger.critical(msg, extra=log_extra)
@@ -114,6 +143,34 @@ class StructureManager:
             logger.critical(msg, extra=log_extra)
             raise PocketMapperError(msg)
         return os.path.join(struct_dir, f"{struct_info.upper()}.cif.gz")
+
+    def local_path(self, path):
+        """
+        Resolve a user-given path against `local_root`, or the current directory if that is None.
+
+        Args:
+            path (str): The path as the user wrote it.
+
+        Returns:
+            str: `path` unchanged if absolute, otherwise joined onto the root.
+        """
+        root = os.getcwd() if self.local_root is None else self.local_root
+        return os.path.join(root, path)
+
+    def record_path(self, record):
+        """
+        Build the path of the structure or Foldseek database a record names.
+
+        Args:
+            record (dict): A record with `struct_type` and `struct_info`.
+
+        Returns:
+            str: The path, as `path` gives it.
+
+        Raises:
+            PocketMapperError: As `path`.
+        """
+        return self.path(record["struct_type"], record["struct_info"])
 
     def fetch(self, records):
         """
