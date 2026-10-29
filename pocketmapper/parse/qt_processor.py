@@ -25,9 +25,8 @@ from dataclasses import asdict, dataclass
 
 from pocketmapper.lib.constants import DEFAULT_CHAIN, DEFAULT_POCKET_METHOD
 from pocketmapper.lib.exceptions import PocketMapperError
-from pocketmapper.lib.foldseek import bundled_foldseek_dbs
+from pocketmapper.lib.foldseek import BUNDLED_FSDB_NAMES
 from pocketmapper.lib.residues import split_chain_info
-from pocketmapper.lib.structure_manager import StructureManager
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +53,9 @@ class QTRecord:
     """
     A single parsed query/target entry.
 
-    Holds the raw input string as `pocket_id` plus everything derived from it -- structure location,
-    preprocessing name and pocket method. Paths are as absolute as the directories they were
-    resolved against, and a local file's or user Foldseek database's is made absolute against the
-    processor's `local_root`.
+    Holds the raw input string as `pocket_id` plus everything derived from it -- the structure
+    identifier, its type, preprocessing name and pocket method. The record names its structure but does
+    not locate it: `StructureManager.record_path` does.
     """
 
     pocket_id: str
@@ -65,7 +63,6 @@ class QTRecord:
     chain_info: str | None = None
     residue_info: str | None = None
     struct_type: str | None = None
-    struct_path: str | None = None
     preprocess_name: str | None = None
     pocket_method: str | None = None
 
@@ -78,32 +75,20 @@ class QTProcessor:
     per side.
     """
 
-    def __init__(self, pdb_dir, alphafold_dir, fsdb_dir, local_root=None):
+    def __init__(self, local_root=None):
         """
-        Store the directories that record paths are resolved against, and compile the input regexes.
-
-        Every directory and path is resolved against `local_root`, so record paths are absolute.
+        Store the directory that local files resolve against, and compile the input regexes.
 
         Args:
-            pdb_dir (str): Directory fetched PDB structures are written to; where `pdb` records get
-                their `struct_path`.
-            alphafold_dir (str): Directory fetched AlphaFold structures are written to; where
-                `alphafold` records get their `struct_path`.
-            fsdb_dir (str): Directory holding downloaded Foldseek databases, used to locate the
-                bundled `pdb` database.
-            local_root (str, optional): Directory that the cache directories, a local structure file
-                and a user Foldseek database are resolved against. An entries file resolves against the
-                working directory. Defaults to None, the working directory.
+            local_root (str, optional): Directory that a local structure file is resolved against, to
+                check it exists and to hash it. An entries file resolves against the working directory.
+                Defaults to None, the working directory.
         """
         # On the instance so every helper logs under the side process_qt_cmdline_input names
         self.log_extra = {"stage": "Processing Inputs"}
         logger.debug("Started")
 
         self.local_root = os.path.abspath(local_root if local_root is not None else os.getcwd())
-        self.pdb_dir = self.local_path(pdb_dir)
-        self.alphafold_dir = self.local_path(alphafold_dir)
-        # Owns the cache layout of pdb and alphafold structures; only its `path` is used here
-        self.structure_manager = StructureManager(self.pdb_dir, self.alphafold_dir)
 
         # Structure type regex patterns, matched against the upper-cased identifier. A PDB id starts 1-9.
         self.pdb_regex = r"^[1-9][A-Z0-9]{3}$"
@@ -132,8 +117,6 @@ class QTProcessor:
             "pdb": ("whole_chain", "pisa", "passthrough", "vdw"),
             "local_file": ("whole_chain", "passthrough", "vdw"),
         }
-
-        self.bundled_foldseek_dbs = bundled_foldseek_dbs(self.local_path(fsdb_dir))
 
     def accepted_pocket_methods(self):
         """
@@ -235,12 +218,11 @@ class QTProcessor:
                 `reason` is None. If the entry is unusable, `record` is None and `reason` says why.
         """
         # Foldseek databases have a special format and are treated differently
-        if qt in self.bundled_foldseek_dbs or pocket_method == "foldseek_db":
+        if qt in BUNDLED_FSDB_NAMES or pocket_method == "foldseek_db":
             record = QTRecord(
                 pocket_id=qt,
                 struct_info=qt,
                 struct_type="foldseek_db",
-                struct_path=self.bundled_foldseek_dbs.get(qt) or self.local_path(qt),  # Bundled path if available
             )
             return record, None
 
@@ -275,7 +257,6 @@ class QTProcessor:
         # One case, so "4q5j" and "4Q5J" share a cached structure and an alignment
         if struct_type != "local_file":
             struct_info = struct_info.upper()
-        struct_path = self.determine_ref_struct_path(struct_info, struct_type)
 
         resolved_pocket_method = (
             pocket_method if pocket_method != "auto" else self.determine_pocket_method(qt, struct_type)
@@ -305,7 +286,7 @@ class QTProcessor:
         hash_input = name
         if struct_type == "local_file":
             try:
-                with open(struct_path, "rb") as f:
+                with open(self.local_path(struct_info), "rb") as f:
                     hash_input += "_" + hashlib.md5(f.read()).hexdigest()
             except OSError as e:
                 return None, f"Could not read {struct_info}: {e}"
@@ -317,7 +298,6 @@ class QTProcessor:
             chain_info=chain_info,
             residue_info=residue_info,
             struct_type=struct_type,
-            struct_path=struct_path,
             preprocess_name=preprocess_name,
             pocket_method=resolved_pocket_method,
         )
@@ -388,32 +368,6 @@ class QTProcessor:
             return None, f"Directory input is not supported: {struct_str}"
         else:
             return None, f"Could not determine structure type for {struct_str}"
-
-    def determine_ref_struct_path(self, struct_info, struct_type):
-        """
-        Determine the path to the structure file based on its type and identifier.
-
-        Args:
-            struct_info (str): Identifier for the structure (e.g., "P12345", "1ABC").
-            struct_type (str): Type of the structure ("alphafold", "pdb", "local_file").
-
-        Returns:
-            str: Path to the structure file: the `StructureManager` cache path for pdb and alphafold, and
-                for a local file its path made absolute against `local_root`.
-
-        Raises:
-            PocketMapperError: If the structure type is unknown.
-        """
-        match struct_type:
-            case "alphafold" | "pdb":
-                return self.structure_manager.path(struct_type, struct_info)
-            case "local_file":
-                return self.local_path(struct_info)
-            case _:
-                logger.critical(
-                    f"Unknown structure type {struct_type} for struct_info {struct_info}", extra=self.log_extra
-                )
-                raise PocketMapperError(f"Unknown structure type {struct_type} for struct_info {struct_info}")
 
     def local_path(self, path):
         """

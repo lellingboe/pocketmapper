@@ -12,7 +12,6 @@ import pytest
 
 from pocketmapper.lib.entries import RECORD_FIELDS
 from pocketmapper.lib.exceptions import PocketMapperError
-from pocketmapper.lib.foldseek import BUNDLED_HUMAN_DOMAINS_DB
 from pocketmapper.parse.qt_processor import QTProcessor
 
 STRUCT_IDS = {"pdb": "4Q5J", "alphafold": "P24941", "local_file": "struct.cif"}
@@ -47,28 +46,11 @@ def md5(data):
 
 
 def test_local_root_defaults_to_cwd(tmp_path, monkeypatch):
-    """With no `local_root`, the working directory is used and the cache directories resolve against it."""
+    """With no `local_root`, the working directory is used."""
     monkeypatch.chdir(tmp_path)
-    processor = QTProcessor(pdb_dir="pdb", alphafold_dir="af", fsdb_dir="fsdb")
+    processor = QTProcessor()
     assert processor.local_root == os.getcwd()
     assert os.path.samefile(processor.local_root, str(tmp_path))
-    assert processor.pdb_dir == os.path.join(os.getcwd(), "pdb")
-    assert processor.alphafold_dir == os.path.join(os.getcwd(), "af")
-
-
-def test_relative_cache_dirs_resolve_against_local_root(processor, local_root):
-    """Relative `pdb_dir`/`alphafold_dir` are made absolute against `local_root`."""
-    assert processor.pdb_dir == os.path.join(local_root, "pdb")
-    assert processor.alphafold_dir == os.path.join(local_root, "af")
-
-
-def test_absolute_cache_dirs_are_kept(local_root):
-    """Absolute `pdb_dir`/`alphafold_dir` are kept as given."""
-    pdb_dir = os.path.join(local_root, "cache", "pdb")
-    alphafold_dir = os.path.join(local_root, "cache", "af")
-    processor = QTProcessor(pdb_dir, alphafold_dir, "fsdb", local_root=os.path.join(local_root, "work"))
-    assert processor.pdb_dir == pdb_dir
-    assert processor.alphafold_dir == alphafold_dir
 
 
 def test_local_path_normalises(processor, local_root):
@@ -132,29 +114,6 @@ def test_directory_struct_rejected(processor, local_root):
     struct_type, reason = processor.determine_struct_type("somedir")
     assert struct_type is None
     assert "Directory input" in reason
-
-
-# determine_ref_struct_path
-
-
-@pytest.mark.parametrize(
-    "struct_info, struct_type, expected_parts",
-    [
-        ("4Q5J", "pdb", ("pdb", "4Q5J.cif.gz")),
-        ("P24941", "alphafold", ("af", "P24941.cif.gz")),
-        ("struct.cif", "local_file", ("struct.cif",)),
-        (os.path.join("sub", "struct.cif"), "local_file", ("sub", "struct.cif")),
-    ],
-)
-def test_determine_ref_struct_path(processor, local_root, struct_info, struct_type, expected_parts):
-    """Fetched structures live in their cache directory; a local file's path is made absolute."""
-    assert processor.determine_ref_struct_path(struct_info, struct_type) == os.path.join(local_root, *expected_parts)
-
-
-def test_determine_ref_struct_path_unknown_type(processor):
-    """An unknown struct_type raises."""
-    with pytest.raises(PocketMapperError, match="Unknown structure type"):
-        processor.determine_ref_struct_path("4Q5J", "nonsense")
 
 
 # pocket_info
@@ -295,7 +254,6 @@ def test_build_record_defaults(processor, local_root):
     assert record.chain_info == "A"
     assert record.residue_info is None
     assert record.struct_type == "pdb"
-    assert record.struct_path == os.path.join(local_root, "pdb", "4Q5J.cif.gz")
     assert record.pocket_method == "whole_chain"
 
 
@@ -306,11 +264,7 @@ def test_accession_case_normalised(processor, entry, struct_type):
     upper, _ = processor.parse_individual_qt(entry.upper(), "auto")
     assert lower.struct_type == struct_type
     assert lower.pocket_id == entry
-    assert (lower.struct_info, lower.struct_path, lower.preprocess_name) == (
-        upper.struct_info,
-        upper.struct_path,
-        upper.preprocess_name,
-    )
+    assert (lower.struct_info, lower.preprocess_name) == (upper.struct_info, upper.preprocess_name)
 
 
 def test_pocket_id_verbatim_residues_canonical(processor):
@@ -402,26 +356,23 @@ def test_forced_method_match(processor):
     assert record.pocket_method == "vdw"
 
 
-@pytest.mark.parametrize(
-    "entry, expected_path",
-    [("human_domains", BUNDLED_HUMAN_DOMAINS_DB), ("pdb", None)],
-)
-def test_bundled_foldseek_db(processor, local_root, entry, expected_path):
+@pytest.mark.parametrize("entry", ["human_domains", "pdb"])
+def test_bundled_foldseek_db(processor, entry):
     """A bundled DB name is a DB record even under "auto", with no chain or preprocess name."""
     record, reason = processor.parse_individual_qt(entry, "auto")
     assert reason is None
     assert record.struct_type == "foldseek_db"
-    assert record.struct_path == (expected_path or os.path.join(local_root, "fsdb", "pdb"))
+    assert record.struct_info == entry
     assert record.chain_info is None
     assert record.preprocess_name is None
 
 
 def test_forced_foldseek_db_relative_path(processor, local_root):
-    """A forced foldseek_db entry's path resolves against `local_root`."""
+    """A forced foldseek_db entry keeps its path as typed."""
     record, reason = processor.parse_individual_qt(os.path.join("dbs", "mydb"), "foldseek_db")
     assert reason is None
     assert record.struct_type == "foldseek_db"
-    assert record.struct_path == os.path.join(local_root, "dbs", "mydb")
+    assert record.struct_info == os.path.join("dbs", "mydb")
 
 
 def test_unparseable_entry(processor):
@@ -515,7 +466,6 @@ def test_foldseek_db_file_not_read(processor, write_file, local_root):
     assert (entry, reason) == ("mydb", None)
     assert record["pocket_id"] == "mydb"
     assert record["struct_type"] == "foldseek_db"
-    assert record["struct_path"] == os.path.join(local_root, "mydb")
 
 
 def test_log_stage_names_side(processor):

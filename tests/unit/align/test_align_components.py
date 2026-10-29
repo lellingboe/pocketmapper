@@ -1,5 +1,5 @@
 """
-Unit tests for the align components: they locate structures through the manager, not the record's `struct_path`.
+Unit tests for the align components: they locate structures through the manager.
 """
 
 import os
@@ -22,12 +22,11 @@ def manager(local_root):
 
 @pytest.fixture
 def record(local_root):
-    """A local-file record naming a copy of 4Q5J under `local_root`, with a `struct_path` that does not exist."""
+    """A local-file record naming a copy of 4Q5J under `local_root`."""
     shutil.copyfile(FIXTURE, os.path.join(local_root, "copy.cif.gz"))
     return {
         "struct_type": "local_file",
         "struct_info": "copy.cif.gz",
-        "struct_path": os.path.join(local_root, "missing.cif.gz"),
         "chain_info": "A_E",
         "pocket_id": "copy:A_E",
         "preprocess_name": "copy_A_x",

@@ -28,7 +28,6 @@ RECORD_FIELDS = (
     "chain_info",
     "residue_info",
     "struct_type",
-    "struct_path",
     "preprocess_name",
     "pocket_method",
 )

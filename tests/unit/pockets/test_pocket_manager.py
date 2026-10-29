@@ -53,9 +53,6 @@ EXPECTED_HIT_CHAINS = {
     "AF-P06493-F1-model_v4_A": [],
 }
 
-# The directory left out of the manager; `expand_pdb_hits` needs all three
-MISSING_DIR_CASES = [pytest.param(name, id=name) for name in ("pdb_dir", "alphafold_dir", "fsdb_dir")]
-
 # (file content, id): pockets files `read_pockets_file` must reject
 BAD_POCKETS_FILES = [
     pytest.param(f'{{"version": {POCKETS_FILE_VERSION - 1}, "pockets": {{}}, "chains": {{}}}}', id="wrong_version"),
@@ -122,10 +119,9 @@ def test_build_offline_uncached(no_downloads, network_attempts, processor, pdb_d
 
 
 def test_build_relative_local_file(no_downloads, processor, pdb_dir, local_root, make_manager):
-    """A record naming a local file by a relative path is read from the manager's `local_root`, not from `struct_path`."""
+    """A record naming a local file by a relative path is read from the manager's `local_root`."""
     shutil.copy(os.path.join(pdb_dir, "4Q5J.cif.gz"), os.path.join(local_root, "mine.cif.gz"))
     record = parse(processor, "mine.cif.gz:A")
-    record["struct_path"] = os.path.join(local_root, "not_a_file.cif.gz")
 
     pockets = make_manager(local_root=local_root).build([record])
 
@@ -153,15 +149,12 @@ def test_expand_pdb_hits_no_structures(no_downloads, local_root, make_manager):
         make_manager(pdb_dir=empty_pdb_dir).expand_pdb_hits(HIT_NAMES)
 
 
-@pytest.mark.parametrize("missing", MISSING_DIR_CASES)
-def test_expand_pdb_hits_missing_dir(no_downloads, pdb_dir, pocket_dir, make_manager, missing):
-    """`expand_pdb_hits` raises before downloading anything when a directory is missing."""
-    pisa_files = sorted(os.walk(pocket_dir))
-    manager = make_manager(download=True, **{missing: None})
+def test_expand_pdb_hits_missing_pdb_dir(no_downloads, pdb_dir, make_manager):
+    """`expand_pdb_hits` raises when it must locate a structure and no `pdb_dir` was given."""
+    manager = make_manager(pdb_dir=None)
 
-    with pytest.raises(PocketMapperError, match=missing):
+    with pytest.raises(PocketMapperError, match="pdb_dir"):
         manager.expand_pdb_hits(HIT_NAMES)
-    assert sorted(os.walk(pocket_dir)) == pisa_files
 
 
 def test_pockets_file_round_trip(local_root):

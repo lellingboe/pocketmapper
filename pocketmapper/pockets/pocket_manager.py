@@ -107,8 +107,6 @@ class PocketManager:
         )
         # pocket_method -> keyword arguments of its builder; a method absent here takes none
         self.builder_options = {"pisa": {"downloader": self.pisa, "bsa_threshold": bsa_threshold}}
-        # The directories QTProcessor needs, in its argument order
-        self.processor_dirs = {"pdb_dir": pdb_dir, "alphafold_dir": alphafold_dir, "fsdb_dir": fsdb_dir}
 
     def build(self, records):
         """
@@ -154,27 +152,6 @@ class PocketManager:
         logger.debug(f"Built {len(pockets)} pockets in all", extra=log_extra)
         return pockets
 
-    def hit_processor(self, log_extra):
-        """
-        Build the QTProcessor that turns a Foldseek hit's interfaces into records.
-
-        Args:
-            log_extra (dict): `extra` for the failure message.
-
-        Returns:
-            QTProcessor: A processor over the manager's three directories, resolved against the working
-                directory.
-
-        Raises:
-            PocketMapperError: If any of `pdb_dir`, `alphafold_dir` and `fsdb_dir` was not given.
-        """
-        missing = [name for name, path in self.processor_dirs.items() if path is None]
-        if missing:
-            msg = f"Expanding Foldseek hits into pockets needs {missing[0]}"
-            logger.critical(msg, extra=log_extra)
-            raise PocketMapperError(msg)
-        return QTProcessor(**self.processor_dirs)
-
     def expand_pdb_hits(self, hit_names):
         """
         Turn the hits of a PDB Foldseek-database search into pisa records, one per PISA interface.
@@ -193,12 +170,11 @@ class PocketManager:
                 failure per such record, as `lib.entries.failure` builds it, with no side.
 
         Raises:
-            PocketMapperError: If `pdb_dir`, `alphafold_dir` or `fsdb_dir` was not given, checked before
-                anything is downloaded, or if interfaces were found but none of their structures could be
-                fetched.
+            PocketMapperError: If `pdb_dir` was not given, or if interfaces were found but none of their
+                structures could be fetched.
         """
         log_extra = {"stage": "Expanding Foldseek DB Targets"}
-        qtprocessor = self.hit_processor(log_extra)
+        qtprocessor = QTProcessor()
 
         chains = {hit_name: [] for hit_name in hit_names}
         hits = {}  # foldseek entry name -> (pdb_id, chain_id)

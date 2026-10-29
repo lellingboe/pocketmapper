@@ -114,7 +114,6 @@ def parse(
             values["target"],
             values["query_pocket_method"],
             values["target_pocket_method"],
-            values,
             values["local_root"],
             values["entries_path"],
         )
@@ -126,7 +125,6 @@ def parse_entries(
     target,
     query_pocket_method,
     target_pocket_method,
-    cache_dirs,
     local_root,
     entries_path=None,
 ):
@@ -142,10 +140,7 @@ def parse_entries(
         target (str or list): Target entry, a file of them, a Foldseek database, or a list of these.
         query_pocket_method (str): Pocket method to force on every query entry, or "auto".
         target_pocket_method (str): As `query_pocket_method`, for the target side.
-        cache_dirs (dict): Holds "pdb_dir", "alphafold_dir" and "fsdb_dir", which give the
-            records' structure paths.
-        local_root (str): Directory that local structure files and a user Foldseek database
-            resolve against.
+        local_root (str): Directory that local structure files resolve against.
         entries_path (str, optional): Where the entries table is written. Defaults to None, for
             nowhere.
 
@@ -165,7 +160,7 @@ def parse_entries(
         ("query", query, query_pocket_method),
         ("target", target, target_pocket_method),
     ):
-        rows += parse_side(entries, name, pocket_method, cache_dirs, local_root)
+        rows += parse_side(entries, name, pocket_method, local_root)
     for row in rows:
         # A database can only be searched
         if row["side"] == "query" and row["struct_type"] == "foldseek_db" and row["failed_step"] is None:
@@ -197,7 +192,7 @@ def parse_entries(
     return sides, rows
 
 
-def parse_side(entries, name, pocket_method, cache_dirs, local_root):
+def parse_side(entries, name, pocket_method, local_root):
     """
     Parse one side's entries into rows of the entries table.
 
@@ -205,10 +200,7 @@ def parse_side(entries, name, pocket_method, cache_dirs, local_root):
         entries (str or list): An entry, a file of one entry per line, or a list of either.
         name (str): Which side this is, "query" or "target".
         pocket_method (str): Pocket method to force on every entry, or "auto".
-        cache_dirs (dict): Holds "pdb_dir", "alphafold_dir" and "fsdb_dir", which give the
-            records' structure paths.
-        local_root (str): Directory that entries files, local structure files, a user Foldseek
-            database and relative cache directories resolve against.
+        local_root (str): Directory that local structure files resolve against.
 
     Returns:
         list: A row per entry, in input order; one that could not be parsed is marked as dropped by
@@ -217,12 +209,7 @@ def parse_side(entries, name, pocket_method, cache_dirs, local_root):
     Raises:
         PocketMapperError: If `pocket_method` is unknown or an entries file cannot be read.
     """
-    qtprocessor = QTProcessor(
-        pdb_dir=cache_dirs["pdb_dir"],
-        alphafold_dir=cache_dirs["alphafold_dir"],
-        fsdb_dir=cache_dirs["fsdb_dir"],
-        local_root=local_root,
-    )
+    qtprocessor = QTProcessor(local_root=local_root)
     rows = []
     for source in [entries] if isinstance(entries, str) else entries:
         results = qtprocessor.process_qt_cmdline_input(qt_input=source, name=name, pocket_method=pocket_method)

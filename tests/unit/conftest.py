@@ -17,8 +17,8 @@ def local_root(tmp_path):
 
 @pytest.fixture
 def processor(local_root):
-    """A QTProcessor with relative cache directories, resolved against `local_root`."""
-    return QTProcessor(pdb_dir="pdb", alphafold_dir="af", fsdb_dir="fsdb", local_root=local_root)
+    """A QTProcessor resolving local files against `local_root`."""
+    return QTProcessor(local_root=local_root)
 
 
 @pytest.fixture

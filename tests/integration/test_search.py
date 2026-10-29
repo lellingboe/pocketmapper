@@ -208,8 +208,7 @@ def test_settings_1(tmp_path, seed_cache, run_cli):
     assert os.listdir(custom["aligned_structure_dir"])
     # The PISA data is only under the custom pocket_dir and the network is blocked, so a built pocket shows it was used
     assert read_json(settings["pockets_path"])["pockets"][QUERY_ID] is not None
-    entries = read_entries(settings["entries_path"])
-    assert all(os.path.dirname(row["struct_path"]) == custom["pdb_dir"] for row in entries)
+    assert os.path.isfile(os.path.join(custom["pdb_dir"], "4Q5J.cif.gz"))
 
     # Nothing at the defaults. temp_dir is deleted on success, so only its default's absence is observable.
     for name in cache_paths.values():
