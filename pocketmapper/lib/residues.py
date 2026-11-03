@@ -1,9 +1,53 @@
 """
-Residue naming and selection: one-letter codes, a chain's CA residues and the chain_info field of an
-input entry.
+Residue naming and selection: residue keys, one-letter codes, a chain's CA residues and the chain_info
+field of an input entry.
 """
 
+import re
+
 from pocketmapper.lib.constants import FOLDSEEK_AA_CODES
+
+# A residue key: the author number, then the insertion code, if any
+RESIDUE_KEY_PATTERN = re.compile(r"^(-?\d+)(.*)$")
+
+
+def residue_key(num, icode=None):
+    """
+    Author residue id with its insertion code, e.g. '100' or '100A'.
+
+    A residue is identified by its number and insertion code together, so 100, 100A and 100B are three
+    residues. gemmi spells "no insertion code" as a space and PISA as None; both give the bare number.
+    Insertion codes keep their case, since mmCIF codes are case-sensitive.
+
+    Args:
+        num (int): Author residue number; may be negative.
+        icode (str or None, optional): Insertion code. Defaults to None, no code.
+
+    Returns:
+        str: The number followed by the stripped insertion code.
+    """
+    return f"{num}{(icode or '').strip()}"
+
+
+def residue_sort_key(key):
+    """
+    Sort key for a `residue_key` string: (number, insertion code), so 100 < 100A < 100B < 101.
+
+    For display order only: residues are paired across a comparison by `seq_pos`, not by this order.
+
+    Args:
+        key (str): A residue key, e.g. '-3', '100' or '100A'.
+
+    Returns:
+        tuple: (int, str): the number and the insertion code ('' when there is none).
+
+    Raises:
+        ValueError: If `key` does not start with an integer.
+    """
+    match = RESIDUE_KEY_PATTERN.match(key)
+    if match is None:
+        raise ValueError(f"'{key}' is not a residue key")
+    return int(match.group(1)), match.group(2)
 
 
 def ca_residues(chain):

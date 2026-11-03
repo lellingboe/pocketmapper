@@ -16,7 +16,7 @@ import json
 import logging
 import os
 
-from pocketmapper.lib.residues import one_letter_code, split_chain_info
+from pocketmapper.lib.residues import one_letter_code, residue_key, residue_sort_key, split_chain_info
 from pocketmapper.pockets.pocket import Pocket, PocketResidue
 from pocketmapper.pockets.structure import parse_pocket_from_struct, records_by_structure
 
@@ -131,8 +131,8 @@ def pisa_pockets_from_records(records, in_dir, bsa_threshold=None):
             else:
                 pocket.residues = buried_residues(pocket_mol, bsa_threshold)
 
-            # Sorted numerically: neither rule leaves the residues in ascending order
-            pocket.res_auth_ids = [str(x) for x in sorted(int(x) for x in pocket.residues)]
+            # Sorted by number, then insertion code: neither rule leaves the residues in ascending order
+            pocket.res_auth_ids = sorted(pocket.residues, key=residue_sort_key)
             pocket.pocket_exists = len(pocket.res_auth_ids) > 0
 
             pockets[record["pocket_id"]] = pocket
@@ -149,17 +149,18 @@ def bonded_residues(interface, mol_id):
         mol_id (str): `molecule_id` of the molecule whose residues are wanted.
 
     Returns:
-        dict: Author seqid as a string -> PocketResidue with `res_code`, `res_code_single` and
-            `uniprot_pos`, in bond order.
+        dict: Residue key (`lib.residues.residue_key`, e.g. '100A') -> PocketResidue with `res_code`,
+            `res_code_single` and `uniprot_pos`, in bond order.
     """
     bond_types = ["hydrogen_bonds", "salt_bridges", "disulfide_bonds", "covalent_bonds", "other_bonds"]
     residues = {}
     for bond_type in bond_types:
         bonds_dict = interface[bond_type]
-        res_auth_ids = bonds_dict[f"atom_site_{mol_id}_seq_nums"]
-        for i, res_auth_id in enumerate(res_auth_ids):
+        seq_nums = bonds_dict[f"atom_site_{mol_id}_seq_nums"]
+        ins_codes = bonds_dict[f"atom_site_{mol_id}_inscodes"]
+        for i, (seq_num, ins_code) in enumerate(zip(seq_nums, ins_codes, strict=True)):
             res_code = bonds_dict[f"atom_site_{mol_id}_residues"][i]
-            residues[str(res_auth_id)] = PocketResidue(
+            residues[residue_key(seq_num, ins_code)] = PocketResidue(
                 res_code=res_code,
                 res_code_single=one_letter_code(res_code),
                 uniprot_pos=bonds_dict[f"atom_site_{mol_id}_unp_nums"][i],
@@ -179,25 +180,29 @@ def buried_residues(molecule, bsa_threshold):
         bsa_threshold (float): Percent buried a residue must exceed.
 
     Returns:
-        dict: Author seqid as a string -> PocketResidue with `res_code` and `res_code_single`, in
-            molecule order. `uniprot_pos` is None: the molecule lists carry no UniProt numbering.
+        dict: Residue key (`lib.residues.residue_key`, e.g. '100A') -> PocketResidue with `res_code` and
+            `res_code_single`, in molecule order. `uniprot_pos` is None: the molecule lists carry no UniProt
+            numbering.
     """
     residues = {}
     seen = set()
     rows = zip(
         molecule["residue_seq_ids"],
+        molecule["residue_ins_codes"],
         molecule["residue_label_comp_ids"],
         molecule["accessible_surface_areas"],
         molecule["buried_surface_areas"],
+        strict=True,
     )
-    for res_auth_id, res_code, asa, bsa in rows:
-        # A seq id listed twice is one residue in alternative forms (microheterogeneity); its first row
-        # decides, as the first conformer does wherever a chain is walked.
-        if res_auth_id in seen:
+    for seq_id, ins_code, res_code, asa, bsa in rows:
+        # A residue key listed twice is one residue in alternative forms (microheterogeneity); its first
+        # row decides, as the first conformer does wherever a chain is walked.
+        res_id = residue_key(seq_id, ins_code)
+        if res_id in seen:
             continue
-        seen.add(res_auth_id)
+        seen.add(res_id)
         if asa > 0 and 100 * bsa / asa > bsa_threshold:
-            residues[str(res_auth_id)] = PocketResidue(
+            residues[res_id] = PocketResidue(
                 res_code=res_code,
                 res_code_single=one_letter_code(res_code),
                 uniprot_pos=None,
@@ -243,7 +248,7 @@ def pisa_pockets(records, structures, downloader, bsa_threshold=None):
         for record in group:
             domain_chain, _ = split_chain_info(record["chain_info"])
             parsed_pocket = parsed[record["pocket_id"]]
-            residue_ids = [int(x) for x in parsed_pocket.res_auth_ids]
+            residue_ids = parsed_pocket.res_auth_ids
             pocket = None if st is None else parse_pocket_from_struct(st, domain_chain, residue_ids, parsed_pocket)
             if pocket is None:
                 logger.warning(

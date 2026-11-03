@@ -25,9 +25,12 @@ INFERENCE_TABLE = [
     (":A_B", {"pdb": "pisa", "alphafold": None, "local_file": "vdw"}),
     (":A:10,11", {"pdb": "passthrough", "alphafold": "passthrough", "local_file": "passthrough"}),
     (":A_B:10,11", {"pdb": "vdw", "alphafold": None, "local_file": "vdw"}),
+    (":A:10,11A", {"pdb": "passthrough", "alphafold": "passthrough", "local_file": "passthrough"}),
+    (":A_B:11A", {"pdb": "vdw", "alphafold": None, "local_file": "vdw"}),
     (":A_B:", {"pdb": "vdw", "alphafold": None, "local_file": "vdw"}),
     (":AB", {"pdb": None, "alphafold": None, "local_file": None}),
     (":A:x", {"pdb": None, "alphafold": None, "local_file": None}),
+    (":A:10AA", {"pdb": None, "alphafold": None, "local_file": None}),
 ]
 
 INFERENCE_CASES = [
@@ -189,7 +192,9 @@ def test_validate_match(processor, entry, method, struct_type):
 @pytest.mark.parametrize("method, pocket_info", [("passthrough", "A:"), ("vdw", "A_B:")])
 def test_residue_pattern_linear(processor, method, pocket_info):
     """A long residue list with a bad last character is rejected at once, not after exponential backtracking."""
-    assert not re.match(processor.pocket_methods[method][0], pocket_info + "1" * 5000 + "x")
+    # "-", not a letter: a letter is a valid insertion code
+    assert not re.match(processor.pocket_methods[method][0], pocket_info + "1" * 5000 + "-")
+    assert not re.match(processor.pocket_methods[method][0], pocket_info + "1A," * 2500 + "-")
 
 
 @pytest.mark.parametrize("entry, struct_type, expected", [c for c in INFERENCE_CASES if c.values[2] is not None])
@@ -216,6 +221,10 @@ def test_parse_residue_info_missing(processor, residue_info):
         ("12,10,11", "12,10,11", None),
         ("07,7", "7", "7"),
         ("5,5,5,6,6", "5,6", "5,6"),
+        ("100,100A,100B", "100,100A,100B", None),
+        ("100a,100A", "100a,100A", None),
+        ("07A", "7A", None),
+        ("100A,100A", "100A", "100A"),
     ],
 )
 def test_parse_residue_info_canonical(processor, caplog, residue_info, expected, repeated):
@@ -233,10 +242,22 @@ def test_parse_residue_info_canonical(processor, caplog, residue_info, expected,
 
 @pytest.mark.parametrize(
     "residue_info, bad_id",
-    [("0", "0"), ("-1", "-1"), ("1.5", "1.5"), ("a", "a"), ("1,,2", ""), ("²", "²")],
+    [
+        ("0", "0"),
+        ("-1", "-1"),
+        ("1.5", "1.5"),
+        ("a", "a"),
+        ("1,,2", ""),
+        ("²", "²"),
+        ("0A", "0A"),
+        ("100AA", "100AA"),
+        ("A100", "A100"),
+        ("100-", "100-"),
+        ("100é", "100é"),
+    ],
 )
 def test_parse_residue_info_rejected(processor, residue_info, bad_id):
-    """Anything but a positive decimal integer is rejected, naming the bad id."""
+    """Anything but a positive decimal integer with at most one insertion-code letter is rejected, naming it."""
     result, reason = processor.parse_residue_info(f"4Q5J:A:{residue_info}", residue_info)
     assert result is None
     assert f"Residue id '{bad_id}'" in reason

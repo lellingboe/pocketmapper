@@ -233,8 +233,9 @@ STRUCTURE[:CHAIN[:RESIDUES]]
 - **CHAIN** — the chain the pocket belongs to. For the interface-based methods this is two chains joined
   by an underscore (`B_F`), where the first is the chain carrying the pocket and the second is its
   binding partner. Optional; omitted, it defaults to chain `A`.
-- **RESIDUES** — optional comma-separated author residue numbers (`10,11,12`). Omitting the whole pocket
-  part makes the entry an open search — see below.
+- **RESIDUES** — optional comma-separated author residue ids (`10,11,12`). An id may carry a one-letter
+  insertion code (`100,100A,100B`), which is case-sensitive; `100`, `100A` and `100B` are three
+  residues. Omitting the whole pocket part makes the entry an open search — see below.
 
 How the pocket residues are derived is inferred from the shape of the entry:
 
@@ -294,7 +295,7 @@ Because there is no pocket on the target to describe, the descriptive and length
 (`target_res_ids`, `target_len`, `target_seq`, `target_pct_aln`, `jaccard_index`) are left empty —
 the same shape a Foldseek-database row has. `jaccard_index` in particular needs a second pocket to size
 against, and a whole chain's length would swamp the union it normalises by. The overlap itself is still
-fully reported: `target_overlap_ids` gives the author residue numbers the query pocket maps onto, and
+fully reported: `target_overlap_ids` gives the author residue ids the query pocket maps onto, and
 because a named structure has real coordinates the superposition columns (`rmsd`, `ca_dists`, the
 transforms) are populated too, which a Foldseek-database row cannot offer.
 
@@ -310,7 +311,7 @@ every entry in it. Both bundled databases require the foldseek binary, and
 of human UniProt sequences. There is no interface to compute on a domain, so the target side behaves like
 an open search: no `target_*` descriptors, no `jaccard_index`, no superposition columns. The database
 ships an offset table, so `target_overlap_ids` is reported in **UniProt residue numbers** rather than
-positions within the domain. The query side (`query_overlap_ids`) is always author residue numbers.
+positions within the domain. The query side (`query_overlap_ids`) is always author residue ids.
 
 **`pdb`** is downloaded on first use (`foldseek databases PDB`) into `<cache_dir>/fsdb/pdb`. Hits are
 real PDB chains, so PocketMapper fetches PISA data for each one and compares against a real interface
@@ -336,7 +337,7 @@ Everything is written under `--results_dir`:
 | `aligned_structures/*.pdb` | The top `--align_count` targets superposed onto each query. Named after the query, so identify a file by its `MOLECULE` records rather than its filename. |
 | `job_settings.json` | The fully resolved settings for the run. `parse` run on its own writes `parse_settings.json` instead. |
 | `info.log` | The run log. |
-| `pockets.json` | Every entry's pocket, keyed by pocket id (`null` where it could not be built), and `chains`: each aligned chain's name -> the pocket ids on it. Each pocket is an object of metadata fields plus a `residues` map keyed by author residue number. Versioned; a file from an older version is rejected, so rerun `pockets`. |
+| `pockets.json` | Every entry's pocket, keyed by pocket id (`null` where it could not be built), and `chains`: each aligned chain's name -> the pocket ids on it. Each pocket is an object of metadata fields plus a `residues` map keyed by author residue id (`100`, or `100A` with an insertion code). Versioned; a file from an older version is rejected, so rerun `pockets`. |
 | `entries.tsv` | A row per query and target entry: `side`, `pocket_id` (the entry as typed), how it parsed (`struct_info`, `chain_info`, `residue_info`, `struct_type`, `preprocess_name`, `pocket_method`), `source` (the input or file it came from), and, once a step has dropped it, `failed_step`, `failed_reason` (`invalid_entry`, `structure_not_found`, `structure_preprocessing_failed`, `pocket_not_built`) and `failed_detail`. The table holds no paths: a step finds each structure from its `struct_type` and `struct_info`, in its own cache dirs. A Foldseek-database hit is no entry, so one dropped is only logged. |
 | `unknown_ids.json` | Pocket residues whose one-letter code in the alignment differs from the structure's. Only written if any were seen, beside `pocket_comparison.tsv`. |
 | `incorrect_mapping.json` | Pockets dropped because their own sequence disagreed with the aligner's for that chain — typically assembly vs asymmetric unit numbering. Only written if any were dropped, beside `pocket_comparison.tsv`. |
@@ -365,7 +366,7 @@ rather than dropping them.
 
 | Column | Meaning |
 | --- | --- |
-| `query_res_ids`, `target_res_ids` | The pocket's author residue numbers, comma-separated. |
+| `query_res_ids`, `target_res_ids` | The pocket's author residue ids, comma-separated: the residue number with its insertion code, if any (`100A`). |
 | `query_len`, `target_len` | Number of residues in the pocket. |
 | `query_seq`, `target_seq` | The pocket's residues as single-letter codes, in `res_ids` order. |
 | `query_pct_aln`, `target_pct_aln` | Fraction of the pocket's residues that fall inside the aligned region at all. A low value means the pocket sits largely outside the alignment. |
@@ -375,7 +376,7 @@ rather than dropping them.
 | Column | Meaning |
 | --- | --- |
 | `overlap_count` | How many alignment positions both pockets occupy. The headline number. |
-| `query_overlap_ids` | The query residues in the overlap, as author residue numbers, in alignment order. |
+| `query_overlap_ids` | The query residues in the overlap, as author residue ids, in alignment order. |
 | `target_overlap_ids` | The target residues they map onto, in alignment order and paired with `query_overlap_ids` by index. UniProt numbers for a `human_domains` target; see [Databases](#databases). |
 | `jaccard_index` | `overlap_count` divided by the union of the two pockets. Empty for an open or database target. |
 

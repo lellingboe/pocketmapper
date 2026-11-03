@@ -76,11 +76,11 @@ class MappedPocket(NamedTuple):
     """
     A pocket's residues projected onto one alignment row.
 
-    res_by_pos maps an index into the gapped alignment string to the author seqid that landed there;
-    the two sides of a row are paired through these indices, never through the seqids. in_aln_count is
+    res_by_pos maps an index into the gapped alignment string to the residue key that landed there;
+    the two sides of a row are paired through these indices, never through the keys. in_aln_count is
     how many of the pocket's residues landed inside the aligned region at all (the numerator of
     pocket_N_pct_aln). code_mismatches holds the residues whose code disagreed with the aligner's, as
-    (aligner code, tri-code, author seqid).
+    (aligner code, tri-code, residue key).
 
     Mismatches are carried rather than recorded: a projection is reused across every pairing on its
     row, but unknown_ids records one entry per pairing.
@@ -315,8 +315,8 @@ def superpose(p1, p2, p1_overlap_ids, p2_overlap_ids, overlap_count, sup):
     Args:
         p1 (Pocket): Query pocket, read for `has_coords` and CA coordinates.
         p2 (Pocket): Target pocket.
-        p1_overlap_ids (list): Query author seqids of the overlap.
-        p2_overlap_ids (list): Target author seqids, paired with `p1_overlap_ids` by index.
+        p1_overlap_ids (list): Query residue keys of the overlap.
+        p2_overlap_ids (list): Target residue keys, paired with `p1_overlap_ids` by index.
         overlap_count (int): How many residues overlap.
         sup (Bio.SVDSuperimposer.SVDSuperimposer): Reused across calls.
 

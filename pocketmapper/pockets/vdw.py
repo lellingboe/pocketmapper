@@ -16,7 +16,7 @@ import logging
 
 import numpy as np
 
-from pocketmapper.lib.residues import ca_residues, split_chain_info
+from pocketmapper.lib.residues import ca_residues, residue_key, split_chain_info
 from pocketmapper.lib.structure_manager import load_structure
 from pocketmapper.pockets.structure import parse_pocket_from_struct, records_by_structure
 
@@ -54,7 +54,8 @@ def vdw_contact_residues(residues, partner_residues):
         partner_residues (iterable): gemmi.Residue objects they may contact.
 
     Returns:
-        list: Author seqids (int) of the contacting residues, in the order of `residues`, each once.
+        list: Residue keys (`lib.residues.residue_key`, e.g. '100A') of the contacting residues, in the
+            order of `residues`, each once.
     """
     partner_coords, partner_radii = atom_arrays(partner_residues)
     if len(partner_radii) == 0:
@@ -64,7 +65,7 @@ def vdw_contact_residues(residues, partner_residues):
         coords, radii = atom_arrays([res])
         distances = np.linalg.norm(coords[:, None, :] - partner_coords[None, :, :], axis=-1)
         if (radii[:, None] + partner_radii[None, :] - distances > -CONTACT_TOLERANCE).any():
-            contacts.append(res.seqid.num)
+            contacts.append(residue_key(res.seqid.num, res.seqid.icode))
     return list(dict.fromkeys(contacts))
 
 

@@ -20,7 +20,8 @@ from dataclasses import dataclass, field
 @dataclass
 class PocketResidue:
     """
-    One residue of a pocket, keyed in `Pocket.residues` by its author seqid as a string.
+    One residue of a pocket, keyed in `Pocket.residues` by its author residue id with insertion code
+    (`lib.residues.residue_key`, e.g. '100' or '100A').
 
     Fields a producer cannot fill are left at None.
     """

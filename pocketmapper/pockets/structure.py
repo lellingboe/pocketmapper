@@ -16,7 +16,7 @@ import logging
 
 from tqdm import tqdm
 
-from pocketmapper.lib.residues import ca_residues, one_letter_code, split_chain_info
+from pocketmapper.lib.residues import ca_residues, one_letter_code, residue_key, residue_sort_key, split_chain_info
 from pocketmapper.lib.structure_manager import load_structure
 from pocketmapper.pockets.pocket import Pocket, PocketResidue
 
@@ -57,8 +57,9 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
     Args:
         struct (gemmi.Structure or str): A parsed structure, or a path gemmi will read.
         chain_id (str): The chain to extract.
-        pocket_residues (list or None): Author seqids (int) in the pocket, or None to take every residue
-            of `lib.residues.ca_residues`. Recorded on the returned Pocket as `whole_chain`.
+        pocket_residues (list or None): Residue keys (`lib.residues.residue_key`, e.g. '100A') in the
+            pocket, or None to take every residue of `lib.residues.ca_residues`. Recorded on the returned
+            Pocket as `whole_chain`.
         pocket (Pocket or None, optional): An existing Pocket to extend; a new one is built when None.
 
     Returns:
@@ -78,24 +79,24 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
     whole_chain = pocket_residues is None
     wanted = set() if whole_chain else set(pocket_residues)
     if pocket is None:
-        pocket = Pocket(res_auth_ids=[] if whole_chain else [str(x) for x in pocket_residues])
+        pocket = Pocket(res_auth_ids=[] if whole_chain else list(pocket_residues))
     pocket.whole_chain = whole_chain
 
     # seq_pos is the residue's index among the CA residues -- the alignment's coordinate system
     reached = set()
     ca_sequence = []
     for seq_pos, res in enumerate(ca_residues(chain)):
-        res_id = res.seqid.num
+        res_id = residue_key(res.seqid.num, res.seqid.icode)
         res_single_code = one_letter_code(res.name)
         ca_sequence.append(res_single_code)
         if whole_chain:
-            pocket.res_auth_ids.append(str(res_id))
+            pocket.res_auth_ids.append(res_id)
         elif res_id not in wanted:  # Only recording residue info for pocket residues
             continue
         reached.add(res_id)
 
         # setdefault: a residue already on `pocket` keeps the fields it carries
-        residue = pocket.residues.setdefault(str(res_id), PocketResidue())
+        residue = pocket.residues.setdefault(res_id, PocketResidue())
         residue.res_code = res.name
         residue.res_code_single = res_single_code
         residue.seq_pos = seq_pos
@@ -109,15 +110,15 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
     # which has no alignment position. One the chain lacks keeps seq_pos None.
     unreached = wanted - reached
     for res in chain.first_conformer():
-        res_id = res.seqid.num
+        res_id = residue_key(res.seqid.num, res.seqid.icode)
         if res_id not in unreached:
             continue
         logger.debug(
             f"{st.name}:{chain_id}:{res_id} ({res.name}) has no CA in the polymer and cannot be compared",
             extra=log_extra,
         )
-        if str(res_id) in pocket.residues:
-            pocket.residues[str(res_id)].seq_pos = -1
+        if res_id in pocket.residues:
+            pocket.residues[res_id].seq_pos = -1
     return pocket
 
 
@@ -128,8 +129,8 @@ def residue_list_pockets(records, structures, residue_ids, log_extra):
     Args:
         records (list): QTRecord dicts.
         structures (StructureManager): Locates the records' structures.
-        residue_ids (callable): Takes a record and returns the author seqids (int) of its pocket in any
-            order, or None for the whole chain.
+        residue_ids (callable): Takes a record and returns the residue keys of its pocket in any order,
+            or None for the whole chain.
         log_extra (dict): `extra` for the warnings, naming the builder's stage.
 
     Returns:
@@ -178,7 +179,7 @@ def passthrough_pockets(records, structures):
         records,
         structures,
         # Sorted for display, whatever order the ids were typed in
-        lambda record: sorted(int(x) for x in record["residue_info"].split(",")),
+        lambda record: sorted(record["residue_info"].split(","), key=residue_sort_key),
         {"stage": "Retrieving Passthrough Pockets"},
     )
 

@@ -95,8 +95,8 @@ the flattened cache keeps the name `interface_pairs/` so it can never be mistake
 buried rule reads ASA and BSA from the interface molecule already in `interface_pairs/`, so it needs no
 download and leaves the cache unchanged. A residue joins when `100 * bsa / asa` is strictly greater than
 the threshold, and one with ASA 0 never joins. So 0 gives a superset of the bond pocket: on the warm e2e
-cache every bonded residue has ASA > 0 and BSA > 0. When a seq id appears twice in a molecule
-(microheterogeneity, e.g. 4Z0Y 252 as HS8 then HIS), its first row decides.
+cache every bonded residue has ASA > 0 and BSA > 0. When a residue key (number + insertion code) appears
+twice in a molecule (microheterogeneity, e.g. 4Z0Y 252 as HS8 then HIS), its first row decides.
 
 **The input grammar still allows only single-character chains**, so a multi-character interface is
 reachable from the cache but not from an input entry. On the Foldseek PDB-DB path,

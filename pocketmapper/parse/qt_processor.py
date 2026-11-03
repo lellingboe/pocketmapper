@@ -26,7 +26,7 @@ from dataclasses import asdict, dataclass
 from pocketmapper.lib.constants import DEFAULT_CHAIN, DEFAULT_POCKET_METHOD
 from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.foldseek import BUNDLED_FSDB_NAMES
-from pocketmapper.lib.residues import split_chain_info
+from pocketmapper.lib.residues import residue_key, split_chain_info
 
 logger = logging.getLogger(__name__)
 
@@ -96,16 +96,21 @@ class QTProcessor:
 
         # Pocket method -> (the pocket-info pattern that spells it, what an entry must carry to use
         # it). Every pattern spells a chain as a single character. Both inference and validation read
-        # this one table, so an inferred method and a forced one cannot disagree. A residue list is
-        # spelled `\d+(,\d+)*,?`, not `(\d+,?)+`, which backtracks exponentially on a long bad list.
+        # this one table, so an inferred method and a forced one cannot disagree. A residue id is a number
+        # with an optional one-letter insertion code (100A). A residue list is spelled `id(,id)*,?`, not
+        # `(id,?)+`, which backtracks exponentially on a long bad list.
+        residue_list = r"\d+[A-Za-z]?(,\d+[A-Za-z]?)*,?"
         self.pocket_methods = {
             "whole_chain": (r"^[A-Za-z0-9]?:?$", "a single chain and no residue list, e.g. '4Q5J:B'"),
             "pisa": (r"^[A-Za-z0-9]_[A-Za-z0-9]$", "a chain pair, e.g. '4Q5J:B_F'"),
-            "passthrough": (r"^[A-Za-z0-9]:\d+(,\d+)*,?$", "a chain and a residue list, e.g. '4Q5J:A:10,11,12'"),
+            "passthrough": (
+                rf"^[A-Za-z0-9]:{residue_list}$",
+                "a chain and a residue list, e.g. '4Q5J:A:10,11,12' or '4Q5J:A:100,100A'",
+            ),
             # The partner chain is required: when it was optional, a forced vdw on '4Q5J:A' reached
             # gemmi as chain None. A trailing residue list matches but is ignored: the contacts define
             # the pocket.
-            "vdw": (r"^[A-Za-z0-9]_[A-Za-z0-9](:(\d+(,\d+)*,?)?)?$", "a chain pair, e.g. '4Q5J:A_B'"),
+            "vdw": (rf"^[A-Za-z0-9]_[A-Za-z0-9](:({residue_list})?)?$", "a chain pair, e.g. '4Q5J:A_B'"),
         }
 
         # struct_type -> the pocket methods it supports, in the order they are tried. whole_chain is
@@ -316,9 +321,10 @@ class QTProcessor:
 
         Returns:
             tuple: (residue_info, reason). `residue_info` is the comma-joined residue ids in canonical
-                form, repeats dropped (with a warning) and the typed order kept, and `reason` is None.
-                If the list is absent or holds anything but positive integers, `residue_info` is None
-                and `reason` says why.
+                form (`07A` becomes `7A`), repeats dropped (with a warning) and the typed order kept, and
+                `reason` is None. If the list is absent or holds anything but positive integers, each
+                optionally followed by one insertion-code letter, `residue_info` is None and `reason`
+                says why.
         """
         if not residue_info:
             return None, f"No residue ids in {qt}, which the passthrough pocket method requires"
@@ -326,11 +332,19 @@ class QTProcessor:
         res_ids = []
         duplicates = []
         for res_id in residue_info.split(","):
+            # An insertion code is one letter after the number; its case is kept (mmCIF codes are
+            # case-sensitive)
+            num, icode = (res_id[:-1], res_id[-1]) if res_id[-1:].isalpha() else (res_id, "")
             # isdecimal rather than isdigit: int() accepts every decimal digit but not every digit,
-            # so isdigit would let a superscript through to a ValueError further down.
-            if not res_id.isdecimal() or int(res_id) < 1:
-                return None, f"Residue id '{res_id}' in {qt} is not a positive integer"
-            res_id = str(int(res_id))  # Canonical, so "07" and "7" are recognised as the same residue
+            # so isdigit would let a superscript through to a ValueError further down. isascii keeps
+            # the code to A-Z and a-z, as the patterns do.
+            if not num.isdecimal() or int(num) < 1 or not icode.isascii():
+                return None, (
+                    f"Residue id '{res_id}' in {qt} is not a positive integer, optionally followed by one "
+                    "insertion-code letter"
+                )
+            # Canonical, so "07A" and "7A" are recognised as the same residue
+            res_id = residue_key(int(num), icode)
             # A repeat would pair the two sides of a comparison off by one
             if res_id in res_ids:
                 if res_id not in duplicates:  # An id repeated three times is still one message
