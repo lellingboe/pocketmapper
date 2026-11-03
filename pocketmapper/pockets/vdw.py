@@ -100,7 +100,7 @@ def vdw_pockets(records, structures):
             domain, motif = chains
             # first_conformer: a microheterogeneous position is one residue, as Foldseek reads it
             contact_ids = vdw_contact_residues(ca_residues(domain), motif.get_polymer().first_conformer())
-            # Contacts come in chain order, so res_auth_ids is ascending
+            # Contacts come in chain order, so res_auth_ids is in chain order
             pockets[record["pocket_id"]] = parse_pocket_from_struct(st, domain.name, contact_ids)
     return pockets
 

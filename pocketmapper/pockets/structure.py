@@ -128,8 +128,8 @@ def residue_list_pockets(records, structures, residue_ids, log_extra):
     Args:
         records (list): QTRecord dicts.
         structures (StructureManager): Locates the records' structures.
-        residue_ids (callable): Takes a record and returns the author seqids (int) of its pocket in
-            ascending order, or None for the whole chain.
+        residue_ids (callable): Takes a record and returns the author seqids (int) of its pocket in any
+            order, or None for the whole chain.
         log_extra (dict): `extra` for the warnings, naming the builder's stage.
 
     Returns:
@@ -171,13 +171,13 @@ def passthrough_pockets(records, structures):
         structures (StructureManager): Locates the records' structures.
 
     Returns:
-        dict: pocket_id -> Pocket, with `res_auth_ids` in ascending order whatever order they were
+        dict: pocket_id -> Pocket, with `res_auth_ids` sorted for display whatever order they were
             listed in. Records that cannot be built are left out (see `residue_list_pockets`).
     """
     return residue_list_pockets(
         records,
         structures,
-        # Ascending, whatever order the ids were typed in
+        # Sorted for display, whatever order the ids were typed in
         lambda record: sorted(int(x) for x in record["residue_info"].split(",")),
         {"stage": "Retrieving Passthrough Pockets"},
     )

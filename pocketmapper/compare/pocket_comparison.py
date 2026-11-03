@@ -76,17 +76,17 @@ class MappedPocket(NamedTuple):
     """
     A pocket's residues projected onto one alignment row.
 
-    positions are indices into the gapped alignment string, in res_auth_ids order; pos_by_res is the
-    same thing keyed by author seqid; in_aln_count is how many of the pocket's residues landed inside
-    the aligned region at all (the numerator of pocket_N_pct_aln). code_mismatches holds the residues
-    whose code disagreed with the aligner's, as (aligner code, tri-code, author seqid).
+    res_by_pos maps an index into the gapped alignment string to the author seqid that landed there;
+    the two sides of a row are paired through these indices, never through the seqids. in_aln_count is
+    how many of the pocket's residues landed inside the aligned region at all (the numerator of
+    pocket_N_pct_aln). code_mismatches holds the residues whose code disagreed with the aligner's, as
+    (aligner code, tri-code, author seqid).
 
     Mismatches are carried rather than recorded: a projection is reused across every pairing on its
     row, but unknown_ids records one entry per pairing.
     """
 
-    positions: list
-    pos_by_res: dict
+    res_by_pos: dict
     in_aln_count: int
     code_mismatches: list
 
@@ -123,8 +123,9 @@ def map_pocket_into_alignment(pocket, aln_seq, aln_positions, start, end):
     adj = 1 - start
     aligned_len = end - start + 1
 
-    positions = []
-    pos_by_res = []
+    # Positions are unique per side: distinct CA residues have distinct seq_pos, and seq_pos -1 falls
+    # outside the aligned range
+    res_by_pos = {}
     code_mismatches = []
     for res in pocket.res_auth_ids:
         entry = pocket.residues[res]
@@ -132,17 +133,15 @@ def map_pocket_into_alignment(pocket, aln_seq, aln_positions, start, end):
         if not -1 < adj_pos < aligned_len:
             continue
         aln_pos = aln_positions[adj_pos]
-        positions.append(aln_pos)
-        pos_by_res.append((res, aln_pos))
+        res_by_pos[aln_pos] = res
 
         aln_res_code = aln_seq[aln_pos]
         if entry.res_code_single is not None and aln_res_code != entry.res_code_single:
             code_mismatches.append((aln_res_code, entry.res_code, res))
 
     return MappedPocket(
-        positions=positions,
-        pos_by_res=dict(pos_by_res),
-        in_aln_count=len(positions),
+        res_by_pos=res_by_pos,
+        in_aln_count=len(res_by_pos),
         code_mismatches=code_mismatches,
     )
 
@@ -296,22 +295,6 @@ def seq_identity(pocket_id, pocket, domain, aln_seq, cache):
     return identity
 
 
-def overlap_ids(pocket, mapped, overlap_positions):
-    """
-    The pocket's author seqids that landed on an overlapping alignment position, in pocket order.
-
-    Args:
-        pocket (Pocket): The pocket, read for `res_auth_ids`.
-        mapped (MappedPocket): Its projection onto this row.
-        overlap_positions (set): Alignment positions shared by both pockets.
-
-    Returns:
-        list: Author seqids, ordered to match the other side's list position for position.
-    """
-    pos_by_res = mapped.pos_by_res
-    return [res for res in pocket.res_auth_ids if pos_by_res.get(res, -1) in overlap_positions]
-
-
 def format_vector(values):
     """
     Comma-join values at three decimals, the format Foldseek writes its `u` and `t` in.
@@ -332,8 +315,8 @@ def superpose(p1, p2, p1_overlap_ids, p2_overlap_ids, overlap_count, sup):
     Args:
         p1 (Pocket): Query pocket, read for `has_coords` and CA coordinates.
         p2 (Pocket): Target pocket.
-        p1_overlap_ids (list): Query author seqids in overlap order.
-        p2_overlap_ids (list): Target author seqids in the same order.
+        p1_overlap_ids (list): Query author seqids of the overlap.
+        p2_overlap_ids (list): Target author seqids, paired with `p1_overlap_ids` by index.
         overlap_count (int): How many residues overlap.
         sup (Bio.SVDSuperimposer.SVDSuperimposer): Reused across calls.
 
@@ -462,16 +445,15 @@ def compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_map
         ) = describe_pocket(pocket_id_2, p2, ctx.descriptions)
         output["target_pct_aln"] = p2_mapped.in_aln_count / output["target_len"]
 
-    # Kept in pocket-1 order: the overlap sequences are built by indexing the alignment strings with it.
-    p2_positions = set(p2_mapped.positions)
-    overlap_positions = [pos for pos in p1_mapped.positions if pos in p2_positions]
+    # In alignment order. The id lists, the overlap sequences and the superposition are all paired by
+    # index through these positions, so author numbering that does not increase along a chain is harmless.
+    overlap_positions = sorted(p1_mapped.res_by_pos.keys() & p2_mapped.res_by_pos.keys())
     output["overlap_count"] = len(overlap_positions)
     if not overlap_positions:
         return output
 
-    overlap_set = set(overlap_positions)
-    p1_overlap_ids = overlap_ids(p1, p1_mapped, overlap_set)
-    p2_overlap_ids = overlap_ids(p2, p2_mapped, overlap_set)
+    p1_overlap_ids = [p1_mapped.res_by_pos[pos] for pos in overlap_positions]
+    p2_overlap_ids = [p2_mapped.res_by_pos[pos] for pos in overlap_positions]
     output["query_overlap_ids"] = ",".join(p1_overlap_ids)
     output["target_overlap_ids"] = ",".join(p2_overlap_ids)
 

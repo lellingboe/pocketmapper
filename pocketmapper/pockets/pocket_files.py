@@ -46,8 +46,8 @@ def read_pockets_file(path):
     """
     Read a pockets file written by `write_pockets_file`.
 
-    Only the shape and version are checked. A hand-written file with `res_auth_ids` out of order or a
-    wrong `seq_pos` reads fine and gives silently wrong overlap.
+    Only the shape and version are checked. A hand-written file with a wrong `seq_pos` reads fine and
+    gives silently wrong overlap.
 
     Args:
         path (str): File to read.

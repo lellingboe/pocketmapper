@@ -375,8 +375,8 @@ rather than dropping them.
 | Column | Meaning |
 | --- | --- |
 | `overlap_count` | How many alignment positions both pockets occupy. The headline number. |
-| `query_overlap_ids` | The query residues in the overlap, as author residue numbers. |
-| `target_overlap_ids` | The target residues they map onto, in the same order. UniProt numbers for a `human_domains` target; see [Databases](#databases). |
+| `query_overlap_ids` | The query residues in the overlap, as author residue numbers, in alignment order. |
+| `target_overlap_ids` | The target residues they map onto, in alignment order and paired with `query_overlap_ids` by index. UniProt numbers for a `human_domains` target; see [Databases](#databases). |
 | `jaccard_index` | `overlap_count` divided by the union of the two pockets. Empty for an open or database target. |
 
 ##### Overlap scoring (BLOSUM62)

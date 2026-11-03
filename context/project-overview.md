@@ -30,8 +30,6 @@ checks that live nowhere else.
   a requested residue the chain has but `ca_residues` leaves out (no CA atom, or not polymer). Computed any
   other way, it gives zero overlap and no error. Check: a pocket compared with itself gives
   `overlap_count == pocket_len` (`test_self_comparison`).
-- **`res_auth_ids` ascending** in every producer (`Pocket`); nothing checks it. `pockets.json` round-trips
-  this order and `seq_pos` (`pockets.pocket_files.read_pockets_file`).
 - **Residue letters mirror Foldseek, not gemmi** (`lib.constants.FOLDSEEK_AA_CODES`). They compare
   case-insensitively (`compare_pockets`), because Foldseek lowercases some residues; 4ER4, 2ER6 and 2ER9
   are lowercased wholesale.

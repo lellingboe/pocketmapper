@@ -63,7 +63,8 @@ def assert_self_rows_complete(rows):
     assert self_rows, "no self-comparison rows"
     for row in self_rows:
         assert int(row["overlap_count"]) == int(row["query_len"]) == int(row["target_len"]), row["query"]
-        assert row["query_overlap_ids"] == row["query_res_ids"], row["query"]
+        # As sets: the overlap ids are in alignment order, the residue ids in the producer's
+        assert set(row["query_overlap_ids"].split(",")) == set(row["query_res_ids"].split(",")), row["query"]
 
 
 @pytest.mark.parametrize("args, aligner, method", SEARCH_CASES)
