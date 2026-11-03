@@ -97,8 +97,8 @@ def pockets(
 
     Raises:
         PocketMapperError: If the job file cannot be read, a path is not given, the entries table cannot
-            be read or leaves a side empty, a setting is invalid, or a Foldseek-database target has no
-            alignment.
+            be read or leaves a side empty, a setting is invalid, a Foldseek-database target has no
+            alignment, or a built pocket fails `pocket_files.check_pocket`.
     """
     values = layer_settings(
         job_file,
@@ -182,7 +182,8 @@ def build_pockets(sides, entries_path, alignment, pockets_path, manager, pockets
     Raises:
         PocketMapperError: If a Foldseek-database target has no alignment file, a PDB-named database's
             hits have interfaces but none of their structures could be fetched, `manager` lacks a
-            directory the hits need, or an output directory cannot be created.
+            directory the hits need, an output directory cannot be created, or a built pocket fails
+            `pocket_files.check_pocket`.
     """
     log_extra = {"stage": "Getting Pockets"}
 

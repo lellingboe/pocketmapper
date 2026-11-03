@@ -71,8 +71,7 @@ class QTProcessor:
     """
     Parses query and target input into `QTRecord` dicts.
 
-    Handles both sides identically; `process_qt_cmdline_input` is the entry point and is called once
-    per side.
+    Handles both sides identically; `process_qt_cmdline_input` is the entry point.
     """
 
     def __init__(self, local_root=None):
@@ -138,8 +137,7 @@ class QTProcessor:
         Parse one side of the comparison -- a query or a target -- into `QTRecord` dicts.
 
         Sets the instance's log stage to name this side, so later calls to any method log under it.
-        An entry that cannot be parsed is skipped and returned among the rejected, unlogged: the
-        caller knows whether its failure is news.
+        An entry that cannot be parsed is returned with record None and a reason, and is not logged.
 
         Args:
             qt_input (str): A query or target string ("struct_info:chain_info:residue_info"), or a

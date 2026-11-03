@@ -2,7 +2,7 @@
 Step 3: align the query chains against the target chains into an alignment table.
 
 With the foldseek aligner each chain is first cut out of its structure and cached. A Foldseek
-database target is searched as it is; its hits' pockets are the pockets step's business.
+database target is searched as it is; this step does not fetch its hits.
 """
 
 import logging

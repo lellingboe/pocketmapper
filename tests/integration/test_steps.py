@@ -30,7 +30,7 @@ def parse_args(*entries, results_dir, cache_dir):
     return ("parse", *entries, "--results_dir", results_dir, "--cache_dir", cache_dir)
 
 
-# test_steps_6 (with its prefixes, test_steps_2-5), test_steps_19, and test_steps_8's cd
+# Chains every step off parse's settings from another cwd; nothing is written relative to that cwd
 def test_steps_6_19_8cd(tmp_path, seed_cache, run_cli, comparison_rows):
     """Each step, chained off parse's settings and run from another cwd, writes its outputs."""
     results_dir = os.path.join(str(tmp_path), "results")

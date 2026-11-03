@@ -43,8 +43,7 @@ def parse(
 
     Writes the entries table afresh, the entries that could not be parsed marked as dropped, even when
     the entries are then rejected. Without a `results_dir`, writes no log, settings or entries table
-    unless that file's own path is given. Logs nothing about the table it returns: printing it is the
-    caller's business.
+    unless that file's own path is given. The table is returned, not logged.
 
     Args:
         query (str, optional): Query entry, or a file of one entry per line. Required here or in

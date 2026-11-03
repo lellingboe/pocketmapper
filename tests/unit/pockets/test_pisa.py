@@ -23,7 +23,7 @@ OFFLINE_CASES = [
     pytest.param(["4Q5J"], [os.path.join("interface_pairs", "4q5j.json")], 1, id="interfaces_missing"),
 ]
 
-# The threshold the e2e case used; it removes residues from both seeded pockets
+# A threshold that removes residues from both seeded pockets
 BSA_THRESHOLD = 25
 
 # (pocket_id, residues by bond, buried at 0, buried past BSA_THRESHOLD), counted by hand from the seed

@@ -17,10 +17,9 @@ Each step skips what it cannot use and marks it, with the reason, in entries.tsv
 
 Steps: each step is a package, and `pocketmapper.<step>.<step>` holds its two layers. The entry function,
 named after the step's command (`parse`, `fetch_structures`, `align`, `pockets`, `compare`, `superpose`),
-is what the CLI and `search` call: it layers its settings, logs to `log_path` for the length of the call,
-validates its settings, manages its scratch directory and calls the core function. `search` calls it
-with its resolved Settings as the job file, so each step also runs on its own, the same way. The core
-function takes explicit paths and values, keeps no state between calls, and takes records in memory.
+layers its settings, logs to `log_path` for the length of the call, validates its settings, manages its
+scratch directory and calls the core function, so each step also runs on its own. The core function
+takes explicit paths, values and records as arguments, and keeps no state between calls.
 
 Settings: an argument given beats the job file (a JSON path, or the same already loaded as a dict), which
 beats `lib.settings.SETTING_DEFAULTS`. Only `search` and `parse` take `cache_dir` and `results_dir` and

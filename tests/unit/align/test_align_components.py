@@ -1,5 +1,5 @@
 """
-Unit tests for the align components: they locate structures through the manager.
+Unit tests for the align components: structure location through the manager and `SequenceAligner.align_seqs`.
 """
 
 import os

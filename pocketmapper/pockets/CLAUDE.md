@@ -3,10 +3,10 @@
 Facts about `pockets/`, moved out of `context/project-overview.md` so they load only when working here.
 
 - **`POCKET_BUILDERS` in `pocket_manager` is the whole method table.** Builders live beside their
-  primitive and all take `(records, structures, **options)`, where `structures` is the manager's
-  `StructureManager`, which locates each record's structure. `PocketManager.__init__` sets each method's
-  options once, in `builder_options` (pisa's `downloader`, the manager's `PisaDownloader`, and
-  `bsa_threshold` today).
+  primitive and all take `(records, structures)`, where `structures` is the manager's `StructureManager`,
+  which locates each record's structure. A method with options also takes them as keywords:
+  `PocketManager.__init__` sets them once, in `builder_options` (pisa's `downloader`, the manager's
+  `PisaDownloader`, and `bsa_threshold` today).
   A new method = one row + one builder, plus an options entry if it takes options.
 - **One builder contract.** A builder returns pocket_id -> Pocket for the pockets it built only. A record
   it cannot build (missing or unreadable structure, missing chain, unresolved interface, or every named
@@ -62,8 +62,8 @@ takes one assembly per call and has no batched form. Three behaviours of the API
 **The PISA failure report is the caller's file, not the downloader's.** `download_missing_interfaces`
 returns what each stage could not handle and writes `error_path` only when there is something to write;
 `pisa_pockets` and `PocketManager.expand_pdb_hits` both reach it through the manager's `PisaDownloader`,
-so both use the same `pocket_dir/pisa/errors.json`. In `search`, `expand_pdb_hits` writes it against a
-PDB database, then the pockets step's `pisa_pockets`. A second call with failures replaces the first call's
+so both use the same `pocket_dir/pisa/errors.json`. In the pockets step, `expand_pdb_hits` writes it against a
+PDB database, then `pisa_pockets`. A second call with failures replaces the first call's
 report, and a clean second call leaves the first's file in place. Date it by its mtime, not by its
 existence.
 

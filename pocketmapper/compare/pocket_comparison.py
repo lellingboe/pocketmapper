@@ -214,8 +214,7 @@ def uniprot_res_ids(aln, offsets):
         PocketMapperError: The entry is absent from the table, its spec is malformed, or it is shorter
             than the alignment reaches. All three mean the table and the database have drifted apart.
     """
-    # Not memoised by entry: across the five human_domains e2e cases an entry appears on about one row
-    # per query (704 rows / 704 entries, 791/791, 830/830, 796/796, 2,219/809), so a memo would miss
+    # Not memoised by entry: an entry typically appears on about one row, so a memo would rarely hit
     log_extra = {"stage": "Pocket Comparison"}
     domain = offsets.get(aln.target)
     if domain is None:
@@ -550,7 +549,8 @@ def compare_pockets(
         preproc_to_ids (dict): preprocess_name -> the pocket_ids sitting on that chain; bridges the
             alignment's keys to the pockets'.
         synthesise_target_pockets (bool): Build a whole-chain pseudo-pocket per alignment row instead
-            of looking the target up in `pocket_dict`, for a Foldseek database with no target records.
+            of looking the target up in `pocket_dict`, for a Foldseek database whose hits are not PDB
+            entries and so have no pockets of their own.
         offset_table_path (str or None): Path to the offset table shipped with that database, which
             renumbers the synthesised targets' residues into UniProt coordinates. Consulted only
             alongside `synthesise_target_pockets`; None leaves them as positions within the entry.

@@ -7,9 +7,8 @@ human-readable PDB, as glue around gemmi: read each structure (through
 translations, rename chains so each structure stays distinguishable, and emit a combined PDB with
 COMPND metadata naming each model.
 
-`StructureAligner.align_structs` drives the whole step from a finished pocket comparison, so a caller
-holding one of those, and a `StructureManager` that locates its records' structures, needs nothing else from
-the pipeline to produce the aligned structures.
+`StructureAligner.align_structs` reads a finished pocket comparison and writes one aligned PDB per query,
+locating each record's structure through the `StructureManager` it is given.
 """
 
 import json
@@ -58,8 +57,7 @@ class StructureAligner:
 
     Below it sit the two transform sources the `align_struct_method` setting selects: `transform`
     applies transforms it is handed ("pocket"), and `foldseek_transform` sources them from a Foldseek
-    alignment table first ("foldseek"). Either is usable on its own when the caller has already chosen
-    which structures to superpose.
+    alignment table first ("foldseek"). Both take the records directly.
     """
 
     def __init__(self, manager):
@@ -141,7 +139,7 @@ class StructureAligner:
             transforms (list): Parallel to `aln_records`, since the reference and a target may share a
                 `pocket_id`. Entry 0 is ignored; entry i is either a `(u, t)` pair -- a 3x3 rotation in
                 gemmi's LEFT-multiplying convention plus a 3-vector translation -- or None to drop that
-                record from the output. A caller passing None is expected to have logged why.
+                record from the output.
             out_path (str): Destination path for the aligned PDB file.
 
         Returns:

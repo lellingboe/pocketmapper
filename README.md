@@ -487,13 +487,14 @@ search a Foldseek database. Like Foldseek, it reports only the aligned region of
   produces no whole-chain transform at all.
 
 **Using PocketMapper as a library.** `PocketMapper().search(...)` runs the same workflow as the CLI and
-writes the same files; results come back through `results_dir`, not as a return value. Each step
-command is a function, `pocketmapper.<step>.<step>.<command>` (such as `pocketmapper.align.align.align`;
-`fetch_structures` is `pocketmapper.fetch.fetch.fetch_structures`), taking its CLI options as keyword
-arguments; its `job_file` also takes a dict, such as the settings `search()` returns. The individual
-components (`parse.qt_processor`, `lib.structure_manager`, `pockets.pisa_downloader`,
-`align.sequence_aligner`, `superpose.structure_aligner`, `pockets.pocket_manager`, ...) are each usable on
-their own. Note that `search()` deletes its temporary directories on the way out.
+writes the same files; the result tables are written under `results_dir`, and `search()` returns the
+resolved settings. Each step command is a function, `pocketmapper.<step>.<step>.<command>` (such as
+`pocketmapper.align.align.align`; `fetch_structures` is `pocketmapper.fetch.fetch.fetch_structures`),
+taking its CLI options as keyword arguments; its `job_file` also takes a dict, such as the settings
+`search()` returns. The individual components (`parse.qt_processor`, `lib.structure_manager`,
+`pockets.pisa_downloader`, `align.sequence_aligner`, `superpose.structure_aligner`,
+`pockets.pocket_manager`, ...) are each usable on their own. Note that `search()` deletes its temporary
+directories on the way out.
 
 Logging goes through the `pocketmapper` logger and never touches the root logger, so your own logging
 setup decides what is shown. `search()` still writes `info.log` and sets the `pocketmapper` logger's level

@@ -1,11 +1,11 @@
 """
 Pockets through one interface: building them, the PISA cache and Foldseek hit expansion.
 
-`POCKET_BUILDERS` is the whole table of pocket methods. Every builder takes `(records, structures, **options)`,
-where `structures` is the manager's `StructureManager`, and returns pocket_id -> Pocket for the pockets it
-built, leaving out (and logging) the records it could not build. `PocketManager` sets each method's options
-once, so `build` needs to know nothing about any one method. Built pockets are not cached: every `build`
-builds them afresh.
+`POCKET_BUILDERS` is the whole table of pocket methods. Every builder takes `(records, structures)`, plus
+the keyword options in `builder_options` for a method that has any, where `structures` is the manager's
+`StructureManager`, and returns pocket_id -> Pocket for the pockets it built, leaving out (and logging) the
+records it could not build. `PocketManager` sets each method's options once, so `build` needs to know nothing
+about any one method. Built pockets are not cached: every `build` builds them afresh.
 """
 
 import logging

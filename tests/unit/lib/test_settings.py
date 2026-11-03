@@ -52,7 +52,7 @@ def job_source(request, write_file):
     return make
 
 
-# resolve_aligner (replaces e2e test_invalid_9)
+# resolve_aligner
 
 
 @pytest.mark.parametrize(
@@ -71,7 +71,7 @@ def test_resolve_aligner_rejects(aligner):
         resolve_aligner(aligner)
 
 
-# resolve_align_struct_method (replaces e2e test_local_5, test_local_6)
+# resolve_align_struct_method
 
 
 @pytest.mark.parametrize(
@@ -108,7 +108,7 @@ def test_resolve_align_struct_method_rejects(method, aligner, message):
         resolve_align_struct_method(method, aligner)
 
 
-# resolve_threads (replaces e2e test_settings_4)
+# resolve_threads
 
 
 @pytest.mark.parametrize("threads", [1, 2, 64])
@@ -131,8 +131,7 @@ def test_resolve_threads_rejects(threads):
         resolve_threads(threads)
 
 
-# resolve_delete_tmp (replaces e2e test_settings_8), resolve_fetch_missing, resolve_offline and
-# resolve_refresh_structures
+# resolve_delete_tmp, resolve_fetch_missing, resolve_offline and resolve_refresh_structures
 
 FLAG_RESOLVERS = [
     (resolve_delete_tmp, "delete_tmp"),
@@ -206,7 +205,7 @@ def test_resolve_pisa_source_rejects(source):
         resolve_pisa_source(source)
 
 
-# resolve_pisa_bsa_threshold (replaces e2e test_invalid_10)
+# resolve_pisa_bsa_threshold
 
 
 @pytest.mark.parametrize("threshold, expected", [(None, None), (0, 0.0), (50, 50.0), (25.5, 25.5), (99.9, 99.9)])
@@ -224,7 +223,7 @@ def test_resolve_pisa_bsa_threshold_rejects(threshold):
         resolve_pisa_bsa_threshold(threshold)
 
 
-# layer_settings and require_setting (replace e2e test_settings_2, test_settings_5, test_settings_6)
+# layer_settings and require_setting
 
 
 def test_layer_settings_defaults():

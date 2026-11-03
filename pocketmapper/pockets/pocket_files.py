@@ -3,8 +3,9 @@ The pocket files: the versioned pockets file and a table of every pocket.
 
 `write_pockets_file`/`read_pockets_file` handle the versioned pockets file, which also maps each aligned
 chain to the pockets on it, and `write_pockets_table` writes a table of every pocket. This module imports
-no builder or manager, so readers of `pockets.json` stay light. Both pass every pocket through `check_pocket`,
-so a pocket whose residues do not line up with its chain's sequence is refused on the way in and out.
+no builder or manager, so readers of `pockets.json` stay light. `write_pockets_file` and `read_pockets_file`
+pass every pocket through `check_pocket` (`write_pockets_table` does not), so a pocket whose residues do not
+line up with its chain's sequence is refused on the way in and out.
 """
 
 import json

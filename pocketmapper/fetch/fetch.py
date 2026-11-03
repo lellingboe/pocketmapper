@@ -1,8 +1,8 @@
 """
 Step 2: download the structures and bundled Foldseek database the entries table names.
 
-A Foldseek PDB database's hits are not known yet; the pockets step fetches theirs. PISA interfaces are
-fetched by the pockets step. With `offline` 1 nothing is downloaded: the cache is only checked.
+A Foldseek PDB database's hits are not known yet, so this step does not fetch them, nor any PISA
+interfaces. With `offline` 1 nothing is downloaded: the cache is only checked.
 """
 
 import logging

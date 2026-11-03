@@ -39,9 +39,9 @@ grammar is the two tables in `QTProcessor.__init__`; README "Input format" is th
   `pockets.pocket_manager.POCKET_BUILDERS`; and the hand-written method lists in `cli.py`
   (`--query_pocket_method` help) and the README (Options table, both "Input format" tables).
   `accepted_pocket_methods` reads the table, so validation needs no other change.
-- **A residue list is spelled `\d+(,\d+)*,?`.** The older `(\d+,?)+` matches the same strings but
-  backtracks exponentially when a long list has a bad last character; keep new patterns free of nested
-  quantifiers (`test_residue_pattern_linear`).
+- **A residue list is spelled `\d+[A-Za-z]?(,\d+[A-Za-z]?)*,?`** (an id with an optional insertion
+  code). The older nested `(\d+[A-Za-z]?,?)+` matches the same strings but backtracks exponentially when
+  a long list has a bad last character; keep new patterns free of nested quantifiers (`test_residue_pattern_linear`).
 - **A top-level input that is an existing file, resolved against the working directory, is a file of
   entries**, unless `is_structure_file` says its name is a structure's (`STRUCTURE_EXTENSIONS`). A file
   that exists only under `local_root` is not read as an entries file: it is parsed as one entry, and is a

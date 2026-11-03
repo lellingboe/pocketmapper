@@ -103,7 +103,7 @@ def test_score_overlap_one_side_nan():
 
 
 LONG_SEQ = "ACDEFGHIKLMNPQRSTVWY" * 5
-# Position 90 of 100 is inside the last 20%, which the old 0.8 identity guard let through
+# Position 90 of 100 is near the chain end, where an identity threshold would let a shift through
 LATE_SUBSTITUTION = LONG_SEQ[:90] + ("A" if LONG_SEQ[90] != "A" else "C") + LONG_SEQ[91:]
 
 SEQUENCE_TABLE = [
