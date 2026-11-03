@@ -173,11 +173,11 @@ def compare_aligned_pockets(target_records, manager, alignment, pockets, pocket_
         with open(report_paths["unknown_ids"], "w") as f:
             json.dump(jsonify_dict(dict(unknown_alias)), f)
 
-    # logging cases where foldseek mapping had low sequence identity to the parsed structure
+    # logging cases where the parsed structure's sequence differs from the one the aligner reported
     if len(incorrect_mapping) > 0:
         make_dir(report_dir, log_extra)
         logger.warning(
-            f"Foldseek mapping with low sequence identity to parsed structure, see {report_paths['incorrect_mapping']}",
+            f"Pocket sequence differs from the aligner's sequence of its chain, see {report_paths['incorrect_mapping']}",
             extra=log_extra,
         )
         with open(report_paths["incorrect_mapping"], "w") as f:

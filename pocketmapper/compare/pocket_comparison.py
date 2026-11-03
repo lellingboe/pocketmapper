@@ -31,10 +31,9 @@ logger = logging.getLogger(__name__)
 # One alignment row. Built with AlignmentRow(*values), so it depends on the column order.
 AlignmentRow = namedtuple("AlignmentRow", ALIGNMENT_COLUMNS)
 
-# Below this sequence identity between a pocket's own CA sequence and the sequence the aligner
-# reported for that chain, the two are assumed to be numbering different things (typically an
-# assembly vs the asymmetric unit) and every comparison involving that pocket is dropped.
-MIN_SEQ_IDENTITY = 0.8
+# Letters that match any letter when a pocket's own CA sequence is checked against the aligner's. Foldseek
+# reads a modified residue it cannot place as X, while the pocket keeps the parent residue's letter.
+WILDCARD_RESIDUES = "X"
 
 # Every column compare_pockets can produce, in output order. A comparison that stops early leaves the
 # remaining fields empty, so every row carries every column.
@@ -271,9 +270,13 @@ def describe_pocket(pocket_id, pocket, cache):
     return described
 
 
-def seq_identity(pocket_id, pocket, domain, aln_seq, cache):
+def first_sequence_mismatch(pocket_id, pocket, domain, aln_seq, cache):
     """
-    Identity between a pocket's own CA sequence and the sequence the aligner reported for its chain.
+    Find where a pocket's own CA sequence first differs from the sequence the aligner reported for its chain.
+
+    The two are the same chain, so they must agree at every position (ignoring case); a shift in `seq_pos`
+    would otherwise map pocket residues onto the neighbouring alignment column. A position where either side
+    is in `WILDCARD_RESIDUES` counts as a match.
 
     Args:
         pocket_id (str): Half the cache key.
@@ -284,15 +287,47 @@ def seq_identity(pocket_id, pocket, domain, aln_seq, cache):
         cache (dict): Memo keyed by (pocket_id, domain), updated in place.
 
     Returns:
-        float: Fraction of positions that agree.
+        int or None: 0-based index of the first differing position, the shorter length when the sequences
+            differ only in length, or None when they match.
     """
     key = (pocket_id, domain)
-    identity = cache.get(key)
-    if identity is None:
-        ca_sequence = pocket.ca_sequence
-        identity = sum(map(str.__eq__, aln_seq, ca_sequence)) / len(ca_sequence)
-        cache[key] = identity
-    return identity
+    if key not in cache:
+        ca_sequence = pocket.ca_sequence.upper()
+        aln_upper = aln_seq.upper()
+        mismatch = next(
+            (
+                i
+                for i, (own, aligned) in enumerate(zip(ca_sequence, aln_upper))
+                if own != aligned and own not in WILDCARD_RESIDUES and aligned not in WILDCARD_RESIDUES
+            ),
+            None,
+        )
+        if mismatch is None and len(ca_sequence) != len(aln_upper):
+            mismatch = min(len(ca_sequence), len(aln_upper))
+        cache[key] = mismatch
+    return cache[key]
+
+
+def mapping_failure(side, pocket, aln_seq, first_mismatch):
+    """
+    The incorrect_mapping record of a pocket whose sequence does not match the aligner's.
+
+    Args:
+        side (str): "query" or "target".
+        pocket (Pocket): The pocket, read for `ca_sequence`.
+        aln_seq (str): The ungapped sequence the aligner reported for its chain.
+        first_mismatch (int): As returned by `first_sequence_mismatch`.
+
+    Returns:
+        dict: JSON-friendly record of the failure.
+    """
+    return {
+        "side": side,
+        "reason": "sequence_mismatch",
+        "first_mismatch": first_mismatch,
+        "pocket_seq": pocket.ca_sequence,
+        "aligner_seq": aln_seq,
+    }
 
 
 def format_vector(values):
@@ -476,7 +511,7 @@ class Context(NamedTuple):
 
     superimposer: SVDSuperimposer
     descriptions: dict
-    identities: dict
+    mismatches: dict
     offsets: dict
 
 
@@ -522,7 +557,8 @@ def compare_pockets(
 
     Returns:
         tuple: (comparison table, the residue codes the aligner and pocketmapper disagreed on, the
-            pockets whose sequence did not match the aligner's well enough to be trusted).
+            pockets whose sequence did not match the aligner's, each as a dict of side, reason,
+            first_mismatch, pocket_seq and aligner_seq).
 
     Raises:
         PocketMapperError: If the offset table does not describe a hit. Any other error comparing a
@@ -531,7 +567,7 @@ def compare_pockets(
     ctx = Context(
         superimposer=SVDSuperimposer(),
         descriptions={},
-        identities={},
+        mismatches={},
         offsets=read_offset_table(offset_table_path) if offset_table_path else {},
     )
 
@@ -579,21 +615,13 @@ def compare_pockets(
                 if not p1.pocket_exists or not p2.pocket_exists:
                     continue
 
-                p1_identity = seq_identity(pocket_id_1, p1, aln.query, aln.qseq, ctx.identities)
-                if p1_identity < MIN_SEQ_IDENTITY:
-                    incorrect_mapping[pocket_id_1] = {
-                        "p1_seq_identity": p1_identity,
-                        "p1_seq": p1.ca_sequence,
-                        "fs_seq": aln.qseq,
-                    }
+                p1_mismatch = first_sequence_mismatch(pocket_id_1, p1, aln.query, aln.qseq, ctx.mismatches)
+                if p1_mismatch is not None:
+                    incorrect_mapping[pocket_id_1] = mapping_failure("query", p1, aln.qseq, p1_mismatch)
 
-                p2_identity = seq_identity(pocket_id_2, p2, aln.target, aln.tseq, ctx.identities)
-                if p2_identity < MIN_SEQ_IDENTITY:
-                    incorrect_mapping[pocket_id_2] = {
-                        "p2_seq_identity": p2_identity,
-                        "p2_seq": p2.ca_sequence,
-                        "fs_seq": aln.tseq,
-                    }
+                p2_mismatch = first_sequence_mismatch(pocket_id_2, p2, aln.target, aln.tseq, ctx.mismatches)
+                if p2_mismatch is not None:
+                    incorrect_mapping[pocket_id_2] = mapping_failure("target", p2, aln.tseq, p2_mismatch)
 
                 # Both sides are checked first so each failing pocket is recorded, then the pair is dropped
                 if pocket_id_1 in incorrect_mapping or pocket_id_2 in incorrect_mapping:

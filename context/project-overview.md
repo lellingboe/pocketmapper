@@ -42,6 +42,11 @@ checks that live nowhere else.
   `entries.tsv`, so `align` and `pockets` must run on the same table, and a caller that re-runs
   `parse_entries` needs unchanged inputs. `compare.compare.check_coverage` catches a mismatch.
   `test_preprocess_name_local_contents` and `test_local_7` cover local-file names.
+- **A pocket's `ca_sequence` must equal the aligner's sequence for its chain** (ungapped `qseq`/`tseq`),
+  case-insensitively, with X matching anything (`compare.pocket_comparison.first_sequence_mismatch`). Any other
+  difference means the two walks disagree, so every `seq_pos` after it lands in the neighbouring column; the
+  pocket is dropped and recorded in `incorrect_mapping.json`. Exactness is the point: a threshold lets a shift
+  near the chain end through.
 - **`chain_info` is split only by `lib.residues.split_chain_info`.** `chain_info[0]` breaks on multi-character
   chains; the patterns reject them, but library callers bypass the patterns.
 
