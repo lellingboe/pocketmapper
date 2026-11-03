@@ -31,7 +31,10 @@ checks that live nowhere else.
   warning per pocket, so a built pocket never holds `seq_pos` None or -1 and every `res_auth_ids` id is a key
   of `residues`; a pocket whose named residues are all dropped is not built. Computed any other way,
   `seq_pos` gives zero overlap and no error. Check: a pocket compared with itself gives
-  `overlap_count == pocket_len` (`test_self_comparison`).
+  `overlap_count == pocket_len` (`test_self_comparison`). `pockets.pocket_files.check_pocket` enforces it on
+  every pocket written to or read from `pockets.json`: unique ids that are keys of `residues`,
+  `0 <= seq_pos < len(ca_sequence)`, and `ca_sequence[seq_pos]` equal to `res_code_single` (case-insensitive).
+  A violation raises `PocketMapperError`.
 - **Residue letters mirror Foldseek, not gemmi** (`lib.constants.FOLDSEEK_AA_CODES`). They compare
   case-insensitively (`compare_pockets`), because Foldseek lowercases some residues; 4ER4, 2ER6 and 2ER9
   are lowercased wholesale.

@@ -15,7 +15,9 @@ Facts about `pockets/`, moved out of `context/project-overview.md` so they load 
   pocket by `structure.parse_pocket_from_struct`, with one warning per pocket, whatever the method; the
   pocket is built from the rest. A pocket built but empty (pisa with no residue under the rule, vdw with no
   contacts) is kept, with `pocket_exists=False`; it is told apart from all-dropped by its requested list
-  being empty. Each builder reads every structure once per call
+  being empty. `write_pockets_file` and `read_pockets_file` run `check_pocket` on each pocket, so a builder
+  that leaves a residue without a valid `seq_pos` fails at write instead of producing wrong overlap. Each
+  builder reads every structure once per call
   (`records_by_structure`: paths from `StructureManager.record_path`, read through
   `lib.structure_manager.load_structure`, which gives None for a file it cannot use).
 - Records are dicts, not DataFrames. `PocketManager.build` passes every record it is given to its
