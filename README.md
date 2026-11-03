@@ -386,10 +386,10 @@ rather than dropping them.
 | --- | --- |
 | `query_seq_overlap`, `target_seq_overlap` | The two overlap sequences, aligned position for position. |
 | `overlap_identity` | Fraction of overlap positions where the two residues are identical. |
-| `overlap_similarity_binary` | Fraction of overlap positions with a positive BLOSUM62 score — how much of the overlap is conservatively substituted, ignoring how strongly. |
-| `overlap_similarity_1_2` | Mean BLOSUM62 score over the overlap, normalised per position by the query residue's self-score, so an identical pair scores 1.0. |
-| `overlap_similarity_2_1` | The same, normalised against the target residue instead. The two differ because self-scores differ between residues. |
-| `min_overlap_similarity`, `max_overlap_similarity` | The smaller and larger of the two directional scores. |
+| `overlap_similarity_binary` | Fraction of overlap positions with a positive BLOSUM62 score — how much of the overlap is conservatively substituted, ignoring how strongly. Positions where the query residue is X (any unknown residue) are skipped; empty when every position is skipped. |
+| `overlap_similarity_1_2` | Mean BLOSUM62 score over the overlap, normalised per position by the query residue's self-score: in -1 to 1, and 1.0 for an identical pair. Positions where the query residue is X are skipped; empty when every position is skipped. |
+| `overlap_similarity_2_1` | The same, normalised against the target residue instead, so positions where the target residue is X are skipped. The two differ because self-scores differ between residues. |
+| `min_overlap_similarity`, `max_overlap_similarity` | The smaller and larger of the two directional scores. An empty side is ignored. |
 
 ##### Superposition
 

@@ -5,7 +5,6 @@ Step 5: compare the pockets of every aligned query/target pair into a pocket com
 import json
 import logging
 import os
-from importlib.resources import files
 
 import pandas as pd
 
@@ -21,10 +20,6 @@ from pocketmapper.lib.structure_manager import StructureManager
 from pocketmapper.pockets.pocket_files import read_pockets_file
 
 logger = logging.getLogger(__name__)
-
-# The packaged BLAST-format similarity matrix the comparison scores with. Anchored on the parent package:
-# `data` has no __init__.py, and importlib.resources only resolves a namespace package from 3.12
-BLOSUM_PATH = str(files("pocketmapper").joinpath("data", "blosum62.bla"))
 
 
 def compare(
@@ -167,7 +162,6 @@ def compare_aligned_pockets(target_records, manager, alignment, pockets, pocket_
         alignment_df,
         pocket_dict,
         preproc_to_ids=chain_pockets,
-        blosum_path=BLOSUM_PATH,
         synthesise_target_pockets=synthesise,
         offset_table_path=offset_table_path,
     )

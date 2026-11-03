@@ -3,7 +3,6 @@ Unit tests for `pocketmapper.compare.pocket_comparison`: residues are paired by 
 """
 
 import math
-from importlib.resources import files
 
 import pytest
 from Bio.SVDSuperimposer import SVDSuperimposer
@@ -14,8 +13,8 @@ from pocketmapper.compare.pocket_comparison import (
     aln_positions,
     compare_pocket_pair,
     map_pocket_into_alignment,
+    score_overlap,
 )
-from pocketmapper.compare.similarity import read_blast_similarity_matrix
 from pocketmapper.lib.constants import ALIGNMENT_COLUMNS
 from pocketmapper.pockets.pocket import Pocket, PocketResidue
 
@@ -72,8 +71,7 @@ def test_pairs_by_alignment_position(target_labels):
     p1 = make_pocket(ASCENDING)
     p2 = make_pocket(target_labels)
     aln = identity_alignment()
-    blosum = read_blast_similarity_matrix(str(files("pocketmapper").joinpath("data", "blosum62.bla")))
-    ctx = Context(similarity_matrix=blosum, superimposer=SVDSuperimposer(), descriptions={}, identities={}, offsets={})
+    ctx = Context(superimposer=SVDSuperimposer(), descriptions={}, identities={}, offsets={})
     q_mapped = map_pocket_into_alignment(p1, aln.qaln, aln_positions(aln.qaln), aln.qstart, aln.qend)
     t_mapped = map_pocket_into_alignment(p2, aln.taln, aln_positions(aln.taln), aln.tstart, aln.tend)
 
@@ -86,3 +84,15 @@ def test_pairs_by_alignment_position(target_labels):
     target_ids = output["target_overlap_ids"].split(",")
     assert [p1.residues[res].seq_pos for res in query_ids] == [p2.residues[res].seq_pos for res in target_ids]
     assert output["query_seq_overlap"] == output["target_seq_overlap"]
+
+
+def test_score_overlap_one_side_nan():
+    """An all-X query overlap leaves `_1_2` NaN, and min and max both take `_2_1`."""
+    values = dict.fromkeys(ALIGNMENT_COLUMNS, "-")
+    values.update(qaln="XXX", taln="WAC")
+    output = score_overlap(AlignmentRow(**values), [0, 1, 2])
+
+    assert math.isnan(output["overlap_similarity_1_2"])
+    assert not math.isnan(output["overlap_similarity_2_1"])
+    assert output["min_overlap_similarity"] == output["overlap_similarity_2_1"]
+    assert output["max_overlap_similarity"] == output["overlap_similarity_2_1"]

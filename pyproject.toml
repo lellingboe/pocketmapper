@@ -51,7 +51,6 @@ include = ["pocketmapper*"]
 
 [tool.setuptools.package-data]
 pocketmapper = [
-  "data/blosum62.bla",
   "data/human_domains/*",
 ]
 

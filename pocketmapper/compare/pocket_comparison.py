@@ -16,12 +16,12 @@ from typing import NamedTuple
 
 import pandas as pd
 from Bio.SVDSuperimposer import SVDSuperimposer
-from numpy import array
+from numpy import array, fmax, fmin
 from numpy import linalg as LA
 from tqdm import tqdm
 
 from pocketmapper.compare.offsets import read_offset_table, seq_to_uniprot_map
-from pocketmapper.compare.similarity import binary_similarity, full_similarity, read_blast_similarity_matrix
+from pocketmapper.compare.similarity import binary_similarity, full_similarity
 from pocketmapper.lib.constants import ALIGNMENT_COLUMNS
 from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.pockets.pocket import Pocket, PocketResidue
@@ -371,14 +371,13 @@ def parse_pocket_transform(u_cell, t_cell):
     return u, t
 
 
-def score_overlap(aln, overlap_positions, similarity_matrix):
+def score_overlap(aln, overlap_positions):
     """
     Sequence identity and the three BLOSUM62 similarity scores over the overlapping residues.
 
     Args:
         aln (AlignmentRow): The row, read for `qaln` and `taln`.
         overlap_positions (list): Alignment positions shared by both pockets.
-        similarity_matrix (dict): BLOSUM62, as returned by `compare.similarity.read_blast_similarity_matrix`.
 
     Returns:
         dict: The two overlap sequences plus the identity and similarity columns.
@@ -386,18 +385,19 @@ def score_overlap(aln, overlap_positions, similarity_matrix):
     p1_aln_seq = "".join([aln.qaln[pos] for pos in overlap_positions])
     p2_aln_seq = "".join([aln.taln[pos] for pos in overlap_positions])
 
-    similarity_1_2 = full_similarity(p1_aln_seq, p2_aln_seq, similarity_matrix)
-    similarity_2_1 = full_similarity(p2_aln_seq, p1_aln_seq, similarity_matrix)
+    similarity_1_2 = full_similarity(p1_aln_seq, p2_aln_seq)
+    similarity_2_1 = full_similarity(p2_aln_seq, p1_aln_seq)
 
     return {
         "query_seq_overlap": p1_aln_seq,
         "target_seq_overlap": p2_aln_seq,
         "overlap_identity": sum(map(str.__eq__, p1_aln_seq, p2_aln_seq)) / len(overlap_positions),
-        "overlap_similarity_binary": binary_similarity(p1_aln_seq, p2_aln_seq, similarity_matrix),
+        "overlap_similarity_binary": binary_similarity(p1_aln_seq, p2_aln_seq),
         "overlap_similarity_1_2": similarity_1_2,
         "overlap_similarity_2_1": similarity_2_1,
-        "min_overlap_similarity": min(similarity_1_2, similarity_2_1),
-        "max_overlap_similarity": max(similarity_1_2, similarity_2_1),
+        # X skipped on one side only can leave one direction NaN; fmin/fmax take the number, unlike min/max
+        "min_overlap_similarity": float(fmin(similarity_1_2, similarity_2_1)),
+        "max_overlap_similarity": float(fmax(similarity_1_2, similarity_2_1)),
     }
 
 
@@ -461,7 +461,7 @@ def compare_pocket_pair(aln, pocket_id_1, p1, p1_mapped, pocket_id_2, p2, p2_map
         union_size = len(p1.res_auth_ids) + len(p2.res_auth_ids) - len(overlap_positions)
         output["jaccard_index"] = len(overlap_positions) / union_size
 
-    output.update(score_overlap(aln, overlap_positions, ctx.similarity_matrix))
+    output.update(score_overlap(aln, overlap_positions))
     output.update(superpose(p1, p2, p1_overlap_ids, p2_overlap_ids, len(overlap_positions), ctx.superimposer))
     return output
 
@@ -474,7 +474,6 @@ class Context(NamedTuple):
     a Foldseek database or ships no table.
     """
 
-    similarity_matrix: dict
     superimposer: SVDSuperimposer
     descriptions: dict
     identities: dict
@@ -504,7 +503,6 @@ def compare_pockets(
     alignment_df,
     pocket_dict,
     preproc_to_ids,
-    blosum_path,
     synthesise_target_pockets=False,
     offset_table_path=None,
 ):
@@ -516,8 +514,6 @@ def compare_pockets(
         pocket_dict (dict): pocket_id -> Pocket, or None for one not built.
         preproc_to_ids (dict): preprocess_name -> the pocket_ids sitting on that chain; bridges the
             alignment's keys to the pockets'.
-        blosum_path (str): Path to a BLAST-format similarity matrix. The packaged one is
-            `files("pocketmapper").joinpath("data", "blosum62.bla")`.
         synthesise_target_pockets (bool): Build a whole-chain pseudo-pocket per alignment row instead
             of looking the target up in `pocket_dict`, for a Foldseek database with no target records.
         offset_table_path (str or None): Path to the offset table shipped with that database, which
@@ -533,7 +529,6 @@ def compare_pockets(
             row is logged and re-raised.
     """
     ctx = Context(
-        similarity_matrix=read_blast_similarity_matrix(blosum_path),
         superimposer=SVDSuperimposer(),
         descriptions={},
         identities={},
