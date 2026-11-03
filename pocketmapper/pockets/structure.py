@@ -50,20 +50,27 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
     """
     Build or extend a Pocket from a structure's chain.
 
+    A requested residue with no alignment position -- one the chain lacks, or one `lib.residues.ca_residues`
+    leaves out (no CA atom, or not polymer) -- is dropped from `res_auth_ids` and `residues`, with one
+    warning naming every dropped residue. So every id in the returned Pocket's `res_auth_ids` is a key of
+    its `residues`, and that residue has a `seq_pos`.
+
     A `pocket` passed in is modified in place: its residues keep the fields they already carry and
-    gain `seq_pos` and coordinates, and its `whole_chain` and `ca_sequence` are overwritten. A structure
-    passed in has `setup_entities()` called on it (see `lib.structure_manager.load_structure`).
+    gain `seq_pos` and coordinates, unusable ones are dropped, and its `whole_chain` and `ca_sequence` are
+    overwritten. A structure passed in has `setup_entities()` called on it (see
+    `lib.structure_manager.load_structure`).
 
     Args:
         struct (gemmi.Structure or str): A parsed structure, or a path gemmi will read.
         chain_id (str): The chain to extract.
         pocket_residues (list or None): Residue keys (`lib.residues.residue_key`, e.g. '100A') in the
             pocket, or None to take every residue of `lib.residues.ca_residues`. Recorded on the returned
-            Pocket as `whole_chain`.
+            Pocket as `whole_chain`. An empty list gives a Pocket with `pocket_exists` False.
         pocket (Pocket or None, optional): An existing Pocket to extend; a new one is built when None.
 
     Returns:
-        Pocket: The pocket, or None if the file is missing or unusable, or the chain is not in the structure.
+        Pocket: The pocket, or None if the file is missing or unusable, the chain is not in the structure,
+            or every residue of a non-empty `pocket_residues` was dropped.
     """
     log_extra = {"stage": "Parsing Pocket from Structure"}
 
@@ -106,19 +113,26 @@ def parse_pocket_from_struct(struct, chain_id, pocket_residues, pocket=None):
         pocket.has_coords = True
     pocket.ca_sequence = "".join(ca_sequence)
 
-    # -1 marks a requested residue the chain has but the walk did not reach (no CA atom, or not polymer),
-    # which has no alignment position. One the chain lacks keeps seq_pos None.
-    unreached = wanted - reached
-    for res in chain.first_conformer():
-        res_id = residue_key(res.seqid.num, res.seqid.icode)
-        if res_id not in unreached:
-            continue
-        logger.debug(
-            f"{st.name}:{chain_id}:{res_id} ({res.name}) has no CA in the polymer and cannot be compared",
+    # A requested residue the walk did not reach has no alignment position, so it is dropped
+    unreached = list(dict.fromkeys(res_id for res_id in pocket.res_auth_ids if res_id not in reached))
+    if unreached:
+        in_chain = {residue_key(res.seqid.num, res.seqid.icode) for res in chain.first_conformer()}
+        reasons = [
+            ("not in the chain", [res_id for res_id in unreached if res_id not in in_chain]),
+            ("no CA atom in the polymer", [res_id for res_id in unreached if res_id in in_chain]),
+        ]
+        detail = "; ".join(f"{reason}: {','.join(ids)}" for reason, ids in reasons if ids)
+        logger.warning(
+            f"Dropped {len(unreached)} pocket residue(s) of {st.name} chain {chain_id} with no alignment "
+            f"position ({detail})",
             extra=log_extra,
         )
-        if res_id in pocket.residues:
-            pocket.residues[res_id].seq_pos = -1
+        dropped = set(unreached)
+        pocket.res_auth_ids = [res_id for res_id in pocket.res_auth_ids if res_id not in dropped]
+        for res_id in dropped:
+            pocket.residues.pop(res_id, None)
+        if not pocket.res_auth_ids:
+            return None
     return pocket
 
 
@@ -134,9 +148,9 @@ def residue_list_pockets(records, structures, residue_ids, log_extra):
         log_extra (dict): `extra` for the warnings, naming the builder's stage.
 
     Returns:
-        dict: pocket_id -> Pocket, for built pockets only. A record whose structure or chain cannot be
-            read, or that names a residue the chain lacks or that has no CA atom, is left out with a
-            warning.
+        dict: pocket_id -> Pocket, for built pockets only. A listed residue the chain lacks or that has no
+            CA atom is dropped from its pocket (see `parse_pocket_from_struct`). A record whose structure or
+            chain cannot be read, or none of whose listed residues is left, is left out with a warning.
     """
     pockets = {}
     for st, group in records_by_structure(records, structures, log_extra):
@@ -145,17 +159,8 @@ def residue_list_pockets(records, structures, residue_ids, log_extra):
             pocket = None if st is None else parse_pocket_from_struct(st, domain_chain, residue_ids(record))
             if pocket is None:
                 logger.warning(
-                    f"Could not read chain {domain_chain} of {record['struct_info']} for {record['pocket_id']}, "
+                    f"Could not build {record['pocket_id']} from chain {domain_chain} of {record['struct_info']}, "
                     "skipping this entry",
-                    extra=log_extra,
-                )
-                continue
-            # residues holds only the requested ids found with a CA atom, so a whole chain never fails here
-            unusable = [res_id for res_id in pocket.res_auth_ids if res_id not in pocket.residues]
-            if unusable:
-                logger.warning(
-                    f"Residue(s) {','.join(unusable)} of {record['pocket_id']} are not in chain {domain_chain} "
-                    "or have no CA atom, skipping this entry",
                     extra=log_extra,
                 )
                 continue
@@ -173,7 +178,8 @@ def passthrough_pockets(records, structures):
 
     Returns:
         dict: pocket_id -> Pocket, with `res_auth_ids` sorted for display whatever order they were
-            listed in. Records that cannot be built are left out (see `residue_list_pockets`).
+            listed in. Listed residues with no alignment position are dropped, and records that cannot be
+            built are left out (see `residue_list_pockets`).
     """
     return residue_list_pockets(
         records,

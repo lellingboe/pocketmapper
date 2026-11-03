@@ -83,6 +83,7 @@ def vdw_pockets(records, structures):
     Returns:
         dict: pocket_id -> Pocket, for built pockets only. A record whose structure or either chain cannot
             be read is left out with a warning. One with no contacts is kept, with `pocket_exists=False`.
+            Contacts are taken from the CA residues, so `structure.parse_pocket_from_struct` drops none.
     """
     log_extra = {"stage": "Retrieving VdW Pockets"}
     pockets = {}
@@ -102,7 +103,15 @@ def vdw_pockets(records, structures):
             # first_conformer: a microheterogeneous position is one residue, as Foldseek reads it
             contact_ids = vdw_contact_residues(ca_residues(domain), motif.get_polymer().first_conformer())
             # Contacts come in chain order, so res_auth_ids is in chain order
-            pockets[record["pocket_id"]] = parse_pocket_from_struct(st, domain.name, contact_ids)
+            pocket = parse_pocket_from_struct(st, domain.name, contact_ids)
+            if pocket is None:
+                logger.warning(
+                    f"Could not build {record['pocket_id']} from chain {domain.name} of {record['struct_info']}, "
+                    "skipping this entry",
+                    extra=log_extra,
+                )
+                continue
+            pockets[record["pocket_id"]] = pocket
     return pockets
 
 

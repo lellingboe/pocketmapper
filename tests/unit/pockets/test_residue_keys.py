@@ -197,11 +197,11 @@ def test_4c59_passthrough(processor, pdb_dir_4c59, positions_4c59):
 
 
 def test_4c59_passthrough_bare_number(processor, pdb_dir_4c59, warnings):
-    """111 alone names no residue of 4C59 chain B, which has only 111A-111E, so the entry is left out."""
+    """111 alone names no residue of 4C59 chain B, which has only 111A-111E, so it is dropped from the pocket."""
     record = parsed_record(processor, "4C59:B:110,111")
     pockets = passthrough_pockets([record], StructureManager(pdb_dir_4c59, download=False))
-    assert pockets == {}
-    assert any("Residue(s) 111 of 4C59:B:110,111" in message for message in warnings())
+    assert pockets["4C59:B:110,111"].res_auth_ids == ["110"]
+    assert any("not in the chain: 111" in message for message in warnings())
 
 
 # (bsa_threshold, residue count, insertion-code residues), read from 4C59's interface file. At 0, 111C is the one

@@ -9,10 +9,13 @@ Facts about `pockets/`, moved out of `context/project-overview.md` so they load 
   `bsa_threshold` today).
   A new method = one row + one builder, plus an options entry if it takes options.
 - **One builder contract.** A builder returns pocket_id -> Pocket for the pockets it built only. A record
-  it cannot build (missing or unreadable structure, missing chain, unusable residue, unresolved interface)
-  is left out with a warning, never mapped to None; the step then marks it `pocket_not_built` in
-  `entries.tsv`. A pocket built but empty (pisa with no residue under the rule, vdw with no contacts) is
-  kept, with `pocket_exists=False`. Each builder reads every structure once per call
+  it cannot build (missing or unreadable structure, missing chain, unresolved interface, or every named
+  residue unusable) is left out with a warning, never mapped to None; the step then marks it
+  `pocket_not_built` in `entries.tsv`. A residue the chain lacks or that has no CA atom is dropped from its
+  pocket by `structure.parse_pocket_from_struct`, with one warning per pocket, whatever the method; the
+  pocket is built from the rest. A pocket built but empty (pisa with no residue under the rule, vdw with no
+  contacts) is kept, with `pocket_exists=False`; it is told apart from all-dropped by its requested list
+  being empty. Each builder reads every structure once per call
   (`records_by_structure`: paths from `StructureManager.record_path`, read through
   `lib.structure_manager.load_structure`, which gives None for a file it cannot use).
 - Records are dicts, not DataFrames. `PocketManager.build` passes every record it is given to its

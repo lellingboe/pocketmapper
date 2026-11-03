@@ -29,8 +29,8 @@ class PocketResidue:
     res_code: str | None = None
     res_code_single: str | None = None
     # Index in `lib.residues.ca_residues` of the chain, which is the residue's position in the alignment.
-    # -1 for a pocket residue the chain has but that list leaves out (no CA atom, or not polymer); None if
-    # the residue was never found in the chain.
+    # `structure.parse_pocket_from_struct` sets it, and drops a residue it cannot set it for (not in the
+    # chain, no CA atom, or not polymer), so it is never None or negative in a built pocket.
     seq_pos: int | None = None
     ca_coords: list | None = None
     # UniProt position, where the producer has one; otherwise None.
@@ -46,9 +46,9 @@ class Pocket:
     without copying wherever the pocket is used.
     """
 
-    # Pocket residue ids, in the producer's order. Not `list(residues)`: its order can differ, and it may
-    # name ids that `residues` lacks. The order only affects how ids are displayed; a comparison pairs
-    # residues by alignment position, not by this order.
+    # Pocket residue ids, in the producer's order, each a key of `residues`. Not `list(residues)`: its order
+    # can differ. The order only affects how ids are displayed; a comparison pairs residues by alignment
+    # position, not by this order.
     res_auth_ids: list = field(default_factory=list)
     residues: dict = field(default_factory=dict)
     # CA sequence of the WHOLE chain, not of the pocket.

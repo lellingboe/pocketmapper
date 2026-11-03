@@ -26,9 +26,11 @@ Breaking these gives silently wrong output. Each is explained at its code site; 
 checks that live nowhere else.
 
 - **`seq_pos`**: declared on `PocketResidue`, set only in `parse_pocket_from_struct` (every builder reaches it,
-  vdw included) as the index in `lib.residues.ca_residues`, and read in `map_pocket_into_alignment`. -1 marks
-  a requested residue the chain has but `ca_residues` leaves out (no CA atom, or not polymer). Computed any
-  other way, it gives zero overlap and no error. Check: a pocket compared with itself gives
+  vdw included) as the index in `lib.residues.ca_residues`, and read in `map_pocket_into_alignment`. A
+  requested residue with no position (not in the chain, no CA atom, or not polymer) is dropped there, with one
+  warning per pocket, so a built pocket never holds `seq_pos` None or -1 and every `res_auth_ids` id is a key
+  of `residues`; a pocket whose named residues are all dropped is not built. Computed any other way,
+  `seq_pos` gives zero overlap and no error. Check: a pocket compared with itself gives
   `overlap_count == pocket_len` (`test_self_comparison`).
 - **Residue letters mirror Foldseek, not gemmi** (`lib.constants.FOLDSEEK_AA_CODES`). They compare
   case-insensitively (`compare_pockets`), because Foldseek lowercases some residues; 4ER4, 2ER6 and 2ER9

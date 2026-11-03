@@ -269,9 +269,10 @@ both is skipped with a warning naming what was missing, before anything is downl
 fails only if it leaves a side with no usable entries — so one bad line in a batch file does not stop
 the rest. An unrecognised method name is rejected outright.
 
-A passthrough entry's residue ids are checked against the structure: an entry naming a residue the chain
-does not have, or has without a CA atom, is skipped with a warning rather than compared, and the rest of
-the run continues. A residue id listed more than once is collapsed to one, also with a warning.
+A pocket's residue ids are checked against the structure, whatever the pocket method: a residue the chain
+does not have, or has without a CA atom, is dropped from the pocket, with one warning per pocket listing
+them. An entry left with none of its residues is skipped (`pocket_not_built`) rather than compared, and the
+rest of the run continues. A residue id listed more than once is collapsed to one, also with a warning.
 
 For batch runs, pass a path to a file containing one such entry per line instead of a single entry;
 blank lines are ignored. A path ending in `.cif`, `.mmcif`, `.pdb` or `.ent` (optionally `.gz`) is read

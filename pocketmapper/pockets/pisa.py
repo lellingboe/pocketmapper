@@ -227,10 +227,12 @@ def pisa_pockets(records, structures, downloader, bsa_threshold=None):
             which builds the pocket from interface bonds instead.
 
     Returns:
-        dict: pocket_id -> Pocket, for built pockets only. A record whose interface cannot be resolved
-            (see `pisa_pockets_from_records`; with downloads off, also one whose entry is not cached), or
-            whose structure or chain cannot be read, is left out with a warning. One with no residue under
-            the rule keeps `pocket_exists` False.
+        dict: pocket_id -> Pocket, for built pockets only. An interface residue the chain lacks (e.g. PISA
+            data from another version of the entry) or that has no CA atom is dropped from its pocket (see
+            `structure.parse_pocket_from_struct`). A record whose interface cannot be resolved (see
+            `pisa_pockets_from_records`; with downloads off, also one whose entry is not cached), whose
+            structure or chain cannot be read, or none of whose interface residues is left, is left out with
+            a warning. One with no residue under the rule is kept, with `pocket_exists` False.
     """
     log_extra = {"stage": "Retrieving PISA Pockets"}
 
@@ -252,7 +254,7 @@ def pisa_pockets(records, structures, downloader, bsa_threshold=None):
             pocket = None if st is None else parse_pocket_from_struct(st, domain_chain, residue_ids, parsed_pocket)
             if pocket is None:
                 logger.warning(
-                    f"Could not read chain {domain_chain} of {record['struct_info']} for {record['pocket_id']}, "
+                    f"Could not build {record['pocket_id']} from chain {domain_chain} of {record['struct_info']}, "
                     "skipping this entry",
                     extra=log_extra,
                 )

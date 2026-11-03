@@ -122,8 +122,8 @@ def map_pocket_into_alignment(pocket, aln_seq, aln_positions, start, end):
     adj = 1 - start
     aligned_len = end - start + 1
 
-    # Positions are unique per side: distinct CA residues have distinct seq_pos, and seq_pos -1 falls
-    # outside the aligned range
+    # Positions are unique per side: distinct CA residues have distinct seq_pos. Every residue of a built
+    # pocket has one (see `PocketResidue.seq_pos`)
     res_by_pos = {}
     code_mismatches = []
     for res in pocket.res_auth_ids:
