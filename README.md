@@ -471,8 +471,9 @@ you want when a run returns nothing and you need to see why.
 
 **`--aligner` picks how chains are aligned.** `foldseek`, the default, needs the Foldseek binary on
 `PATH` and runnable (checked by running `foldseek -h`); if it is not, the run stops before anything is
-downloaded rather than silently switching method. `seq` uses the built-in BLOSUM62 sequence aligner,
-which needs no binary but produces no whole-chain transform and cannot search a Foldseek database.
+downloaded rather than silently switching method. `seq` uses the built-in BLOSUM62 sequence aligner (local
+alignment, gap open -11, extend -1), which needs no binary but produces no whole-chain transform and cannot
+search a Foldseek database. Like Foldseek, it reports only the aligned region of each chain.
 
 **`--align_struct_method` picks the transform used to write `aligned_structures/`.**
 

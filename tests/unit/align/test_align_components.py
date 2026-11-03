@@ -7,7 +7,7 @@ import shutil
 
 import pytest
 
-from pocketmapper.align.sequence_aligner import SequenceAligner
+from pocketmapper.align.sequence_aligner import SequenceAligner, build_aligner
 from pocketmapper.align.structure_preprocessor import StructurePreprocessor
 from pocketmapper.lib.structure_manager import StructureManager
 
@@ -49,3 +49,59 @@ def test_align_records_locates_with_manager(manager, record):
     table = SequenceAligner(manager).align_records([record], [record])
     assert len(table) == 1
     assert table.iloc[0]["fident"] == 1
+    assert table.iloc[0]["mismatch"] == 0
+
+
+# (query, target, qaln, taln, qstart, qend, tstart, tend, mismatch, gapopen)
+ALIGN_SEQS_CASES = [
+    pytest.param(
+        "ACDEFRHIKLM", "ACDEFWHIKLM", "ACDEFRHIKLM", "ACDEFWHIKLM", 1, 11, 1, 11, 1, 0, id="r-w-mismatch-not-gapped"
+    ),
+    pytest.param("PPPPACDEFHIK", "ACDEF", "ACDEF", "ACDEF", 5, 9, 1, 5, 0, 0, id="flanks-on-query-only"),
+    pytest.param(
+        "GGGGACDEFRHIKLMGGG",
+        "PPACDEFWHIKLMPPPP",
+        "ACDEFRHIKLM",
+        "ACDEFWHIKLM",
+        5,
+        15,
+        3,
+        13,
+        1,
+        0,
+        id="flanks-on-both-sequences",
+    ),
+    pytest.param(
+        "ACDEFGHIKLMNPQRSTVWY",
+        "ACDEFGHIKLMSTVWY",
+        "ACDEFGHIKLMNPQRSTVWY",
+        "ACDEFGHIKLM----STVWY",
+        1,
+        20,
+        1,
+        16,
+        0,
+        1,
+        id="internal-gap",
+    ),
+]
+
+
+@pytest.mark.parametrize("query, target, qaln, taln, qstart, qend, tstart, tend, mismatch, gapopen", ALIGN_SEQS_CASES)
+def test_align_seqs_local_columns(query, target, qaln, taln, qstart, qend, tstart, tend, mismatch, gapopen):
+    """Only the aligned region is kept, start..end locate it 1-based inclusive, and mismatch is a count."""
+    columns = SequenceAligner(None).align_seqs(query, target, build_aligner())
+    assert (columns["qaln"], columns["taln"]) == (qaln, taln)
+    assert (columns["qstart"], columns["qend"], columns["tstart"], columns["tend"]) == (qstart, qend, tstart, tend)
+    # The gapped strings hold exactly the residues start..end, no more and no fewer
+    assert columns["qaln"].replace("-", "") == query[qstart - 1 : qend]
+    assert columns["taln"].replace("-", "") == target[tstart - 1 : tend]
+    assert columns["alnlen"] == len(qaln)
+    assert columns["fident"] == sum(a == b for a, b in zip(qaln, taln)) / len(qaln)
+    assert type(columns["mismatch"]) is int
+    assert (columns["mismatch"], columns["gapopen"]) == (mismatch, gapopen)
+
+
+def test_align_seqs_no_local_alignment():
+    """Sequences with no positive-scoring residue pair have no local alignment, rather than an error."""
+    assert SequenceAligner(None).align_seqs("W", "G", build_aligner()) is None

@@ -1,9 +1,11 @@
 """
 Local pairwise sequence alignment, the `--aligner seq` alternative to Foldseek.
 
-Biopython's PairwiseAligner over BLOSUM62 stands in for the structural aligner and produces the
-same alignment table. It has no structural information to offer, so it writes "-" for the `u` and
-`t` transform columns.
+Biopython's PairwiseAligner, in local mode over BLOSUM62 with affine gap scores, stands in for the
+structural aligner and produces the same alignment table. As in Foldseek's table, `qaln`/`taln` hold only
+the aligned region, `qstart`..`qend` and `tstart`..`tend` locate it (1-based, inclusive), and `mismatch` is a
+count. It has no structural information to offer, so it writes "-" for the `evalue`, `lddt`, `u` and `t`
+columns.
 """
 
 import logging
@@ -19,6 +21,28 @@ from pocketmapper.lib.residues import ca_residues, one_letter_code, split_chain_
 from pocketmapper.lib.structure_manager import load_structure
 
 logger = logging.getLogger(__name__)
+
+# Gap scores in Biopython's convention: a gap of length n scores OPEN_GAP_SCORE + (n - 1) * EXTEND_GAP_SCORE
+OPEN_GAP_SCORE = -11
+EXTEND_GAP_SCORE = -1
+
+
+def build_aligner():
+    """
+    Build the local BLOSUM62 aligner with affine gap scores.
+
+    Mode and gap scores are set explicitly, because Biopython's defaults (global mode, linear gap score -1) vary
+    across releases and would open two gaps rather than accept a poor mismatch.
+
+    Returns:
+        Bio.Align.PairwiseAligner: The configured aligner.
+    """
+    return Align.PairwiseAligner(
+        mode="local",
+        substitution_matrix=substitution_matrices.load("BLOSUM62"),
+        open_gap_score=OPEN_GAP_SCORE,
+        extend_gap_score=EXTEND_GAP_SCORE,
+    )
 
 
 class SequenceAligner:
@@ -57,24 +81,62 @@ class SequenceAligner:
 
     def align_seqs(self, peptide1, peptide2, aligner):
         """
-        Align two sequences and expand the result to gapped strings.
+        Align two sequences and summarise the top alignment in Foldseek's alignment columns.
 
         Args:
             peptide1 (str): Query sequence.
             peptide2 (str): Target sequence.
-            aligner (Bio.Align.PairwiseAligner): Configured aligner; only the top alignment is used.
+            aligner (Bio.Align.PairwiseAligner): A local-mode aligner, as from `build_aligner`; only the top
+                alignment is used.
 
         Returns:
-            list: [query_aligned, target_aligned], each a list of characters with "-" for gaps.
+            dict or None: `fident`, `alnlen`, `mismatch`, `gapopen`, `qstart`, `qend`, `tstart`, `tend`,
+                `qaln` and `taln`, or None when no residue pair scores above zero, so there is no local
+                alignment.
         """
         peptide1 = self.replaceNonCommonResidues(peptide1)
         peptide2 = self.replaceNonCommonResidues(peptide2)
-        alignments = aligner.align(peptide1, peptide2)
+        # Empty when no residue pair scores above zero
+        alignment = next(iter(aligner.align(peptide1, peptide2)), None)
+        if alignment is None:
+            return None
 
-        peptide1_aligned = [peptide1[i] if i != -1 else "-" for i in alignments[0].indices[0]]
-        peptide2_aligned = [peptide2[i] if i != -1 else "-" for i in alignments[0].indices[1]]
+        # In local mode the indices cover only the aligned region; -1 marks a gap
+        qaln = "".join(peptide1[i] if i != -1 else "-" for i in alignment.indices[0])
+        taln = "".join(peptide2[i] if i != -1 else "-" for i in alignment.indices[1])
+        # The first and last coordinates are the region's 0-based start and exclusive end on each sequence,
+        # which are Foldseek's 1-based start and inclusive end once the start is shifted by one
+        (qstart, tstart), (qend, tend) = alignment.coordinates[:, 0] + 1, alignment.coordinates[:, -1]
 
-        return [peptide1_aligned, peptide2_aligned]
+        identity = 0
+        mismatch = 0
+        gapopen = 0
+        a_prev = "X"
+        b_prev = "X"
+        for a, b in zip(qaln, taln):
+            if a == b and a != "-":
+                identity += 1
+            elif a != b and a != "-" and b != "-":
+                mismatch += 1
+            if a == "-" and a_prev != "-":
+                gapopen += 1
+            if b == "-" and b_prev != "-":
+                gapopen += 1
+            a_prev = a
+            b_prev = b
+
+        return {
+            "fident": identity / len(qaln),
+            "alnlen": len(qaln),
+            "mismatch": mismatch,
+            "gapopen": gapopen,
+            "qstart": int(qstart),
+            "qend": int(qend),
+            "tstart": int(tstart),
+            "tend": int(tend),
+            "qaln": qaln,
+            "taln": taln,
+        }
 
     def align_records(self, query_records, target_records):
         """
@@ -111,58 +173,34 @@ class SequenceAligner:
             # The same walk as a pocket's seq_pos, so the alignment positions match it
             name_to_seq[name] = "".join(one_letter_code(res.name) for res in ca_residues(st[0][aln_chain]))
 
-        # Performing pairwise alignment
-        aligner = Align.PairwiseAligner()
-        aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
+        aligner = build_aligner()
         result_rows = []
         for q_record, t_record in product(query_records, target_records):
             query = q_record["preprocess_name"]
             target = t_record["preprocess_name"]
             qseq = name_to_seq[query]
             tseq = name_to_seq[target]
-            qaln, taln = self.align_seqs(qseq, tseq, aligner)
-            aln_len = len(qaln)
+            columns = self.align_seqs(qseq, tseq, aligner)
+            # No row, as Foldseek gives none for a pair it cannot align
+            if columns is None:
+                logger.warning(
+                    f"No local alignment between {query} and {target}: no residue pair scores above zero",
+                    extra=log_extra,
+                )
+                continue
 
-            identity = 0
-            mismatch = 0
-            gapopen = 0
-            a_prev = "X"
-            b_prev = "X"
-            for a, b in zip(qaln, taln):
-                if a == b and a != "-":
-                    identity += 1
-                elif a != b and a != "-" and b != "-":
-                    mismatch += 1
-                if a == "-" and a_prev != "-":
-                    gapopen += 1
-                if b == "-" and b_prev != "-":
-                    gapopen += 1
-                a_prev = a
-                b_prev = b
-            qend = len([x for x in qaln if x != "-"])
-            tend = len([x for x in taln if x != "-"])
-
-            result = {
-                "query": query,
-                "target": target,
-                "fident": identity / aln_len,
-                "alnlen": aln_len,
-                "mismatch": mismatch / aln_len,
-                "gapopen": gapopen,
-                "qstart": 1,
-                "qend": qend,
-                "tstart": 1,
-                "tend": tend,
-                "evalue": "-",
-                "lddt": "-",
-                "qaln": "".join(qaln),
-                "taln": "".join(taln),
-                "u": "-",
-                "t": "-",
-                "qseq": qseq,
-                "tseq": tseq,
-            }
-
-            result_rows.append(result)
+            result_rows.append(
+                {
+                    "query": query,
+                    "target": target,
+                    **columns,
+                    "evalue": "-",
+                    "lddt": "-",
+                    "u": "-",
+                    "t": "-",
+                    "qseq": qseq,
+                    "tseq": tseq,
+                }
+            )
         # Pinned to the shared column order rather than left to dict order
         return pd.DataFrame(result_rows, columns=ALIGNMENT_COLUMNS)
