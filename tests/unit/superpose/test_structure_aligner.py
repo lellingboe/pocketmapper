@@ -6,6 +6,7 @@ Foldseek-database hits.
 import os
 import shutil
 
+import gemmi
 import numpy as np
 import pandas as pd
 import pytest
@@ -152,3 +153,44 @@ def test_align_structs_fsdb(local_root, manager, fake_extract):
         text = f.read()
     assert "MOLECULE: Q:A;" in text
     assert "MOLECULE: AF-P1-F1;" in text
+
+
+def make_structure(chains):
+    """Build a one-model gemmi.Structure from (chain name, residue name) pairs, one residue per chain."""
+    st = gemmi.Structure()
+    st.add_model(gemmi.Model("1"))
+    for name, resname in chains:
+        chain = gemmi.Chain(name)
+        residue = gemmi.Residue()
+        residue.name = resname
+        residue.seqid = gemmi.SeqId(1, " ")
+        residue.add_atom(gemmi.Atom())
+        chain.add_residue(residue)
+        st[0].add_chain(chain)
+    return st
+
+
+@pytest.mark.parametrize(
+    "chains, domain, motif, motif_residue",
+    [
+        # Chains named "0" and "1" (the first char_gen name) precede the domain and motif chains
+        ([("0", "GLY"), ("1", "SER"), ("A", "ALA"), ("B", "VAL")], "A", "B", "VAL"),
+        # The motif chain is itself named "0"
+        ([("0", "VAL"), ("1", "SER"), ("A", "ALA")], "A", "0", "VAL"),
+        # No motif chain: only the domain is kept
+        ([("0", "GLY"), ("A", "ALA")], "A", None, None),
+    ],
+)
+def test_apply_transformation_keeps_intended_chains(chains, domain, motif, motif_residue):
+    """Domain and motif chains are found before any rename, so same-named earlier chains are not picked up."""
+    structs = [make_structure(chains), make_structure(chains)]
+    identity = (np.eye(3), np.zeros(3))
+
+    merged = StructureAligner(None).apply_transformation(
+        structs, [domain, domain], [motif, motif], [identity[0]] * 2, [identity[1]] * 2
+    )
+
+    assert len(merged) == 2
+    for model, motif_name in zip(merged, ["1", "2"]):
+        expected = {"0": "ALA"} if motif is None else {"0": "ALA", motif_name: motif_residue}
+        assert {chain.name: chain[0].name for chain in model} == expected

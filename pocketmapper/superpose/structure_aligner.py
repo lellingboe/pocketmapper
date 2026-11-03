@@ -93,7 +93,8 @@ class StructureAligner:
         Apply rigid-body transforms to a set of structures and merge them.
 
         Modifies each input structure in place: its first model is transformed, its domain chain renamed
-        to "0" and any motif chain given a name from `char_gen`.
+        to "0" and any motif chain given a name from `char_gen`. Chains are found before either is renamed, so a
+        structure's other chains named "0" or from `char_gen` are never mistaken for them.
 
         Args:
             structs (list): gemmi.Structures to align and merge.
@@ -116,12 +117,16 @@ class StructureAligner:
             trans = gemmi.Transform(gemmi.Mat33(u), gemmi.Vec3(*t))
             st[0].transform_pos_and_adp(trans)
 
-            # Add chains to the reference structure
-            st[0][dc].name = "0"
-            ref_st[-1].add_chain(st[0]["0"])
-            if mc is not None:
-                st[0][mc].name = cn
-                ref_st[-1].add_chain(st[0][cn])
+            # Take both chains before renaming: a lookup by name returns the first chain of that name, which after a
+            # rename can be a different chain. add_chain copies, so each chain is added right after its rename.
+            domain = st[0][dc]
+            motif = None if mc is None else st[0][mc]
+
+            domain.name = "0"
+            ref_st[-1].add_chain(domain)
+            if motif is not None:
+                motif.name = cn
+                ref_st[-1].add_chain(motif)
 
         ref_st.setup_entities()
         return ref_st
