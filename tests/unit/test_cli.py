@@ -5,10 +5,12 @@ the registry, and an invalid option failing before any network access.
 
 import argparse
 import inspect
+import io
 import logging
 import os
 import socket
 
+import pandas
 import pytest
 
 from pocketmapper import cli
@@ -136,7 +138,7 @@ def test_bogus_aligner_fails_before_network(local_root, monkeypatch, capsys):
 
     assert exit_info.value.code == 1
     assert attempts == []
-    assert "Unknown aligner 'bogus'" in capsys.readouterr().out
+    assert "Unknown aligner 'bogus'" in capsys.readouterr().err
     # Nothing was fetched or parsed: the cache was never made
     assert not os.path.exists(cache_dir)
     assert package_logger.handlers == handlers
@@ -185,3 +187,16 @@ def test_step_validates_before_reading_entries(tmp_path, step, setting):
     key = next(iter(setting))
     with pytest.raises(PocketMapperError, match=key):
         step(job_file=job)
+
+
+def test_parse_table_alone_on_stdout(local_root, capsys):
+    """`cli parse` writes only its table to stdout; the log goes to stderr."""
+    results_dir = os.path.join(local_root, "results")
+    cache_dir = os.path.join(local_root, "cache")
+
+    cli.cli(["parse", "4Q5J:A_E", "4Q5J:B_F", "--results_dir", results_dir, "--cache_dir", cache_dir])
+
+    captured = capsys.readouterr()
+    assert not any(line.startswith("INFO: ") for line in captured.out.splitlines())
+    assert len(pandas.read_csv(io.StringIO(captured.out), sep="\t")) > 0
+    assert "INFO: " in captured.err

@@ -125,8 +125,8 @@ def cli(argv=None):
     """
     Console-script entry point.
 
-    Adds a stdout handler to the `pocketmapper` logger for the length of the call. Prints the table
-    `parse` returns once it has run. Calls `sys.exit(1)` on a `PocketMapperError`.
+    Adds a stderr handler to the `pocketmapper` logger for the length of the call. Prints the table
+    `parse` returns to stdout once it has run. Calls `sys.exit(1)` on a `PocketMapperError`.
 
     Args:
         argv (list, optional): Argument list to parse. Defaults to sys.argv[1:].
@@ -147,11 +147,11 @@ def cli(argv=None):
     # Before dispatch: every entry function's `layer_command` can log a critical on a bad job file
     # before any log is open, and the inherited root WARNING level lets it through
     package_logger = logging.getLogger(PACKAGE_LOGGER)
-    handler = format_handler(logging.StreamHandler(sys.stdout))
+    handler = format_handler(logging.StreamHandler(sys.stderr))
     package_logger.addHandler(handler)
     try:
         result = DISPATCH[args.command](**kwargs)
-        # After the run, so it does not interleave with the log, which goes to stdout too
+        # The table is the only output on stdout; the log goes to stderr, so `> file` keeps just the table
         if args.command == "parse":
             result.to_csv(sys.stdout, sep="\t", index=False)
     except PocketMapperError:

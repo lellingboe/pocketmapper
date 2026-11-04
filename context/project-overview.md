@@ -64,8 +64,8 @@ matching search), not column values, so nothing else covers it.
 ## Logging and errors
 
 - The package never touches the root logger: `__init__` gives `lib.constants.PACKAGE_LOGGER` a `NullHandler`.
-- Handlers are added only in `cli()` (stdout) and `lib.logs.log_to_file` (`info.log`, for `search` and every
-  step), each removed in a `finally`.
+- Handlers are added only in `cli()` (stderr; stdout carries only `parse`'s table) and `lib.logs.log_to_file`
+  (`info.log`, for `search` and every step), each removed in a `finally`.
 - Errors go through `PocketMapperError`, which `cli()` turns into exit 1. Foldseek runs through
   `run_foldseek` so its failures raise it too.
 
