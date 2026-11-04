@@ -1,5 +1,5 @@
 """
-Unit tests for `lib.settings`: `resolve_align_struct_method`, the offline/refresh conflict, `layer_command`,
+Unit tests for `lib.settings`: `resolve_auto_align_struct_method`, the offline/refresh conflict, `layer_command`,
 `validate_options`, `layer_settings`, `require_setting`, `read_job_file` and the path resolution. The
 single-setting validators are tested in `test_options.py`.
 """
@@ -12,7 +12,7 @@ import pytest
 
 from pocketmapper.lib.constants import DEFAULT_ALIGN_COUNT, DEFAULT_ALIGNER
 from pocketmapper.lib.exceptions import PocketMapperError
-from pocketmapper.lib.options import command_options
+from pocketmapper.lib.options import OPTIONS, command_options
 from pocketmapper.lib.settings import (
     JOB_KEYS,
     SETTING_DEFAULTS,
@@ -21,7 +21,6 @@ from pocketmapper.lib.settings import (
     layer_settings,
     read_job_file,
     require_setting,
-    resolve_align_struct_method,
     resolve_auto_align_struct_method,
     resolve_paths,
     resolve_step_paths,
@@ -48,7 +47,12 @@ def job_source(request, write_file):
     return make
 
 
-# resolve_align_struct_method
+# align_struct_method: its validator, then resolve_auto_align_struct_method
+
+
+def resolve_align_struct_method(method, aligner):
+    """The two steps every command takes, as one call."""
+    return resolve_auto_align_struct_method(OPTIONS["align_struct_method"].validate(method), aligner)
 
 
 @pytest.mark.parametrize(

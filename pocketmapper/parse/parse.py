@@ -13,7 +13,13 @@ from pocketmapper.lib.entries import ENTRY_COLUMNS, entry_row, entry_sides, fsdb
 from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope
-from pocketmapper.lib.settings import dump_settings, layer_settings, require_setting, resolve_paths
+from pocketmapper.lib.settings import (
+    dump_settings,
+    layer_command,
+    require_setting,
+    resolve_paths,
+    validate_options,
+)
 from pocketmapper.parse.qt_processor import QTProcessor
 
 logger = logging.getLogger(__name__)
@@ -78,34 +84,15 @@ def parse(
 
     Raises:
         PocketMapperError: If the job file cannot be read, query or target is given both ways or
-            neither way, a pocket method is unknown, a side has no valid entries, or a
+            neither way, `verbosity` is not an integer, a pocket method is unknown, a side has no valid entries, or a
             Foldseek-database target is not the only target entry.
     """
-    values = layer_settings(
-        job_file,
-        {
-            "query": query,
-            "target": target,
-            "results_dir": results_dir,
-            "local_root": local_root,
-            "verbosity": verbosity,
-            "log_path": log_path,
-            "job_settings_path": job_settings_path,
-            "query_pocket_method": query_pocket_method,
-            "target_pocket_method": target_pocket_method,
-            "cache_dir": cache_dir,
-            "pdb_dir": pdb_dir,
-            "alphafold_dir": alphafold_dir,
-            "pocket_dir": pocket_dir,
-            "foldseek_preprocessed_structure_dir": foldseek_preprocessed_structure_dir,
-            "fsdb_dir": fsdb_dir,
-            "entries_path": entries_path,
-        },
-    )
+    values = layer_command("parse", job_file, locals())
     for key in ("query", "target"):
         require_setting(values, key)
     values = resolve_paths(values, "parse")
     with run_scope("parse") as outermost, log_to_file(values["log_path"], values["verbosity"]):
+        values = validate_options(values, "parse")
         if outermost:
             dump_settings(values)
         _, rows = parse_entries(

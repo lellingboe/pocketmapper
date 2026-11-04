@@ -12,12 +12,10 @@ from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope
 from pocketmapper.lib.settings import (
     check_fsdb_align_struct_method,
-    layer_settings,
-    resolve_align_struct_method,
-    resolve_fetch_missing,
-    resolve_offline,
+    layer_command,
+    resolve_auto_align_struct_method,
     resolve_step_paths,
-    resolve_threads,
+    validate_options,
 )
 from pocketmapper.lib.structure_manager import StructureManager, fetch_missing_entries
 from pocketmapper.pockets.pocket_files import read_pockets_file
@@ -87,29 +85,7 @@ def superpose(
             be read or leaves a side empty, an input is missing, a setting is invalid or does not suit
             the alignment or target, or foldseek is needed but cannot run.
     """
-    log_extra = {"stage": "Structural Alignment"}
-
-    values = layer_settings(
-        job_file,
-        {
-            "entries_path": entries,
-            "pocket_comparison_path": pocket_comparison,
-            "alignment_path": alignment,
-            "pockets_path": pockets,
-            "verbosity": verbosity,
-            "log_path": log_path,
-            "aligned_structure_dir": aligned_structure_dir,
-            "align_struct_method": align_struct_method,
-            "align_count": align_count,
-            "threads": threads,
-            "fetch_missing": fetch_missing,
-            "offline": offline,
-            "pdb_dir": pdb_dir,
-            "alphafold_dir": alphafold_dir,
-            "fsdb_dir": fsdb_dir,
-            "local_root": local_root,
-        },
-    )
+    values = layer_command("superpose", job_file, locals())
     values = resolve_step_paths(
         values,
         (
@@ -124,8 +100,10 @@ def superpose(
         ),
         ("log_path", "local_root"),
     )
+    log_extra = {"stage": "Structural Alignment"}
     alignment = values["alignment_path"]
     with run_scope("superpose"), log_to_file(values["log_path"], values["verbosity"]):
+        values = validate_options(values, "superpose")
         require_file(alignment, "alignment")
         require_file(values["pocket_comparison_path"], "pocket comparison")
         transforms = pd.read_csv(alignment, sep="\t", usecols=["u"], dtype=str)["u"]
@@ -133,9 +111,8 @@ def superpose(
             logger.warning(f"{alignment} holds no alignments; nothing to superpose", extra=log_extra)
             return
         aligner = "seq" if transforms.iloc[0] == "-" else "foldseek"
-        align_struct_method = resolve_align_struct_method(values["align_struct_method"], aligner)
-        fetch_missing = resolve_fetch_missing(values["fetch_missing"])
-        offline = resolve_offline(values["offline"])
+        align_struct_method = resolve_auto_align_struct_method(values["align_struct_method"], aligner)
+        offline = values["offline"]
         sides = open_entries(values["entries_path"], "superpose")
         manager = StructureManager(
             values["pdb_dir"],
@@ -144,13 +121,11 @@ def superpose(
             values["local_root"],
             download=not offline,
         )
-        if fetch_missing and not offline:
+        if values["fetch_missing"] and not offline:
             fetch_missing_entries(sides, manager)
         if fsdb_record(sides["target"]) is not None:
             check_fsdb_align_struct_method(align_struct_method)
             require_foldseek("Rebuilding the target structures out of the Foldseek database needs foldseek")
-        threads = resolve_threads(values["threads"])
-
         superpose_top_targets(
             sides,
             manager,
@@ -161,7 +136,7 @@ def superpose(
             values["aligned_structure_dir"],
             align_struct_method,
             values["align_count"],
-            threads,
+            values["threads"],
         )
 
 

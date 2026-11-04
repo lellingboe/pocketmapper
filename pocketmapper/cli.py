@@ -144,8 +144,8 @@ def cli(argv=None):
 
     kwargs = {dest: value for dest, value in vars(args).items() if dest != "command"}
 
-    # Before dispatch: layering can log a critical on a bad job file before any log is open, and
-    # the inherited root WARNING level lets it through
+    # Before dispatch: every entry function's `layer_command` can log a critical on a bad job file
+    # before any log is open, and the inherited root WARNING level lets it through
     package_logger = logging.getLogger(PACKAGE_LOGGER)
     handler = format_handler(logging.StreamHandler(sys.stdout))
     package_logger.addHandler(handler)

@@ -12,7 +12,11 @@ import socket
 import pytest
 
 from pocketmapper import cli
+from pocketmapper.align.align import align
+from pocketmapper.compare.compare import compare
+from pocketmapper.fetch.fetch import fetch_structures
 from pocketmapper.lib.constants import PACKAGE_LOGGER
+from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.options import (
     COMMANDS,
     JOB_KEYS,
@@ -24,6 +28,9 @@ from pocketmapper.lib.options import (
     job_key,
 )
 from pocketmapper.lib.scopes import HELD_TEMP_DIRS, OUTER_COMMAND
+from pocketmapper.parse.parse import parse
+from pocketmapper.pockets.pockets import pockets
+from pocketmapper.superpose.superpose import superpose
 
 
 class NetworkAttempt(RuntimeError):
@@ -61,10 +68,11 @@ def test_options_match_signature(command):
     assert set(dests) == set(parameters(cli.DISPATCH[command]))
 
 
-def test_search_signature_matches_registry():
-    """`search` takes exactly the registry's search options, `job_file` aside."""
-    names = [name for name in parameters(cli.DISPATCH["search"]) if name != "job_file"]
-    assert sorted(names) == sorted(option.name for option in command_options("search") if option.name != "job_file")
+@pytest.mark.parametrize("command", list(COMMANDS))
+def test_entry_signature_matches_registry(command):
+    """An entry function takes exactly its command's registry options, `job_file` and `self` aside."""
+    names = [name for name in parameters(cli.DISPATCH[command]) if name not in ("job_file", "self")]
+    assert sorted(names) == sorted(option.name for option in command_options(command) if option.name != "job_file")
 
 
 def test_job_keys():
@@ -135,3 +143,45 @@ def test_bogus_aligner_fails_before_network(local_root, monkeypatch, capsys):
     assert package_logger.level == level
     assert OUTER_COMMAND == []
     assert not HELD_TEMP_DIRS
+
+
+@pytest.mark.parametrize(
+    "step, setting",
+    [
+        (parse, {"verbosity": "loud"}),
+        (fetch_structures, {"threads": 0}),
+        (fetch_structures, {"delete_tmp": 2}),
+        (align, {"aligner": "bogus"}),
+        (align, {"threads": 0}),
+        (pockets, {"pisa_source": "bogus"}),
+        (compare, {"verbosity": "loud"}),
+        (superpose, {"threads": 0}),
+        (superpose, {"align_count": -1}),
+        (superpose, {"align_struct_method": "bogus"}),
+    ],
+)
+def test_step_validates_before_reading_entries(tmp_path, step, setting):
+    """A step rejects a bad setting before it reads the entries table, even for an empty alignment."""
+    alignment = tmp_path / "alignment.tsv"
+    alignment.write_text("u\n")
+    comparison = tmp_path / "comparison.tsv"
+    comparison.write_text("")
+    job = {
+        "query": "4Q5J:A",
+        "target": "4Q5J:B",
+        "cache_dir": str(tmp_path / "cache"),
+        "entries_path": str(tmp_path / "missing_entries.tsv"),
+        "alignment_path": str(alignment),
+        "pocket_comparison_path": str(comparison),
+        "pockets_path": str(tmp_path / "pockets.json"),
+        "aligned_structure_dir": str(tmp_path / "aligned"),
+        "temp_dir": str(tmp_path / "tmp"),
+        "pdb_dir": str(tmp_path / "pdb"),
+        "alphafold_dir": str(tmp_path / "af"),
+        "fsdb_dir": str(tmp_path / "fsdb"),
+        "pocket_dir": str(tmp_path / "pockets"),
+        "foldseek_preprocessed_structure_dir": str(tmp_path / "pre"),
+    } | setting
+    key = next(iter(setting))
+    with pytest.raises(PocketMapperError, match=key):
+        step(job_file=job)

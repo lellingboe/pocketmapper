@@ -26,13 +26,9 @@ from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope, temp_dir_scope
 from pocketmapper.lib.settings import (
     check_fsdb_aligner,
-    layer_settings,
-    resolve_aligner,
-    resolve_delete_tmp,
-    resolve_fetch_missing,
-    resolve_offline,
+    layer_command,
     resolve_step_paths,
-    resolve_threads,
+    validate_options,
 )
 from pocketmapper.lib.structure_manager import StructureManager, fetch_missing_entries, fetch_missing_fsdb
 
@@ -99,26 +95,7 @@ def align(
             Foldseek-database target is aligned with "seq", a side has no usable records, or a Foldseek
             invocation fails.
     """
-    values = layer_settings(
-        job_file,
-        {
-            "entries_path": entries,
-            "verbosity": verbosity,
-            "log_path": log_path,
-            "foldseek_preprocessed_structure_dir": foldseek_preprocessed_structure_dir,
-            "alignment_path": alignment_path,
-            "aligner": aligner,
-            "threads": threads,
-            "fetch_missing": fetch_missing,
-            "temp_dir": temp_dir,
-            "delete_tmp": delete_tmp,
-            "offline": offline,
-            "pdb_dir": pdb_dir,
-            "alphafold_dir": alphafold_dir,
-            "fsdb_dir": fsdb_dir,
-            "local_root": local_root,
-        },
-    )
+    values = layer_command("align", job_file, locals())
     values = resolve_step_paths(
         values,
         (
@@ -133,7 +110,8 @@ def align(
         ("log_path", "local_root"),
     )
     with run_scope("align"), log_to_file(values["log_path"], values["verbosity"]):
-        aligner = resolve_aligner(values["aligner"])
+        values = validate_options(values, "align")
+        aligner = values["aligner"]
         sides = open_entries(values["entries_path"], "align")
         if fsdb_record(sides["target"]) is not None:
             check_fsdb_aligner(aligner)
@@ -142,12 +120,10 @@ def align(
                 "The foldseek aligner was selected",
                 "Or pass --aligner seq to use the built-in BLOSUM62 sequence aligner.",
             )
-        threads = resolve_threads(values["threads"])
-        delete_tmp = resolve_delete_tmp(values["delete_tmp"])
-        fetch_missing = resolve_fetch_missing(values["fetch_missing"])
-        offline = resolve_offline(values["offline"])
+        threads = values["threads"]
+        offline = values["offline"]
 
-        with temp_dir_scope(values["temp_dir"], delete_tmp):
+        with temp_dir_scope(values["temp_dir"], values["delete_tmp"]):
             database = fsdb_record(sides["target"])
             manager = StructureManager(
                 values["pdb_dir"],
@@ -156,7 +132,7 @@ def align(
                 values["local_root"],
                 download=not offline,
             )
-            if fetch_missing and not offline:
+            if values["fetch_missing"] and not offline:
                 fetch_missing_entries(sides, manager)
                 if database is not None:
                     fetch_missing_fsdb(

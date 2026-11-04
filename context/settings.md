@@ -4,15 +4,17 @@ How settings, job keys and options are layered, resolved and dumped, and where a
 out of `context/project-overview.md` so it loads only when working on settings or options.
 
 Settings travel as a dict, job key -> value; there is no settings record. **Every job key is reachable from
-the CLI**; the job file sets nothing the CLI can't. Layering is `lib.settings.layer_settings` for every
-command (arguments not None over job file over `SETTING_DEFAULTS`), then `resolve_paths` for search and
-parse or `resolve_step_paths` for every other step. search calls it through `lib.settings.layer_command`,
-its first statement, given `locals()`: it raises unless the parameters are exactly
-`command_options("search")` (`job_file` aside) and sets each under its job key. search's resolution is
-in `PocketMapper.resolve_settings`: `lib.settings.validate_options` (each option's `validate`, in registry
-order), then the cross checks. Pocket methods keep `"auto"` (inferred per entry); `align_struct_method` is
-resolved per run. The steps take a job dict (or file) keyed by job keys and call the same validators
-(`lib.options.OPTIONS[name].validate`, also named `lib.settings.resolve_*`).
+the CLI**; the job file sets nothing the CLI can't. Every entry function, search's included, begins with
+`values = lib.settings.layer_command("<cmd>", job_file, locals())`: it raises unless the parameters are
+exactly `command_options(cmd)` (`job_file` aside), sets each under its job key and layers them
+(`lib.settings.layer_settings`: arguments not None over job file over `SETTING_DEFAULTS`). Then
+`resolve_paths` for search and parse or `resolve_step_paths` for every other step. The next step is
+`lib.settings.validate_options(values, cmd)` (each option's `validate`, in registry order), inside the
+command's log scope so a failure reaches the log, before the entries table is opened, anything is
+downloaded or any early return; for search it is in `PocketMapper.resolve_settings`. Then the cross checks
+(`check_offline_refresh`, `check_fsdb_*`). Pocket methods keep `"auto"` (inferred per entry);
+`align_struct_method` is resolved per run (`resolve_auto_align_struct_method`, after validation). The
+single-option validators are `lib.options.OPTIONS[name].validate`.
 
 **Job keys.** `lib.options.JOB_KEYS`, derived from the registry `lib.options.OPTIONS` in its order, is
 search's keys (`command_keys("search")`) plus `STEP_ONLY_KEYS` (options only some steps take;

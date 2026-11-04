@@ -25,12 +25,9 @@ from pocketmapper.lib.foldseek import fsdb_pocket_mode
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope
 from pocketmapper.lib.settings import (
-    layer_settings,
-    resolve_fetch_missing,
-    resolve_offline,
-    resolve_pisa_bsa_threshold,
-    resolve_pisa_source,
+    layer_command,
     resolve_step_paths,
+    validate_options,
 )
 from pocketmapper.lib.structure_manager import fetch_missing_entries
 from pocketmapper.pockets.pocket_files import write_pockets_file, write_pockets_table
@@ -100,36 +97,15 @@ def pockets(
             be read or leaves a side empty, a setting is invalid, a Foldseek-database target has no
             alignment, or a built pocket fails `pocket_files.check_pocket`.
     """
-    values = layer_settings(
-        job_file,
-        {
-            "entries_path": entries,
-            "alignment_path": alignment,
-            "verbosity": verbosity,
-            "log_path": log_path,
-            "pdb_dir": pdb_dir,
-            "alphafold_dir": alphafold_dir,
-            "pocket_dir": pocket_dir,
-            "fsdb_dir": fsdb_dir,
-            "pockets_path": pockets_path,
-            "pockets_tsv_path": pockets_tsv_path,
-            "pisa_source": pisa_source,
-            "pisa_bsa_threshold": pisa_bsa_threshold,
-            "fetch_missing": fetch_missing,
-            "offline": offline,
-            "local_root": local_root,
-        },
-    )
+    values = layer_command("pockets", job_file, locals())
     values = resolve_step_paths(
         values,
         ("entries_path", "alignment_path", "pdb_dir", "alphafold_dir", "pocket_dir", "fsdb_dir", "pockets_path"),
         ("log_path", "pockets_tsv_path", "local_root"),
     )
     with run_scope("pockets"), log_to_file(values["log_path"], values["verbosity"]):
-        pisa_source = resolve_pisa_source(values["pisa_source"])
-        pisa_bsa_threshold = resolve_pisa_bsa_threshold(values["pisa_bsa_threshold"])
-        fetch_missing = resolve_fetch_missing(values["fetch_missing"])
-        offline = resolve_offline(values["offline"])
+        values = validate_options(values, "pockets")
+        offline = values["offline"]
         sides = open_entries(values["entries_path"], "pockets")
         manager = PocketManager(
             values["pocket_dir"],
@@ -137,11 +113,11 @@ def pockets(
             alphafold_dir=values["alphafold_dir"],
             fsdb_dir=values["fsdb_dir"],
             local_root=values["local_root"],
-            pisa_source=pisa_source,
-            bsa_threshold=pisa_bsa_threshold,
+            pisa_source=values["pisa_source"],
+            bsa_threshold=values["pisa_bsa_threshold"],
             download=not offline,
         )
-        if fetch_missing and not offline:
+        if values["fetch_missing"] and not offline:
             fetch_missing_entries(sides, manager.structures)
         build_pockets(
             sides,

@@ -15,7 +15,7 @@ from pocketmapper.lib.files import jsonify_dict, make_dir
 from pocketmapper.lib.foldseek import bundled_offset_table, fsdb_pocket_mode
 from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope
-from pocketmapper.lib.settings import layer_settings, resolve_step_paths
+from pocketmapper.lib.settings import layer_command, resolve_step_paths, validate_options
 from pocketmapper.lib.structure_manager import StructureManager
 from pocketmapper.pockets.pocket_files import read_pockets_file
 
@@ -58,28 +58,17 @@ def compare(
 
     Raises:
         PocketMapperError: If the job file cannot be read, a path is not given, the entries table cannot
-            be read or leaves a side empty, an input is missing or unreadable, or the alignment names a
+            be read or leaves a side empty, `verbosity` is not an integer, an input is missing or unreadable, or the alignment names a
             chain the pockets file does not.
     """
-    values = layer_settings(
-        job_file,
-        {
-            "entries_path": entries,
-            "alignment_path": alignment,
-            "pockets_path": pockets,
-            "verbosity": verbosity,
-            "log_path": log_path,
-            "pocket_comparison_path": pocket_comparison_path,
-            "fsdb_dir": fsdb_dir,
-            "local_root": local_root,
-        },
-    )
+    values = layer_command("compare", job_file, locals())
     values = resolve_step_paths(
         values,
         ("entries_path", "alignment_path", "pockets_path", "pocket_comparison_path", "fsdb_dir"),
         ("log_path", "local_root"),
     )
     with run_scope("compare"), log_to_file(values["log_path"], values["verbosity"]):
+        values = validate_options(values, "compare")
         sides = open_entries(values["entries_path"], "compare")
         compare_aligned_pockets(
             sides["target"],

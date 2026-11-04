@@ -9,8 +9,8 @@ file or arguments name them (`resolve_step_paths`). A job file may hold any of `
 defaults and the single-setting validators that `validate_options` applies all come from the registry in
 `lib.options`.
 
-Every validator and `resolve_*` takes the value as given -- from the command line, a job file or a library
-call, so any JSON value -- and returns it checked and normalised, or logs a critical and raises.
+Every validator takes the value as given -- from the command line, a job file or a library call, so any
+JSON value -- and returns it checked and normalised, or logs a critical and raises.
 """
 
 import json
@@ -42,16 +42,6 @@ REMOVED_JOB_KEYS = {
     "pocket_method": "pockets builds the pocket method parse chose for each entry; rerun parse for a new job file",
     "work_dir": "renamed to local_root; set local_root in the job file instead",
 }
-
-# The registry's single-setting validators, by the names the commands call
-resolve_aligner = OPTIONS["aligner"].validate
-resolve_threads = OPTIONS["threads"].validate
-resolve_delete_tmp = OPTIONS["delete_tmp"].validate
-resolve_fetch_missing = OPTIONS["fetch_missing"].validate
-resolve_offline = OPTIONS["offline"].validate
-resolve_refresh_structures = OPTIONS["refresh_structures"].validate
-resolve_pisa_source = OPTIONS["pisa_source"].validate
-resolve_pisa_bsa_threshold = OPTIONS["pisa_bsa_threshold"].validate
 
 # The settings dump search writes; parse writes parse_settings.json
 SEARCH_SETTINGS_NAME = "job_settings.json"
@@ -414,24 +404,6 @@ def resolve_auto_align_struct_method(align_struct_method, aligner):
         raise PocketMapperError(msg)
 
     return method
-
-
-def resolve_align_struct_method(align_struct_method, aligner):
-    """
-    Validate the tri-value `align_struct_method` setting and turn it into "pocket" or "foldseek".
-
-    Args:
-        align_struct_method (str): The requested method: "pocket", "foldseek" or "auto".
-        aligner (str): The aligner that produced the alignment, already validated.
-
-    Returns:
-        str: As `resolve_auto_align_struct_method`.
-
-    Raises:
-        PocketMapperError: If the value is not one of ALIGN_STRUCT_METHODS, or as
-            `resolve_auto_align_struct_method`.
-    """
-    return resolve_auto_align_struct_method(OPTIONS["align_struct_method"].validate(align_struct_method), aligner)
 
 
 def check_offline_refresh(offline, refresh_structures):

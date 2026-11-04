@@ -15,12 +15,9 @@ from pocketmapper.lib.logs import log_to_file
 from pocketmapper.lib.scopes import run_scope, temp_dir_scope
 from pocketmapper.lib.settings import (
     check_offline_refresh,
-    layer_settings,
-    resolve_delete_tmp,
-    resolve_offline,
-    resolve_refresh_structures,
+    layer_command,
     resolve_step_paths,
-    resolve_threads,
+    validate_options,
 )
 from pocketmapper.lib.structure_manager import StructureManager, fetch_missing_fsdb, fetch_missing_structures
 
@@ -80,43 +77,25 @@ def fetch_structures(
             both 1, no structure for a side could be fetched, or a Foldseek database cannot be
             downloaded (or, offline, is not cached).
     """
-    values = layer_settings(
-        job_file,
-        {
-            "entries_path": entries,
-            "verbosity": verbosity,
-            "log_path": log_path,
-            "threads": threads,
-            "temp_dir": temp_dir,
-            "delete_tmp": delete_tmp,
-            "offline": offline,
-            "refresh_structures": refresh_structures,
-            "pdb_dir": pdb_dir,
-            "alphafold_dir": alphafold_dir,
-            "fsdb_dir": fsdb_dir,
-            "local_root": local_root,
-        },
-    )
+    values = layer_command("fetch_structures", job_file, locals())
     values = resolve_step_paths(
         values, ("entries_path", "temp_dir", "pdb_dir", "alphafold_dir", "fsdb_dir"), ("log_path", "local_root")
     )
     with run_scope("fetch_structures"), log_to_file(values["log_path"], values["verbosity"]):
-        threads = resolve_threads(values["threads"])
-        delete_tmp = resolve_delete_tmp(values["delete_tmp"])
-        offline = resolve_offline(values["offline"])
-        refresh_structures = resolve_refresh_structures(values["refresh_structures"])
-        check_offline_refresh(offline, refresh_structures)
+        values = validate_options(values, "fetch_structures")
+        offline = values["offline"]
+        check_offline_refresh(offline, values["refresh_structures"])
         sides = open_entries(values["entries_path"], "fetch_structures")
-        with temp_dir_scope(values["temp_dir"], delete_tmp):
+        with temp_dir_scope(values["temp_dir"], values["delete_tmp"]):
             manager = StructureManager(
                 values["pdb_dir"],
                 values["alphafold_dir"],
                 values["fsdb_dir"],
                 values["local_root"],
                 download=not offline,
-                refresh=bool(refresh_structures),
+                refresh=bool(values["refresh_structures"]),
             )
-            fetch_inputs(sides, manager, values["entries_path"], threads, values["temp_dir"])
+            fetch_inputs(sides, manager, values["entries_path"], values["threads"], values["temp_dir"])
 
 
 def fetch_inputs(sides, manager, entries_path, threads, temp_dir):
