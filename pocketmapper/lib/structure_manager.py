@@ -179,15 +179,16 @@ class StructureManager:
         Concurrently fetch the structures a list of records names.
 
         Writes each PDB and AlphaFold structure to the path `record_path` gives, unless a file is already
-        there and `refresh` is off. With `download` off, nothing is fetched. Records sharing a
-        `struct_info` give one download, from the first of them.
+        there and `refresh` is off. With `download` off, nothing is fetched. Records sharing that path
+        (`4q5j` and `4Q5J`, say) give one download, from the first of them, and share its result.
 
         Args:
             records (list of dict): Records, each with `struct_type` and `struct_info`.
 
         Returns:
-            dict: struct_info -> whether its structure is available. A local file is available if it
-                exists, a Foldseek database always, and an unknown type never (with a warning).
+            dict: struct_info -> whether its structure is available, for every struct_info given. A local
+                file is available if it exists, a Foldseek database always, and an unknown type never (with a
+                warning).
 
         Raises:
             PocketMapperError: If a record's type is known but the directory it needs was not given.
@@ -195,13 +196,18 @@ class StructureManager:
         log_extra = {"stage": "Downloading Structures"}
         found = {}
         jobs = {}
+        # struct_info -> its job's key. Jobs are keyed by destination, so two spellings of one structure
+        # never write the same file at once.
+        job_keys = {}
         for record in records:
             struct_type, struct_info = record["struct_type"], record["struct_info"]
-            if struct_info in found or struct_info in jobs:
+            if struct_info in found or struct_info in job_keys:
                 continue
             if struct_type in STRUCTURE_SOURCES and self.download:
                 url_for, transform = STRUCTURE_SOURCES[struct_type]
-                jobs[struct_info] = DownloadJob(url_for(struct_info), self.record_path(record), transform)
+                out_fpath = self.record_path(record)
+                job_keys[struct_info] = out_fpath
+                jobs.setdefault(out_fpath, DownloadJob(url_for(struct_info), out_fpath, transform))
             elif struct_type in STRUCTURE_SOURCES or struct_type == "local_file":
                 found[struct_info] = os.path.exists(self.record_path(record))
             elif struct_type in NOT_DOWNLOADED:
@@ -209,7 +215,8 @@ class StructureManager:
             else:
                 logger.warning(f"Unknown structure type {struct_type} for struct_info {struct_info}", extra=log_extra)
                 found[struct_info] = False
-        found.update(download_many(jobs, max_workers=self.max_workers, log_extra=log_extra, overwrite=self.refresh))
+        fetched = download_many(jobs, max_workers=self.max_workers, log_extra=log_extra, overwrite=self.refresh)
+        found.update({struct_info: fetched[out_fpath] for struct_info, out_fpath in job_keys.items()})
         return found
 
     def get(self, struct_type, struct_info):
@@ -318,7 +325,7 @@ def fetch_missing_structures(name, records, manager):
     """
     log_extra = {"stage": "Downloading Structures"}
 
-    # One download per structure, however many pockets sit on it: fetch dedupes by struct_info
+    # One download per structure, however many pockets sit on it: fetch dedupes by destination path
     found = manager.fetch(records)
     logger.debug(f"Structure fetcher results: {found}", extra=log_extra)
 

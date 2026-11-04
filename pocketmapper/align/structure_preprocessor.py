@@ -14,7 +14,7 @@ import shutil
 import gemmi
 from tqdm import tqdm
 
-from pocketmapper.lib.files import gzip_file
+from pocketmapper.lib.files import gzip_file, part_path
 from pocketmapper.lib.residues import split_chain_info
 from pocketmapper.lib.structure_manager import load_structure
 
@@ -68,7 +68,6 @@ class StructurePreprocessor:
             chain, _ = split_chain_info(chain_info)
             # Ensuring divided structure is in the cache directory, e.g. <cache>/P12345_A_<md5>.cif.gz
             out_path_gz = os.path.join(cache_dir, f"{record['preprocess_name']}.cif.gz")
-            out_path = out_path_gz.removesuffix(".gz")  # scratch copy, deleted once gzipped
 
             if not os.path.exists(out_path_gz):
                 ref_path = self.manager.record_path(record)  # e.g., /path/to/alphafold_dir/P12345.cif.gz
@@ -101,12 +100,19 @@ class StructurePreprocessor:
                 # Output the domain and motif pdb file
                 os.makedirs(cache_dir, exist_ok=True)
                 groups = gemmi.MmcifOutputGroups(False, atoms=True, group_pdb=True)
-                st.make_mmcif_document(groups).write_file(out_path)
-                # Through a .part: the cache trusts any .cif.gz it finds, so a truncated one would stick
-                part_path_gz = f"{out_path_gz}.part"
-                gzip_file(out_path, part_path_gz)
-                os.replace(part_path_gz, out_path_gz)
-                os.remove(out_path)
+                # Both scratch names are unique, so two runs sharing the cache never write the same file.
+                # The gzip goes through a .part: the cache trusts any .cif.gz it finds, so a truncated one
+                # would stick.
+                cif_part = part_path(out_path_gz.removesuffix(".gz"))
+                gz_part = part_path(out_path_gz)
+                try:
+                    st.make_mmcif_document(groups).write_file(cif_part)
+                    gzip_file(cif_part, gz_part)
+                    os.replace(gz_part, out_path_gz)
+                finally:
+                    for scratch in (cif_part, gz_part):
+                        if os.path.exists(scratch):
+                            os.remove(scratch)
 
             search_path = os.path.join(search_dir, os.path.basename(out_path_gz))
             shutil.copyfile(out_path_gz, search_path)

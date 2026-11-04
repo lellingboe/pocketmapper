@@ -180,8 +180,12 @@ def test_fetch_needs_dir(struct_type, needs):
         StructureManager().fetch([{"struct_type": struct_type, "struct_info": "4Q5J"}])
 
 
-def test_fetch_dedupes(file_source, pdb_record, pdb_dir, pdb_path, monkeypatch):
-    """Records sharing a `struct_info` give one download job."""
+@pytest.mark.parametrize(
+    "struct_infos",
+    [pytest.param(["4Q5J", "4Q5J"], id="same_struct_info"), pytest.param(["4q5j", "4Q5J"], id="same_path")],
+)
+def test_fetch_dedupes(file_source, pdb_dir, pdb_path, monkeypatch, struct_infos):
+    """Records sharing a path give one download job, and every `struct_info` given maps to its result."""
     calls = []
     real_download_many = structure_manager.download_many
 
@@ -191,9 +195,11 @@ def test_fetch_dedupes(file_source, pdb_record, pdb_dir, pdb_path, monkeypatch):
         return real_download_many(jobs, **kwargs)
 
     monkeypatch.setattr(structure_manager, "download_many", recording_download_many)
-    found = StructureManager(pdb_dir).fetch([pdb_record, dict(pdb_record)])
-    assert found == {"4Q5J": True}
+    records = [{"struct_type": "pdb", "struct_info": struct_info} for struct_info in struct_infos]
+    found = StructureManager(pdb_dir).fetch(records)
+    assert found == {struct_info: True for struct_info in struct_infos}
     assert [[job.out_fpath for job in jobs.values()] for jobs in calls] == [[pdb_path]]
+    assert os.listdir(pdb_dir) == ["4Q5J.cif.gz"]
 
 
 def test_refresh_needs_download():

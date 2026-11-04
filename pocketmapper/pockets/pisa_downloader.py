@@ -33,6 +33,7 @@ from tqdm import tqdm
 from pocketmapper.lib.constants import DEFAULT_PISA_SOURCE, PISA_SOURCES
 from pocketmapper.lib.download import DOWNLOAD_WORKERS, DownloadJob, download_api, download_file, download_many
 from pocketmapper.lib.exceptions import PocketMapperError
+from pocketmapper.lib.files import part_path
 
 logger = logging.getLogger(__name__)
 
@@ -42,20 +43,24 @@ PARSE_ERRORS = (OSError, ValueError, KeyError, TypeError, IndexError, AttributeE
 
 def write_json(data, path):
     """
-    Write `data` as JSON to `path` through `<path>.part`, creating its directory.
+    Write `data` as JSON to `path` through a scratch `<path>.<hex>.part`, creating its directory.
 
-    The file appears at `path` only once it is complete, so an interrupted write leaves at most a
-    `.part` file, which no stage reads.
+    The file appears at `path` only once it is complete. The scratch name is unique per call, so two
+    writers of one `path` never share it, and it is removed whether or not the write succeeds.
 
     Args:
         data (dict): JSON-serialisable data.
         path (str): Destination file.
     """
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    part_path = f"{path}.part"
-    with open(part_path, "w") as f:
-        json.dump(data, f)
-    os.replace(part_path, path)
+    part_fpath = part_path(path)
+    try:
+        with open(part_fpath, "w") as f:
+            json.dump(data, f)
+        os.replace(part_fpath, path)
+    finally:
+        if os.path.exists(part_fpath):
+            os.remove(part_fpath)
 
 
 def ftp_assembly_url(pdb_code, asm):
@@ -100,9 +105,10 @@ class PisaDownloader:
     `download_missing_interfaces` is the entry point; the remaining methods are its stages and are
     separately usable, and each makes the directories it writes into. Every stage returns what it could not
     handle instead of raising, so one dead entry does not abort a large batch. Every file, downloaded or
-    written here, is written through a `.part` file, so an interrupted run cannot leave a truncated file
-    for a later run to trust. With `download` False, `download_missing_interfaces` runs no stage, so it
-    sends no request; the download stages called directly still fetch.
+    written here, is written through a uniquely named `.part` file, so an interrupted run cannot leave a
+    truncated file for a later run to trust, and two runs sharing the cache cannot write each other's. With
+    `download` False, `download_missing_interfaces` runs no stage, so it sends no request; the download
+    stages called directly still fetch.
     """
 
     def __init__(
@@ -206,10 +212,10 @@ class PisaDownloader:
         Download the PDBe entry summary for each code into `summary_dir`, which names its assemblies.
 
         Codes already there are not refetched. The rest are requested `summary_batch_size` at a time.
-        Each batch response is written to `_batch.json` in `summary_dir`, which creates the directory,
-        split into one `<pdb_code>.json` per entry, and deleted. The API silently omits an entry it has
-        no summary for, so a code absent from its batch's response counts as a failure, as does every
-        code in a batch whose request failed.
+        Each batch response is written to a scratch file in `summary_dir` named uniquely per batch
+        (`_batch.json.<hex>.part`), which creates the directory, split into one `<pdb_code>.json` per
+        entry, and deleted. The API silently omits an entry it has no summary for, so a code absent from
+        its batch's response counts as a failure, as does every code in a batch whose request failed.
 
         Args:
             pdb_codes (list): Lower-cased PDB codes to fetch.
@@ -229,10 +235,10 @@ class PisaDownloader:
                 to_fetch.append(pdb_code)
 
         url = "https://www.ebi.ac.uk/pdbe/api/v2/pdb/entry/summary/"
-        batch_fname = os.path.join(self.summary_dir, "_batch.json")
         for start in tqdm(range(0, len(to_fetch), self.summary_batch_size)):
             end = start + self.summary_batch_size
             batch = to_fetch[start:end]
+            batch_fname = part_path(os.path.join(self.summary_dir, "_batch.json"))
             try:
                 if not download_api(url, batch_fname, log_extra=self.log_extra, data=",".join(batch).encode()):
                     failure.extend(batch)

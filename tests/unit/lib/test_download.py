@@ -118,20 +118,49 @@ def test_fetch_to_failures_are_transient(serve, tmp_path, reply, expected):
     assert is_transient_error(info.value)
 
 
-def test_write_through_part_stall_leaves_nothing(serve, tmp_path, monkeypatch):
-    """A stalled fetch leaves neither the final file nor its `.part` behind."""
+def copy_reversed(src_fpath, dst_fpath):
+    """A transform writing the bytes of `src_fpath` reversed to `dst_fpath`."""
+    with open(src_fpath, "rb") as f_in, open(dst_fpath, "wb") as f_out:
+        f_out.write(f_in.read()[::-1])
+
+
+def failing_transform(src_fpath, dst_fpath):
+    """A transform that writes part of its output and then raises."""
+    with open(dst_fpath, "wb") as f_out:
+        f_out.write(b"half")
+    raise ValueError("transform failed")
+
+
+@pytest.mark.parametrize(
+    ("reply", "transform", "error", "expected"),
+    [
+        pytest.param(response(BODY, len(BODY)), None, None, BODY, id="success"),
+        pytest.param(response(BODY, len(BODY)), copy_reversed, None, BODY[::-1], id="success_transform"),
+        pytest.param(response(BODY, 100), None, ContentTooShortError, None, id="short_read"),
+        pytest.param(response(BODY, 100), copy_reversed, ContentTooShortError, None, id="short_read_transform"),
+        pytest.param(None, None, (TimeoutError, URLError), None, id="stall"),
+        pytest.param(response(BODY, len(BODY)), failing_transform, ValueError, None, id="transform_fails"),
+    ],
+)
+def test_write_through_part_leaves_no_scratch(serve, tmp_path, monkeypatch, reply, transform, error, expected):
+    """Success leaves only the final file, failure leaves nothing: no scratch file survives either way."""
 
     def quick_fetch(url, raw_fpath, data=None):
         """`fetch_to` with a short timeout."""
         fetch_to(url, raw_fpath, data, timeout=0.2)
 
     monkeypatch.setattr(download, "fetch_to", quick_fetch)
-    server = serve(None)
+    server = serve(reply)
     out = os.path.join(str(tmp_path), "sub", "out.json")
-    with pytest.raises((TimeoutError, URLError)):
-        write_through_part(server.url, out, None, None)
-    assert not os.path.exists(out)
-    assert not os.path.exists(f"{out}.part")
+    if error is None:
+        write_through_part(server.url, out, transform, None)
+        assert os.listdir(os.path.dirname(out)) == ["out.json"]
+        with open(out, "rb") as f:
+            assert f.read() == expected
+    else:
+        with pytest.raises(error):
+            write_through_part(server.url, out, transform, None)
+        assert os.listdir(os.path.dirname(out)) == []
 
 
 def test_download_many_interrupt_cancels_queued(tmp_path, monkeypatch):

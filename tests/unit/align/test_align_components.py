@@ -35,13 +35,15 @@ def record(local_root):
 
 @pytest.mark.parametrize("chain, expected", [("A_E", True), ("Z_E", False)])
 def test_preprocess_records_locates_with_manager(manager, record, local_root, chain, expected):
-    """The reference structure comes from `record_path`; a chain the structure lacks fails."""
+    """The reference structure comes from `record_path`; a chain the structure lacks fails; no scratch is left."""
     record["chain_info"] = chain
     cache, search = os.path.join(local_root, "cache"), os.path.join(local_root, "search")
     os.makedirs(search)
     status = StructurePreprocessor(manager).preprocess_records([record], cache, search)
     assert status == {record["pocket_id"]: expected}
     assert os.path.isfile(os.path.join(search, "copy_A_x.cif.gz")) is expected
+    if expected:
+        assert os.listdir(cache) == ["copy_A_x.cif.gz"]
 
 
 def test_align_records_locates_with_manager(manager, record):

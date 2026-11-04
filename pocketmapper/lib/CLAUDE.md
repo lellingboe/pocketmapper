@@ -8,10 +8,11 @@ working here.
 `lib.download` offers **two entry points, not one**, because the two kinds of thing it fetches differ
 in every operational respect. `download_file` is for bulk static files: unpaced and stateless.
 `download_api` is for REST endpoints: it paces its requests and, on a transient failure, doubles that
-host's pacing and never lowers it again. Both write through a `.part` file, create the destination's
-directory, share one retry test, and fetch through `fetch_to` (a User-Agent, and a `DOWNLOAD_TIMEOUT` of 60 s
-per socket operation). A host that stalls every time therefore costs `max_retries` x 60 s per file, and for
-`download_api` those files run one after another.
+host's pacing and never lowers it again. Both write through a `.part` file named uniquely per attempt by
+`lib.files.part_path`, so two runs sharing a cache never write the same scratch file. Both also create the
+destination's directory, share one retry test, and fetch through `fetch_to` (a User-Agent, and a
+`DOWNLOAD_TIMEOUT` of 60 s per socket operation). A host that stalls every time therefore costs
+`max_retries` x 60 s per file, and for `download_api` those files run one after another.
 
 **`download_many` is the one download pool**, used by `lib.structure_manager.StructureManager.fetch`
 and `PisaDownloader.download_missing_assemblies`. It skips a `DownloadJob` whose file already exists, so
@@ -43,8 +44,9 @@ Four consequences no single file states:
   `Exception`, so every entry PISA lacked cost 5 requests and ~3.75s of sleeping — on the full-PDB path
   that is thousands of entries.
 
-A leftover `.part` or `.raw.part` is inert in every cache directory: `download_missing_interfaces`
-globs `*.json`, which cannot match `x.json.part`, and everything else checks an exact path —
-`download_many` its job's `out_fpath` (a structure's `.cif.gz`, a PISA assembly's `.json`), the other
-PISA stages their own files. The same holds for a leftover `summaries/_batch.json`, since no PDB code
-starts with `_`.
+A leftover scratch file (`<name>.<hex>.part`) is inert in every cache directory:
+`download_missing_interfaces` globs `*.json`, which cannot match `x.json.<hex>.part`, and everything else
+checks an exact path — `download_many` its job's `out_fpath` (a structure's `.cif.gz`, a PISA assembly's
+`.json`), the other PISA stages their own files, the align step's preprocessing its `<preprocess_name>.cif.gz`.
+The same holds for a leftover `summaries/_batch.json.<hex>.part`, which nothing reads. Being unique, they
+are never overwritten either: a run killed mid-write leaves one per file it was writing, until deleted.

@@ -1,14 +1,15 @@
 """
-Shared download machinery: retrying what is worth retrying, and writing through a `.part` file.
+Shared download machinery: retrying what is worth retrying, and writing through a scratch `.part` file.
 
 Two entry points, because PocketMapper fetches two different kinds of thing. `download_file` is for
 bulk files: it is unpaced and holds no state, so many can run at once. `download_api` is for REST
 endpoints: it paces its requests and remembers, per host, how long the pacing has had to grow.
 `download_many` runs a set of either, skipping files already in place unless told to overwrite them.
 
-Every response lands on `<out_fpath>.part` and is moved onto its final name only once it is
-complete, so an interrupted download cannot leave a truncated file under a name a cache would
-trust.
+Every response lands on a scratch file beside its destination, `<out_fpath>.<hex>.part` from
+`lib.files.part_path`, and is moved onto its final name only once it is complete, so an interrupted
+download cannot leave a truncated file under a name a cache would trust. The name is unique per attempt,
+so two downloads of one file never write the same scratch file.
 
 Every request goes through `fetch_to`, which sends `USER_AGENT` and gives each socket operation
 `DOWNLOAD_TIMEOUT` seconds, so a server that stalls raises a `TimeoutError` that is retried like any
@@ -30,6 +31,7 @@ from urllib.request import Request, urlopen
 from tqdm import tqdm
 
 from pocketmapper.lib.constants import __version__
+from pocketmapper.lib.files import part_path
 
 logger = logging.getLogger(__name__)
 
@@ -173,13 +175,13 @@ def fetch_to(url, raw_fpath, data=None, timeout=DOWNLOAD_TIMEOUT):
 
 def write_through_part(url, out_fpath, transform, log_extra, data=None):
     """
-    Fetch `url` and place it at `out_fpath`, writing through a `.part` file.
+    Fetch `url` and place it at `out_fpath`, writing through a scratch `.part` file.
 
-    Creates the parent directory of `out_fpath` if it is missing. The response is written beside the
-    destination and moved onto it with `os.replace` only once it is complete, so a failed fetch leaves
-    nothing under the final name. With a `transform`, the response goes to a second scratch file and
-    only the transform's output is placed. Every scratch file is removed before returning, whether or
-    not the fetch succeeded.
+    Creates the parent directory of `out_fpath` if it is missing. The response is written to a scratch
+    file beside the destination, named uniquely by `part_path`, and moved onto it with `os.replace` only
+    once it is complete, so a failed fetch leaves nothing under the final name. With a `transform`, the
+    response goes to a second scratch file and only the transform's output is placed. Every scratch file
+    is removed before returning, whether or not the fetch succeeded.
 
     Args:
         url (str): Address to fetch.
@@ -199,18 +201,17 @@ def write_through_part(url, out_fpath, transform, log_extra, data=None):
     out_dir = os.path.dirname(out_fpath)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
-    part_fpath = f"{out_fpath}.part"
-    raw_fpath = f"{out_fpath}.raw.part" if transform else part_fpath
+    part_fpath = part_path(out_fpath)
+    raw_fpath = part_path(out_fpath) if transform else part_fpath
     try:
         logger.debug(f"Fetching {url} -> {raw_fpath}", extra=log_extra)
         fetch_to(url, raw_fpath, data=data)
         if transform:
             transform(raw_fpath, part_fpath)
         os.replace(part_fpath, out_fpath)
-    except Exception:
-        discard_partial(part_fpath)
-        raise
     finally:
+        # Also on Ctrl-C: a unique name is never reused, so a leftover would stay. Gone once replaced.
+        discard_partial(part_fpath)
         if transform:
             discard_partial(raw_fpath)
 
@@ -338,6 +339,6 @@ def download_many(jobs, fetch=download_file, max_workers=DOWNLOAD_WORKERS, log_e
         executor.shutdown(wait=False, cancel_futures=True)
         raise
     finally:
-        # Running jobs finish and remove their `.part` files before this returns or propagates.
+        # Running jobs finish and remove their scratch files before this returns or propagates.
         executor.shutdown(wait=True)
     return {key: results[key] for key in jobs}

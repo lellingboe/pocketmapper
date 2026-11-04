@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import shutil
+import uuid
 
 from pocketmapper.lib.exceptions import PocketMapperError
 
@@ -38,6 +39,24 @@ def make_dir(path, log_extra):
     except OSError as e:
         logger.critical(f"Error creating directory {path}", extra=log_extra)
         raise PocketMapperError(f"Error creating directory {path}") from e
+
+
+def part_path(fpath):
+    """
+    Build a scratch path beside `fpath`, unique to this call.
+
+    Nothing is created. A unique name keeps two writers of one destination, in one process or two, from
+    writing the same scratch file, so the `os.replace` onto `fpath` always moves a complete file. Not
+    `tempfile.mkstemp`: its files are mode 0600, and `os.replace` would carry that mode into a cache that
+    other users share.
+
+    Args:
+        fpath (str): The destination the scratch file will be moved onto.
+
+    Returns:
+        str: `<fpath>.<32 hex digits>.part`.
+    """
+    return f"{fpath}.{uuid.uuid4().hex}.part"
 
 
 def gzip_file(src_fpath, dst_fpath):
