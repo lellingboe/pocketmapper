@@ -15,7 +15,7 @@ import pytest
 from pocketmapper import cli
 from pocketmapper import search as search_module
 from pocketmapper.lib.constants import PACKAGE_LOGGER
-from pocketmapper.lib.options import JOB_KEYS, SETTING_DEFAULTS, STEP_ONLY_KEYS
+from pocketmapper.lib.options import COMMANDS, JOB_KEYS, OPTIONS, SETTING_DEFAULTS, STEP_ONLY_KEYS, job_key
 from pocketmapper.lib.scopes import HELD_TEMP_DIRS, OUTER_COMMAND
 from pocketmapper.lib.settings import Settings
 
@@ -49,11 +49,11 @@ def parameters(function):
 
 
 def test_every_command_dispatched():
-    """The parser, `COMMANDS` and the dispatch table name the same commands."""
-    assert set(subparsers()) == set(cli.COMMANDS) == set(cli.DISPATCH)
+    """The parser, the registry's commands, the descriptions and the dispatch table name the same commands."""
+    assert set(subparsers()) == set(COMMANDS) == set(cli.COMMAND_DESCRIPTIONS) == set(cli.DISPATCH)
 
 
-@pytest.mark.parametrize("command", list(cli.COMMANDS))
+@pytest.mark.parametrize("command", list(COMMANDS))
 def test_options_match_signature(command):
     """A command's options are exactly the parameters of the function it dispatches to, each once."""
     dests = option_dests(subparsers()[command])
@@ -82,10 +82,12 @@ def test_settings_match_search_arguments(monkeypatch):
 
 
 def test_job_keys():
-    """`JOB_KEYS` is the `Settings` fields plus `STEP_ONLY_KEYS`, and every `SETTING_DEFAULTS` key is a job key."""
+    """`JOB_KEYS` is the `Settings` fields plus `STEP_ONLY_KEYS`, each key once, and covers every default."""
     assert sorted(JOB_KEYS) == sorted(SETTINGS_FIELDS + list(STEP_ONLY_KEYS))
     assert len(JOB_KEYS) == len(set(JOB_KEYS))
     assert set(SETTING_DEFAULTS) <= set(JOB_KEYS)
+    # Every option's job key is a job key, except `job_file`, which has none
+    assert {job_key(option) for option in OPTIONS.values()} - {None} == set(JOB_KEYS)
 
 
 @pytest.mark.parametrize(
@@ -103,7 +105,7 @@ def test_step_path_options(command, expected):
     assert expected <= set(option_dests(subparsers()[command]))
 
 
-@pytest.mark.parametrize("command", list(cli.COMMANDS))
+@pytest.mark.parametrize("command", list(COMMANDS))
 def test_options_default_none(command):
     """Every option defaults to None, so the job file and SETTING_DEFAULTS apply under it."""
     subparser = subparsers()[command]
