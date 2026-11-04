@@ -15,6 +15,8 @@ and not copied here.
   each step's entry/core layers, settings layering, and how every later step reads its records from
   `entries.tsv` (no records are handed on in memory).
 - `cli.py`: the only module that knows about argv or exit codes; why every option defaults to None.
+- `lib/options.py`: the option registry; CLI options, defaults, job keys and validators are derived from it.
+  `context/settings.md` says what a new option needs.
 - `lib/entries.py`: `entries.tsv`, why a dropped entry warns only once, and why a rerun step gives the same
   table.
 - `parse/qt_processor.py`: the input grammar; the two tables in `QTProcessor.__init__` are the whole of it.
@@ -107,7 +109,8 @@ the `fetch_missing_*` functions fill the cache), `pockets.pisa_downloader`, `ali
 (read and write `pockets.json`, without the manager), `pockets.pisa` (`load_interfaces`,
 `interface_partners`, `pisa_pockets_from_records`), `pockets.vdw.vdw_contact_residues`, `align.sequence_aligner`,
 `superpose.structure_aligner`, `lib.foldseek`).
-No component or step takes a `Settings`; the entry functions take its dict as `job_file`.
+No component or step takes a settings object; the entry functions take a job dict (job key -> value, as in
+`job_settings.json`) as `job_file`.
 
 - **Records come from `parse.parse.parse_entries`**: the side checks parse makes, with no files written.
   A finished run's own records, its dropped entries left out, are
