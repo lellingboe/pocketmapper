@@ -1,7 +1,7 @@
 """
-Unit tests for `lib.settings`: `resolve_align_struct_method`, the offline/refresh conflict, `layer_settings`,
-`require_setting`, `read_job_file` and the path resolution. The single-setting validators are tested in
-`test_options.py`.
+Unit tests for `lib.settings`: `resolve_align_struct_method`, the offline/refresh conflict, `layer_command`,
+`validate_options`, `layer_settings`, `require_setting`, `read_job_file` and the path resolution. The
+single-setting validators are tested in `test_options.py`.
 """
 
 import json
@@ -12,16 +12,20 @@ import pytest
 
 from pocketmapper.lib.constants import DEFAULT_ALIGN_COUNT, DEFAULT_ALIGNER
 from pocketmapper.lib.exceptions import PocketMapperError
+from pocketmapper.lib.options import command_options
 from pocketmapper.lib.settings import (
     JOB_KEYS,
     SETTING_DEFAULTS,
     check_offline_refresh,
+    layer_command,
     layer_settings,
     read_job_file,
     require_setting,
     resolve_align_struct_method,
+    resolve_auto_align_struct_method,
     resolve_paths,
     resolve_step_paths,
+    validate_options,
 )
 from pocketmapper.search import PocketMapper
 
@@ -81,7 +85,13 @@ def test_resolve_align_struct_method_rejects(method, aligner, message):
         resolve_align_struct_method(method, aligner)
 
 
-# check_offline_refresh, alone and as `resolve_settings` step 4h
+def test_resolve_auto_align_struct_method_takes_validated_value():
+    """The resolution half leaves a concrete method as it is and follows the aligner for "auto"."""
+    assert resolve_auto_align_struct_method("pocket", "foldseek") == "pocket"
+    assert resolve_auto_align_struct_method("auto", "foldseek") == "foldseek"
+
+
+# check_offline_refresh, alone and in `PocketMapper.resolve_settings`
 
 OFFLINE_REFRESH_CONFLICT = "offline and refresh_structures cannot both be 1"
 
@@ -99,7 +109,7 @@ def test_check_offline_refresh_rejects():
 
 
 def test_resolve_settings_offline_refresh_conflict():
-    """`resolve_settings` rejects offline and refresh_structures both 1 before a Settings is built or dumped."""
+    """`resolve_settings` rejects offline and refresh_structures both 1 before the settings are dumped."""
     values = {
         "aligner": "seq",
         "align_struct_method": "auto",
@@ -112,6 +122,63 @@ def test_resolve_settings_offline_refresh_conflict():
     }
     with raises(OFFLINE_REFRESH_CONFLICT):
         PocketMapper().resolve_settings(values)
+
+
+# layer_command and validate_options
+
+
+def parameter_names(command):
+    """The parameter names `command`'s entry function must have, `job_file` aside."""
+    return [option.name for option in command_options(command) if option.name != "job_file"]
+
+
+def test_layer_command_maps_names_to_keys():
+    """`job_file` and `self` are dropped, and an input option sets the job key it reads."""
+    arguments = dict.fromkeys(parameter_names("compare")) | {"self": object(), "job_file": None}
+    arguments["entries"] = "entries.tsv"
+    values = layer_command("compare", None, arguments)
+    assert values["entries_path"] == "entries.tsv"
+    assert "entries" not in values
+    assert "self" not in values
+
+
+@pytest.mark.parametrize(
+    "drop, add, message",
+    [
+        ("align_count", None, "missing align_count; not registered none."),
+        (None, "bogus", "missing none; not registered bogus."),
+    ],
+)
+def test_layer_command_rejects_drifted_signature(drop, add, message):
+    """A parameter missing from the registry's options, or one it lacks, is rejected on the first call."""
+    arguments = {name: None for name in parameter_names("search") if name != drop}
+    if add is not None:
+        arguments[add] = None
+    with raises(f"The search parameters do not match its options in lib.options.OPTIONS: {message}"):
+        layer_command("search", None, arguments | {"job_file": None})
+
+
+@pytest.mark.parametrize(
+    "key, value, message",
+    [
+        ("align_count", -1, "align_count must be a non-negative integer, got -1."),
+        ("align_count", "10", "align_count must be a non-negative integer, got '10'."),
+        ("verbosity", "3", "verbosity must be an integer, got '3'."),
+        ("verbosity", True, "verbosity must be an integer, got True."),
+    ],
+)
+def test_validate_options_rejects(key, value, message):
+    """`validate_options` applies the validators of `align_count` and `verbosity`, which nothing checked before."""
+    values = layer_settings(None, {key: value})
+    with raises(message):
+        validate_options(values, "search")
+
+
+def test_validate_options_normalises_present_keys():
+    """A present setting is normalised, an absent one is not added, and the input is left as it was."""
+    values = {"aligner": "SEQ", "threads": 2}
+    assert validate_options(values, "search") == {"aligner": "seq", "threads": 2}
+    assert values["aligner"] == "SEQ"
 
 
 # layer_settings and require_setting

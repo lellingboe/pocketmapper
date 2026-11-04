@@ -3,7 +3,8 @@ PocketMapper: map and compare binding pockets across protein structures.
 
 `PocketMapper.search()` is the whole workflow. It resolves its settings, then runs the steps in order:
 
-1. `configure_workflow` -> arguments over job file; `resolve_settings` -> Settings, job_settings.json.
+1. `lib.settings.layer_command` -> arguments over job file; `resolve_settings` -> every setting checked,
+   job_settings.json.
 2. `parse.parse` -> every entry checked before anything is fetched; entries.tsv written afresh.
 3. `fetch.fetch` -> structures and a bundled Foldseek database into the cache.
 4. `align.align` -> foldseek or the local sequence aligner, per `aligner` -> alignment.tsv.
@@ -22,7 +23,7 @@ scratch directory and calls the core function, so each step also runs on its own
 takes explicit paths, values and records as arguments, and keeps no state between calls.
 
 Settings: an argument given beats the job file (a JSON path, or the same already loaded as a dict), which
-beats `lib.settings.SETTING_DEFAULTS`. Only `search` and `parse` take `cache_dir` and `results_dir` and
+beats `lib.options.SETTING_DEFAULTS`. Only `search` and `parse` take `cache_dir` and `results_dir` and
 derive the other paths from them; each writes its settings, every path resolved, as a job file for the
 steps after it (job_settings.json, `<results_dir>/parse_settings.json`). Every other step takes each path
 it uses from its arguments or job file, and an argument moves only the path it names.
@@ -32,16 +33,15 @@ reads its records from it, skipping the entries an earlier step dropped, and mar
 itself. The cache and the files under `results_dir` are all the steps hand on. A step clears its own
 marks when it starts, so every step is idempotent on rerun.
 
-This is the only module that builds a `Settings`. Entry functions take a job dict keyed by its field
-names; core functions and components take only the individual values they need, never a `Settings`, so
-none of them has to build one to be usable on its own.
+Settings travel as a job dict, job key -> value, `command_keys("search")` for search. Entry functions take
+one as `job_file`; core functions and components take only the individual values they need, so none of
+them needs a job dict to be usable on its own.
 
 Author: Lachlan Ellingboe
 """
 
 import json
 import logging
-from dataclasses import asdict, fields
 
 from pocketmapper.align.align import align
 from pocketmapper.compare.compare import compare
@@ -49,24 +49,18 @@ from pocketmapper.fetch.fetch import fetch_structures
 from pocketmapper.lib.entries import entry_sides, fsdb_record, read_entries
 from pocketmapper.lib.foldseek import require_foldseek
 from pocketmapper.lib.logs import log_to_file
+from pocketmapper.lib.options import command_keys
 from pocketmapper.lib.scopes import run_scope, temp_dir_scope
 from pocketmapper.lib.settings import (
-    Settings,
     check_fsdb_align_struct_method,
     check_fsdb_aligner,
     check_offline_refresh,
     dump_settings,
-    layer_settings,
+    layer_command,
     require_setting,
-    resolve_align_struct_method,
-    resolve_aligner,
-    resolve_delete_tmp,
-    resolve_offline,
+    resolve_auto_align_struct_method,
     resolve_paths,
-    resolve_pisa_bsa_threshold,
-    resolve_pisa_source,
-    resolve_refresh_structures,
-    resolve_threads,
+    validate_options,
 )
 from pocketmapper.parse.parse import parse
 from pocketmapper.pockets.pockets import pockets
@@ -131,7 +125,9 @@ class PocketMapper:
                 `job_file`, not both.
             target (str, optional): Target structure identifier, string or path to a list. As `query`.
             job_file (str or dict, optional): JSON job file of job key -> value, or the same
-                already loaded. Any argument given overrides it; a key Settings lacks is ignored.
+                already loaded. Any argument given overrides it. A key search does not take is rejected
+                unless it is one of `lib.options.STEP_ONLY_KEYS`, which only some steps take, and is
+                left out of job_settings.json.
             cache_dir (str, optional): Directory to cache intermediate structures.
                 Defaults to DEFAULT_CACHE_DIR.
             results_dir (str, optional): Directory to output results to.
@@ -149,9 +145,10 @@ class PocketMapper:
                 on their overlapping residues, or 'auto' (the default) for 'foldseek' with
                 aligner 'foldseek' and 'pocket' with 'seq', which produces no chain transform at all.
             query_pocket_method (str, optional): Force a pocket method for every query entry --
-                'pisa', 'passthrough', 'vdw', 'whole_chain' or 'foldseek_db' -- or 'auto' (the
-                default) to infer it per entry from the input string.
-            target_pocket_method (str, optional): As `query_pocket_method`, for the target side.
+                'pisa', 'passthrough', 'vdw' or 'whole_chain' -- or 'auto' (the default) to infer it
+                per entry from the input string.
+            target_pocket_method (str, optional): As `query_pocket_method`, for the target side, which
+                also takes 'foldseek_db'.
             delete_tmp (int, optional): 1 deletes temp_dir at the end of a successful run; 0 keeps
                 it for inspection. Defaults to DEFAULT_DELETE_TMP.
             pisa_source (str, optional): Where PISA interfaces are fetched from -- 'ftp' for the EBI
@@ -193,65 +190,35 @@ class PocketMapper:
                 Defaults to <cache_dir>/fsdb.
 
         Returns:
-            dict: The resolved Settings as a dictionary. Results are written to `results_dir` --
-                read pocket_comparison.tsv and alignment.tsv from the paths it names.
+            dict: The resolved settings, job key -> value, as written to job_settings.json plus
+                `job_settings_path`. Results are written to `results_dir` -- read pocket_comparison.tsv
+                and alignment.tsv from the paths it names.
 
         Raises:
-            PocketMapperError: On a bad job file, a query/target given both ways or neither way,
-                offline and refresh_structures both 1, or any pipeline failure.
+            PocketMapperError: On a bad job file, a query/target given both ways or neither way, a
+                setting with a bad value, offline and refresh_structures both 1, or any pipeline
+                failure.
         """
-        # The Settings fields as passed to this call. Kept beside the signature it mirrors, so the
-        # two cannot drift; `job_file` is absent because Settings has no such field.
-        arguments = {
-            "query": query,
-            "target": target,
-            "cache_dir": cache_dir,
-            "results_dir": results_dir,
-            "local_root": local_root,
-            "aligner": aligner,
-            "verbosity": verbosity,
-            "threads": threads,
-            "align_count": align_count,
-            "align_struct_method": align_struct_method,
-            "query_pocket_method": query_pocket_method,
-            "target_pocket_method": target_pocket_method,
-            "delete_tmp": delete_tmp,
-            "pisa_source": pisa_source,
-            "pisa_bsa_threshold": pisa_bsa_threshold,
-            "offline": offline,
-            "refresh_structures": refresh_structures,
-            "pdb_dir": pdb_dir,
-            "alphafold_dir": alphafold_dir,
-            "pocket_dir": pocket_dir,
-            "foldseek_preprocessed_structure_dir": foldseek_preprocessed_structure_dir,
-            "temp_dir": temp_dir,
-            "aligned_structure_dir": aligned_structure_dir,
-            "alignment_path": alignment_path,
-            "pocket_comparison_path": pocket_comparison_path,
-            "pockets_path": pockets_path,
-            "entries_path": entries_path,
-            "job_settings_path": job_settings_path,
-            "log_path": log_path,
-            "fsdb_dir": fsdb_dir,
-        }
-
-        values = self.configure_workflow(job_file, arguments)
+        # First, while the locals are only the parameters
+        values = layer_command("search", job_file, locals())
+        for key in ("query", "target"):
+            require_setting(values, key)
+        values = resolve_paths(values, "search")
 
         # The steps' own scopes are no-ops inside this one, so only job_settings.json is written
         with run_scope("search"), log_to_file(values["log_path"], values["verbosity"]):
-            settings = self.resolve_settings(values)
             # Every step gets the whole run's settings; their own log and temp scopes are no-ops
             # inside these, so the log is written once and temp_dir lives for the whole run
-            job = asdict(settings)
-            with temp_dir_scope(settings.temp_dir, settings.delete_tmp):
+            job = self.resolve_settings(values)
+            with temp_dir_scope(job["temp_dir"], job["delete_tmp"]):
                 table = parse(job_file=job)
                 logger.info(
                     f"Entries:\n{table.to_string(index=False)}", extra={"stage": "Determine Query/Target Types"}
                 )
                 # Checked before the database is downloaded
-                if fsdb_record(entry_sides(read_entries(settings.entries_path))["target"]) is not None:
-                    check_fsdb_aligner(settings.aligner)
-                    check_fsdb_align_struct_method(settings.align_struct_method)
+                if fsdb_record(entry_sides(read_entries(job["entries_path"]))["target"]) is not None:
+                    check_fsdb_aligner(job["aligner"])
+                    check_fsdb_align_struct_method(job["align_struct_method"])
                 fetch_structures(job_file=job)
                 align(job_file=job)
                 pockets(job_file=job)
@@ -262,27 +229,6 @@ class PocketMapper:
 
         return job
 
-    def configure_workflow(self, job_file, arguments):
-        """
-        Layer the arguments over the job file and fill in every path left unset.
-
-        Args:
-            job_file (str, dict or None): JSON job file, the same already loaded, or None for none.
-                Any argument given overrides it.
-            arguments (dict): Settings field name -> value from `search()`, None for unset.
-
-        Returns:
-            dict: Job key -> value, every path set but nothing else checked.
-
-        Raises:
-            PocketMapperError: If the job file is missing, unreadable or names an unknown setting, or if
-                query or target is given both ways or neither way.
-        """
-        values = layer_settings(job_file, arguments)
-        for key in ("query", "target"):
-            require_setting(values, key)
-        return resolve_paths(values, "search")
-
     def resolve_settings(self, values):
         """
         Check and resolve every setting, and write job_settings.json.
@@ -291,55 +237,36 @@ class PocketMapper:
         open.
 
         Args:
-            values (dict): Job key -> value, from `configure_workflow`. Keys Settings lacks, which
+            values (dict): Job key -> value, every path resolved. Keys search does not take, which
                 only some steps take, are dropped.
 
         Returns:
-            Settings: The resolved configuration. Also written to `job_settings_path`, without that
-                field, as a job file any step can take.
+            dict: Job key -> value for each of `command_keys("search")`, checked and normalised. Also
+                written to `job_settings_path`, without that key, as a job file any step can take.
 
         Raises:
-            PocketMapperError: If a setting has an unknown value, foldseek is selected but cannot run,
-                offline and refresh_structures are both 1, or the settings cannot be written.
+            PocketMapperError: If a setting has an unknown value, offline and refresh_structures are
+                both 1, foldseek is selected but cannot run, or the settings cannot be written.
         """
         log_extra = {"stage": "Configuring Settings"}
 
-        # 4b. Validate the aligner and, for foldseek, probe the binary. Must come before anything is
-        # fetched, so a missing binary fails without wasted downloads, and before the settings are
-        # dumped below, so job_settings.json records the normalised value.
-        values["aligner"] = resolve_aligner(values["aligner"])
+        # Everything is checked before anything is fetched, so a bad value fails without wasted downloads,
+        # and before the settings are dumped below, so job_settings.json records checked, normalised
+        # values. After the log is open, so a failure and the `threads` and 'auto' resolutions reach it.
+        values = validate_options(values, "search")
+        check_offline_refresh(values["offline"], values["refresh_structures"])
+        # Reads the aligner just validated. job_settings.json records a concrete method.
+        values["align_struct_method"] = resolve_auto_align_struct_method(
+            values["align_struct_method"], values["aligner"]
+        )
+        # Last: the one check that runs a program
         if values["aligner"] == "foldseek":
             require_foldseek(
                 "The foldseek aligner was selected",
                 "Or pass --aligner seq to use the built-in BLOSUM62 sequence aligner.",
             )
 
-        # 4c. Reads the aligner just validated, so it must follow it. After the log is open, so the
-        # 'auto' resolution is visible.
-        values["align_struct_method"] = resolve_align_struct_method(values["align_struct_method"], values["aligner"])
-
-        # 4d. Same reasoning as 4b/4c: after the log is open so the resolution is visible, and
-        # before the settings are logged and dumped, so job_settings.json records a concrete count.
-        values["threads"] = resolve_threads(values["threads"])
-
-        # 4e. Before the settings are dumped, so job_settings.json records a checked value.
-        values["delete_tmp"] = resolve_delete_tmp(values["delete_tmp"])
-
-        # 4f. Before the settings are dumped, so job_settings.json records the normalised value.
-        values["pisa_source"] = resolve_pisa_source(values["pisa_source"])
-
-        # 4g. Before the settings are dumped, so job_settings.json records the checked value.
-        values["pisa_bsa_threshold"] = resolve_pisa_bsa_threshold(values["pisa_bsa_threshold"])
-
-        # 4h. Before anything is fetched, so a conflict fails without wasted downloads, and before the
-        # settings are dumped below, so job_settings.json records checked values.
-        values["offline"] = resolve_offline(values["offline"])
-        values["refresh_structures"] = resolve_refresh_structures(values["refresh_structures"])
-        check_offline_refresh(values["offline"], values["refresh_structures"])
-
-        settings = Settings(**{field.name: values[field.name] for field in fields(Settings)})
-        logger.info(f"Settings: {json.dumps(asdict(settings), indent=4)}", extra=log_extra)
-
-        # 5. Output dump
-        dump_settings(asdict(settings))
-        return settings
+        job = {key: values[key] for key in command_keys("search")}
+        logger.info(f"Settings: {json.dumps(job, indent=4)}", extra=log_extra)
+        dump_settings(job)
+        return job

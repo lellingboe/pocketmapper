@@ -1,6 +1,6 @@
 """
 Unit tests for `cli`: each command's options against the function it dispatches to, the job keys against
-`Settings`, and an invalid option failing before any network access.
+the registry, and an invalid option failing before any network access.
 """
 
 import argparse
@@ -8,26 +8,26 @@ import inspect
 import logging
 import os
 import socket
-from dataclasses import fields
 
 import pytest
 
 from pocketmapper import cli
-from pocketmapper import search as search_module
 from pocketmapper.lib.constants import PACKAGE_LOGGER
-from pocketmapper.lib.options import COMMANDS, JOB_KEYS, OPTIONS, SETTING_DEFAULTS, STEP_ONLY_KEYS, job_key
+from pocketmapper.lib.options import (
+    COMMANDS,
+    JOB_KEYS,
+    OPTIONS,
+    SETTING_DEFAULTS,
+    STEP_ONLY_KEYS,
+    command_keys,
+    command_options,
+    job_key,
+)
 from pocketmapper.lib.scopes import HELD_TEMP_DIRS, OUTER_COMMAND
-from pocketmapper.lib.settings import Settings
-
-SETTINGS_FIELDS = [field.name for field in fields(Settings)]
 
 
 class NetworkAttempt(RuntimeError):
     """Raised in place of a connection or name lookup the test forbids."""
-
-
-class ArgumentsCaptured(Exception):
-    """Raised to stop `search` once its `arguments` dict has been recorded."""
 
 
 def subparsers():
@@ -61,29 +61,15 @@ def test_options_match_signature(command):
     assert set(dests) == set(parameters(cli.DISPATCH[command]))
 
 
-def test_settings_match_search_signature():
-    """`Settings` has a field for every parameter of `search` but `job_file`, and no other."""
-    assert sorted(SETTINGS_FIELDS) == sorted(name for name in parameters(cli.DISPATCH["search"]) if name != "job_file")
-
-
-def test_settings_match_search_arguments(monkeypatch):
-    """The `arguments` dict `search` layers holds exactly the `Settings` fields."""
-    captured = {}
-
-    def capture(job_file, arguments):
-        """Record `arguments` and stop the run."""
-        captured.update(arguments)
-        raise ArgumentsCaptured
-
-    monkeypatch.setattr(search_module, "layer_settings", capture)
-    with pytest.raises(ArgumentsCaptured):
-        search_module.PocketMapper().search()
-    assert sorted(captured) == sorted(SETTINGS_FIELDS)
+def test_search_signature_matches_registry():
+    """`search` takes exactly the registry's search options, `job_file` aside."""
+    names = [name for name in parameters(cli.DISPATCH["search"]) if name != "job_file"]
+    assert sorted(names) == sorted(option.name for option in command_options("search") if option.name != "job_file")
 
 
 def test_job_keys():
-    """`JOB_KEYS` is the `Settings` fields plus `STEP_ONLY_KEYS`, each key once, and covers every default."""
-    assert sorted(JOB_KEYS) == sorted(SETTINGS_FIELDS + list(STEP_ONLY_KEYS))
+    """`JOB_KEYS` is search's keys plus `STEP_ONLY_KEYS`, each key once, and covers every default."""
+    assert sorted(JOB_KEYS) == sorted(command_keys("search") + STEP_ONLY_KEYS)
     assert len(JOB_KEYS) == len(set(JOB_KEYS))
     assert set(SETTING_DEFAULTS) <= set(JOB_KEYS)
     # Every option's job key is a job key, except `job_file`, which has none

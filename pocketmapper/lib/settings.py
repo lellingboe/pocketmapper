@@ -1,21 +1,21 @@
 """
-Run configuration: the `Settings` record, the job file layered under the arguments, the paths, the
-settings dump, and the checks that span several settings.
+Run configuration: the job file layered under the arguments, the validation of a command's options, the
+paths, the settings dump, and the checks that span several settings.
 
-Every command layers its settings the same way, in `layer_settings`: an argument given beats the
-job file, which beats `SETTING_DEFAULTS`. Search and parse then fill in the paths still unset under
+Every command layers its settings the same way, in `layer_command` and `layer_settings`: an argument given
+beats the job file, which beats `SETTING_DEFAULTS`. Search and parse then fill in the paths still unset under
 `cache_dir` and `results_dir` (`resolve_paths`); every other step takes its paths resolved, as its job
 file or arguments name them (`resolve_step_paths`). A job file may hold any of `JOB_KEYS`. Those, the
-defaults and the single-setting validators all come from the registry in `lib.options`.
+defaults and the single-setting validators that `validate_options` applies all come from the registry in
+`lib.options`.
 
-Every `resolve_*` takes the value as given -- from the command line, a job file or a library call, so
-any JSON value -- and returns it checked and normalised, or logs a critical and raises.
+Every validator and `resolve_*` takes the value as given -- from the command line, a job file or a library
+call, so any JSON value -- and returns it checked and normalised, or logs a critical and raises.
 """
 
 import json
 import logging
 import os
-from dataclasses import dataclass
 from datetime import datetime
 
 from pocketmapper.lib.exceptions import PocketMapperError
@@ -26,64 +26,11 @@ from pocketmapper.lib.options import (
     RESULTS_PATH_DEFAULTS,
     SETTING_DEFAULTS,
     STEP_ONLY_PATH_KEYS,
+    command_options,
+    job_key,
 )
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class Settings:
-    """
-    Fully resolved PocketMapper run configuration.
-
-    A record of what a run actually used, built once by `resolve_settings` and dumped to
-    job_settings.json. It has no defaults: each field arrives from the arguments to `search()`, the
-    job file, SETTING_DEFAULTS or run-time resolution, in that priority order. Every field is set,
-    except `pisa_bsa_threshold`, which None leaves unset.
-    """
-
-    query: str
-    target: str
-    cache_dir: str
-    results_dir: str
-    # Absolute. Only the relative paths of local structure files and user Foldseek databases resolve against it;
-    # every path setting resolves against the working directory.
-    local_root: str
-    # A forced pocket method, or "auto" to infer one per entry. Unlike align_struct_method, "auto"
-    # is kept here: it is resolved for each entry, not once for the run.
-    query_pocket_method: str
-    target_pocket_method: str
-    # "foldseek" or "seq" (the local BLOSUM62 sequence aligner).
-    aligner: str
-    align_count: int
-    # "pocket" or "foldseek"; "auto" is resolved to one of those before a Settings is built.
-    align_struct_method: str
-    verbosity: int
-    threads: int
-    # 1 deletes temp_dir at the end of the run; 0 keeps it for inspection.
-    delete_tmp: int
-    # "ftp" or "api": where PISA assembly interfaces are fetched from.
-    pisa_source: str
-    # Percent of a residue's accessible surface the partner must bury for it to join a pisa pocket.
-    # None builds pisa pockets from interface bonds instead.
-    pisa_bsa_threshold: float | None
-    # 1 downloads nothing: no structures, PISA interfaces or Foldseek databases.
-    offline: int
-    # 1 re-downloads cached PDB and AlphaFold structures in the fetch step. Never 1 with offline 1.
-    refresh_structures: int
-    pdb_dir: str
-    alphafold_dir: str
-    pocket_dir: str
-    foldseek_preprocessed_structure_dir: str
-    temp_dir: str
-    aligned_structure_dir: str
-    alignment_path: str
-    pocket_comparison_path: str
-    pockets_path: str
-    entries_path: str
-    job_settings_path: str
-    log_path: str
-    fsdb_dir: str
 
 
 # Job keys no longer accepted -> what replaced them, for the error a stale job file gets
@@ -203,6 +150,69 @@ def layer_settings(job_file, arguments):
     values.update(SETTING_DEFAULTS)
     values.update(job)
     values.update({key: value for key, value in arguments.items() if value is not None})
+    return values
+
+
+def layer_command(command, job_file, arguments):
+    """
+    Layer an entry function's arguments over its job file, checking them against the command's options.
+
+    Must be called as the entry function's first statement, with `locals()`, so `arguments` holds its
+    parameters and nothing else.
+
+    Args:
+        command (str): One of `lib.options.COMMANDS`.
+        job_file (str, dict or None): As `read_job_file`.
+        arguments (dict): Parameter name -> the value passed, None for unset: the entry function's
+            `locals()`. `job_file` and `self` are dropped.
+
+    Returns:
+        dict: As `layer_settings`, each parameter set under its job key (`entries` -> `entries_path`).
+
+    Raises:
+        PocketMapperError: If the parameters are not exactly the command's options but `job_file`, or as
+            `layer_settings`.
+    """
+    log_extra = {"stage": "Configuring Settings"}
+
+    names = {name: value for name, value in arguments.items() if name not in ("job_file", "self")}
+    expected = [option.name for option in command_options(command) if option.name != "job_file"]
+    missing = [name for name in expected if name not in names]
+    extra = [name for name in names if name not in expected]
+    if missing or extra:
+        msg = (
+            f"The {command} parameters do not match its options in lib.options.OPTIONS: "
+            f"missing {', '.join(missing) or 'none'}; not registered {', '.join(extra) or 'none'}."
+        )
+        logger.critical(msg, extra=log_extra)
+        raise PocketMapperError(msg)
+    # None is left out, so an unset input option cannot hide another value of the key it shares
+    keyed = {job_key(OPTIONS[name]): value for name, value in names.items() if value is not None}
+    return layer_settings(job_file, keyed)
+
+
+def validate_options(values, command):
+    """
+    Check and normalise each of a command's settings that has a validator, in registry order.
+
+    Logs, as a validator may (the core count `threads` picks for None), so run it with the command's log
+    open.
+
+    Args:
+        values (dict): Job key -> value, from `layer_command`. A key it lacks is not checked.
+        command (str): One of `lib.options.COMMANDS`.
+
+    Returns:
+        dict: A copy of `values`, each checked setting replaced by its validated value.
+
+    Raises:
+        PocketMapperError: On the first setting its validator rejects.
+    """
+    values = dict(values)
+    for option in command_options(command):
+        key = job_key(option)
+        if option.validate is not None and key in values:
+            values[key] = option.validate(values[key])
     return values
 
 
@@ -370,12 +380,12 @@ def results_path(results_dir, key, path=None):
     return path if path is not None else os.path.join(results_dir, RESULTS_PATH_DEFAULTS[key])
 
 
-def resolve_align_struct_method(align_struct_method, aligner):
+def resolve_auto_align_struct_method(align_struct_method, aligner):
     """
-    Turn the tri-value `align_struct_method` setting into "pocket" or "foldseek".
+    Turn a validated `align_struct_method` into "pocket" or "foldseek" for the aligner in use.
 
     Args:
-        align_struct_method (str): The requested method: "pocket", "foldseek" or "auto".
+        align_struct_method (str): "pocket", "foldseek" or "auto", already validated.
         aligner (str): The aligner that produced the alignment, already validated.
 
     Returns:
@@ -383,12 +393,11 @@ def resolve_align_struct_method(align_struct_method, aligner):
             "pocket" with the seq aligner, which produces no chain transform.
 
     Raises:
-        PocketMapperError: If the value is not one of ALIGN_STRUCT_METHODS, or "foldseek" was
-            asked for with the "seq" aligner.
+        PocketMapperError: If "foldseek" was asked for with the "seq" aligner.
     """
     log_extra = {"stage": "Configuring Settings"}
 
-    method = OPTIONS["align_struct_method"].validate(align_struct_method)
+    method = align_struct_method
     if method == "auto":
         method = "foldseek" if aligner == "foldseek" else "pocket"
         logger.info(
@@ -405,6 +414,24 @@ def resolve_align_struct_method(align_struct_method, aligner):
         raise PocketMapperError(msg)
 
     return method
+
+
+def resolve_align_struct_method(align_struct_method, aligner):
+    """
+    Validate the tri-value `align_struct_method` setting and turn it into "pocket" or "foldseek".
+
+    Args:
+        align_struct_method (str): The requested method: "pocket", "foldseek" or "auto".
+        aligner (str): The aligner that produced the alignment, already validated.
+
+    Returns:
+        str: As `resolve_auto_align_struct_method`.
+
+    Raises:
+        PocketMapperError: If the value is not one of ALIGN_STRUCT_METHODS, or as
+            `resolve_auto_align_struct_method`.
+    """
+    return resolve_auto_align_struct_method(OPTIONS["align_struct_method"].validate(align_struct_method), aligner)
 
 
 def check_offline_refresh(offline, refresh_structures):

@@ -12,10 +12,10 @@ through. The pipeline itself stays importable without a terminal.
 each for a reason the code alone would not show:
 
 - `search`'s and `parse`'s query and target are optional positionals; there are no
-  `--query`/`--target` options. A job file may supply them instead, and `lib.settings.layer_settings`
+  `--query`/`--target` options. A job file may supply them instead, and `lib.settings.layer_command`
   and `lib.settings.require_setting` require each from exactly one of the two.
 - Every option defaults to None, for unset: an argument given beats the job file, and the defaults
-  (`lib.settings.SETTING_DEFAULTS`, or resolved at run time) apply only after it, so a real default here
+  (`lib.options.SETTING_DEFAULTS`, or resolved at run time) apply only after it, so a real default here
   would hide every job-file value. The help still states each default.
 - No `choices=` anywhere. The same values arrive from the job file and from library calls, which
   never pass through this parser, so validation lives downstream where every path reaches it.
@@ -144,7 +144,7 @@ def cli(argv=None):
 
     kwargs = {dest: value for dest, value in vars(args).items() if dest != "command"}
 
-    # Before dispatch: layer_settings can log a critical on a bad job file before any log is open, and
+    # Before dispatch: layering can log a critical on a bad job file before any log is open, and
     # the inherited root WARNING level lets it through
     package_logger = logging.getLogger(PACKAGE_LOGGER)
     handler = format_handler(logging.StreamHandler(sys.stdout))
