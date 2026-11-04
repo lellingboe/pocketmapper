@@ -279,8 +279,6 @@ def http_date(seconds):
         pytest.param(http_error(429, "5"), 30, 5.0, id="seconds"),
         pytest.param(http_error(429, "1.5"), 30, 1.5, id="float"),
         pytest.param(http_error(503, "120"), 30, 30.0, id="capped"),
-        pytest.param(http_error(503, http_date(10)), 30, 10.0, id="date"),
-        pytest.param(http_error(503, http_date(-60)), 30, 0.0, id="past_date"),
         pytest.param(http_error(503, "soon"), 30, 0.0, id="garbage"),
         pytest.param(http_error(503, "-3"), 30, 0.0, id="negative"),
         pytest.param(http_error(503), 30, 0.0, id="absent"),
@@ -290,8 +288,17 @@ def http_date(seconds):
     ],
 )
 def test_retry_after(error, ceiling, expected):
-    """`retry_after` reads delta-seconds and HTTP-dates, caps them, and gives 0.0 for anything unusable."""
-    assert retry_after(error, ceiling) == pytest.approx(expected, abs=2)
+    """`retry_after` reads delta-seconds, caps them, and gives 0.0 for anything unusable."""
+    assert retry_after(error, ceiling) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(("offset", "expected"), [(10, 10.0), (-60, 0.0)], ids=["future", "past"])
+def test_retry_after_date(offset, expected):
+    """`retry_after` reads an HTTP-date as the seconds until it, and a past one as 0.0."""
+    # Built here, not in the parametrize table, so collection time does not shorten the delay; the
+    # tolerance covers the HTTP-date's whole-second precision
+    error = http_error(503, http_date(offset))
+    assert retry_after(error, 30) == pytest.approx(expected, abs=1)
 
 
 def test_download_file_backoff_jitter_and_retry_after(monkeypatch):
