@@ -19,14 +19,21 @@ cache never trusts it and the next run asks again.
 Every request goes through `fetch_to`, which sends `USER_AGENT` and gives each socket operation
 `DOWNLOAD_TIMEOUT` seconds, so a server that stalls raises a `TimeoutError` that is retried like any
 other transient failure.
+
+A transient failure is followed by a wait. `download_file` doubles its wait each time and jitters it, and
+`download_api` waits at least its host's pacing delay. Either wait is lengthened to a `Retry-After` the
+server sent, up to `max_delay`.
 """
 
 import json
 import logging
 import os
+import random
 import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from http.client import HTTPException
 from time import sleep
 from typing import NamedTuple
@@ -232,6 +239,38 @@ def escalate_host_delay(url, max_delay):
         return delay
 
 
+def retry_after(error, ceiling):
+    """
+    Read how long a server asked a client to wait, from the `Retry-After` header of an HTTP error.
+
+    Args:
+        error (BaseException): The exception raised by the failed attempt.
+        ceiling (float): Most seconds to return.
+
+    Returns:
+        float: The header's delay in seconds, whether given as delta-seconds or as an HTTP-date, capped
+            at `ceiling`. 0.0 if `error` is not an `HTTPError`, has no such header, or the value is
+            negative or cannot be parsed.
+    """
+    if not isinstance(error, HTTPError) or error.headers is None:
+        return 0.0
+    value = error.headers.get("Retry-After")
+    if value is None:
+        return 0.0
+    try:
+        seconds = float(value)
+    except ValueError:
+        try:
+            seconds = (parsedate_to_datetime(value) - datetime.now(timezone.utc)).total_seconds()
+        except (TypeError, ValueError):
+            return 0.0
+        seconds = max(seconds, 0.0)
+    # Also rejects NaN, which float() accepts
+    if not seconds >= 0:
+        return 0.0
+    return min(seconds, ceiling)
+
+
 def fetch_to(url, raw_fpath, data=None, timeout=DOWNLOAD_TIMEOUT):
     """
     Stream `url` into `raw_fpath`, sending `USER_AGENT`.
@@ -317,7 +356,9 @@ def download_file(
     """
     Download `url` to `out_fpath`, retrying transient failures with exponential backoff.
 
-    Sleeps only after a failed attempt, starting at `base_delay` and doubling up to `max_delay`. Holds
+    Sleeps only after a failed attempt, starting at `base_delay` and doubling up to `max_delay`. A
+    `Retry-After` from the server (capped at `max_delay`) lengthens that wait if it is longer. Each sleep is
+    scaled by a random factor in 0.8 to 1.2, so downloads that failed together do not retry together. Holds
     no state between calls, so any number may run concurrently. A response failing `check` is not retried.
 
     Args:
@@ -327,7 +368,7 @@ def download_file(
             response before it is placed. Defaults to None, which places it unchanged.
         max_retries (int): Attempts allowed before giving up. Defaults to 5.
         base_delay (float): Seconds to wait after the first failed attempt. Defaults to 0.25.
-        max_delay (float): Ceiling on the doubling delay. Defaults to 30.0.
+        max_delay (float): Ceiling on the doubling delay and on a `Retry-After`. Defaults to 30.0.
         log_extra (dict, optional): `extra` mapping for the log records. Defaults to None, which
             logs them under this function's own name.
         check (callable, optional): Content check run on the response, as in `write_through_part`.
@@ -345,11 +386,14 @@ def download_file(
             if attempt == max_retries or not is_transient_error(e):
                 logger.warning(f"Giving up on {url} after {attempt} attempt(s): {e}", extra=log_extra)
                 return False
+            delay = max(delay, retry_after(e, max_delay))
+            # Jitter: downloads that failed together would otherwise all retry together.
+            wait = delay * random.uniform(0.8, 1.2)
             logger.debug(
-                f"Attempt {attempt}/{max_retries} failed for {url} ({e}); retrying in {delay:.2f}s",
+                f"Attempt {attempt}/{max_retries} failed for {url} ({e}); retrying in {wait:.2f}s",
                 extra=log_extra,
             )
-            sleep(delay)
+            sleep(wait)
             delay = min(delay * 2, max_delay)
     return False
 
@@ -372,14 +416,16 @@ def download_api(
     failure doubles that delay, capped at `max_delay`, and it is never lowered again, so the
     backoff one request needed becomes the pace of every later request to the same host. The delay
     is shared by every caller in the process and outlives any one of them; `reset_host_delays`
-    clears it. A response failing `check` is not retried and leaves the delay unchanged.
+    clears it. A `Retry-After` on the failure (capped at `max_delay`) lengthens only the next wait of this
+    call, when it exceeds the host's delay; it is not stored. A response failing `check` is not retried
+    and leaves the delay unchanged.
 
     Args:
         url (str): Address to fetch.
         out_fpath (str): Final path for the response.
         max_retries (int): Attempts allowed before giving up. Defaults to 5.
         base_delay (float): Delay recorded for a host not seen before. Defaults to 0.25.
-        max_delay (float): Ceiling on the host's delay. Defaults to 30.0.
+        max_delay (float): Ceiling on the host's delay and on a `Retry-After`. Defaults to 30.0.
         log_extra (dict, optional): `extra` mapping for the log records. Defaults to None, which
             logs them under this function's own name.
         data (bytes, optional): Request body. Given, the request is a POST. Defaults to None.
@@ -391,8 +437,10 @@ def download_api(
     Returns:
         bool: True once the response is in place, False if every attempt failed.
     """
+    retry_wait = 0.0
     for attempt in range(1, max_retries + 1):
-        sleep(get_host_delay(url, base_delay))
+        # Never less than the host's current delay, which other calls may have raised since the last attempt
+        sleep(max(get_host_delay(url, base_delay), retry_wait))
         try:
             write_through_part(url, out_fpath, transform, log_extra, data=data, check=check)
             return True
@@ -401,9 +449,10 @@ def download_api(
                 logger.warning(f"Giving up on {url} after {attempt} attempt(s): {e}", extra=log_extra)
                 return False
             delay = escalate_host_delay(url, max_delay)
+            retry_wait = retry_after(e, max_delay)
             logger.debug(
-                f"Attempt {attempt}/{max_retries} failed for {url} ({e}); "
-                f"pacing {urlparse(url).netloc} at {delay:.2f}s",
+                f"Attempt {attempt}/{max_retries} failed for {url} ({e}); pacing {urlparse(url).netloc} "
+                f"at {delay:.2f}s, next wait {max(delay, retry_wait):.2f}s",
                 extra=log_extra,
             )
     return False

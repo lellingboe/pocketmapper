@@ -10,7 +10,10 @@ import os
 import socket
 import threading
 import time
-from urllib.error import ContentTooShortError, URLError
+from datetime import datetime, timedelta, timezone
+from email.message import Message
+from email.utils import format_datetime
+from urllib.error import ContentTooShortError, HTTPError, URLError
 
 import pytest
 
@@ -22,9 +25,13 @@ from pocketmapper.lib.download import (
     check_gzip,
     check_json,
     check_mmcif,
+    download_api,
     download_file,
     fetch_to,
+    get_host_delay,
     is_transient_error,
+    reset_host_delays,
+    retry_after,
     write_through_part,
 )
 
@@ -251,3 +258,77 @@ def test_download_file_unexpected_content(serve, tmp_path, monkeypatch):
     assert download_file(server.url, out, base_delay=0, check=check_gzip) is False
     assert calls == [server.url]
     assert os.listdir(out_dir) == []
+
+
+def http_error(code, retry=None):
+    """An `HTTPError` with status `code`, carrying a `Retry-After` header when `retry` is given."""
+    headers = Message()
+    if retry is not None:
+        headers["Retry-After"] = retry
+    return HTTPError("http://retry.example/x", code, "err", headers, None)
+
+
+def http_date(seconds):
+    """An HTTP-date `seconds` from now."""
+    return format_datetime(datetime.now(timezone.utc) + timedelta(seconds=seconds), usegmt=True)
+
+
+@pytest.mark.parametrize(
+    ("error", "ceiling", "expected"),
+    [
+        pytest.param(http_error(429, "5"), 30, 5.0, id="seconds"),
+        pytest.param(http_error(429, "1.5"), 30, 1.5, id="float"),
+        pytest.param(http_error(503, "120"), 30, 30.0, id="capped"),
+        pytest.param(http_error(503, http_date(10)), 30, 10.0, id="date"),
+        pytest.param(http_error(503, http_date(-60)), 30, 0.0, id="past_date"),
+        pytest.param(http_error(503, "soon"), 30, 0.0, id="garbage"),
+        pytest.param(http_error(503, "-3"), 30, 0.0, id="negative"),
+        pytest.param(http_error(503), 30, 0.0, id="absent"),
+        pytest.param(HTTPError("http://x", 503, "err", None, None), 30, 0.0, id="no_headers"),
+        pytest.param(URLError("down"), 30, 0.0, id="urlerror"),
+        pytest.param(TimeoutError(), 30, 0.0, id="timeout"),
+    ],
+)
+def test_retry_after(error, ceiling, expected):
+    """`retry_after` reads delta-seconds and HTTP-dates, caps them, and gives 0.0 for anything unusable."""
+    assert retry_after(error, ceiling) == pytest.approx(expected, abs=2)
+
+
+def test_download_file_backoff_jitter_and_retry_after(monkeypatch):
+    """Waits double from `base_delay`, a `Retry-After` lengthens one, and each sleep is jittered."""
+    errors = [http_error(429, "2"), http_error(503)]
+    waits = []
+
+    def flaky(url, out_fpath, transform, log_extra, data=None, check=None):
+        """Raise the next queued error, then succeed."""
+        if errors:
+            raise errors.pop(0)
+
+    monkeypatch.setattr(download, "write_through_part", flaky)
+    monkeypatch.setattr(download, "sleep", waits.append)
+    monkeypatch.setattr(download.random, "uniform", lambda a, b: 1.1)
+    assert download_file("http://retry.example/x", "unused", base_delay=0.25) is True
+    # First: max(0.25, 2) = 2. Second: the delay doubled to 4, with no Retry-After to add.
+    assert waits == pytest.approx([2 * 1.1, 4 * 1.1])
+
+
+def test_download_api_retry_after_is_not_the_pace(monkeypatch):
+    """A `Retry-After` longer than the host's delay lengthens that wait only; the stored pace just doubles."""
+    url = "http://retry-after.example/x"
+    errors = [http_error(429, "3")]
+    waits = []
+
+    def flaky(url, out_fpath, transform, log_extra, data=None, check=None):
+        """Raise the next queued error, then succeed."""
+        if errors:
+            raise errors.pop(0)
+
+    reset_host_delays()
+    monkeypatch.setattr(download, "write_through_part", flaky)
+    monkeypatch.setattr(download, "sleep", waits.append)
+    try:
+        assert download_api(url, "unused", base_delay=0.25, max_delay=30.0) is True
+        assert waits == pytest.approx([0.25, 3.0])
+        assert get_host_delay(url, 0.25) == pytest.approx(0.5)
+    finally:
+        reset_host_delays()

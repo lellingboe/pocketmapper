@@ -39,7 +39,9 @@ Four consequences no single file states:
 - **The pacing delay and the backoff delay are the same number.** That is what "carry the backoff
   forward" means here: the escalation one retry needed becomes the pace of every later request to that
   host. It is also why `download_missing_summaries` and `download_missing_assemblies` no longer sleep
-  themselves — the helper owns pacing, and a caller-side sleep would double it.
+  themselves — the helper owns pacing, and a caller-side sleep would double it. A `Retry-After` (capped at
+  `max_delay`) lengthens a single wait without changing the host's pace; `download_file` also jitters each
+  sleep by 0.8 to 1.2 so concurrent failures do not retry in step.
 - **The delay registry is module-level and never decays**, so it outlives any one `PisaDownloader` —
   which matters, because each `PocketManager` builds its own, one per pockets run.
   It equally outlives a whole `search()`, so a library caller running several in one process carries an
