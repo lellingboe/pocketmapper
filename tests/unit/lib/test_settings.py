@@ -1,6 +1,7 @@
 """
-Unit tests for `lib.settings`: each `resolve_*` validator, the offline/refresh conflict, `layer_settings`,
-`require_setting` and `read_job_file`.
+Unit tests for `lib.settings`: `resolve_align_struct_method`, the offline/refresh conflict, `layer_settings`,
+`require_setting`, `read_job_file` and the path resolution. The single-setting validators are tested in
+`test_options.py`.
 """
 
 import json
@@ -9,7 +10,6 @@ import re
 
 import pytest
 
-from pocketmapper.lib import settings
 from pocketmapper.lib.constants import DEFAULT_ALIGN_COUNT, DEFAULT_ALIGNER
 from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.settings import (
@@ -20,16 +20,8 @@ from pocketmapper.lib.settings import (
     read_job_file,
     require_setting,
     resolve_align_struct_method,
-    resolve_aligner,
-    resolve_delete_tmp,
-    resolve_fetch_missing,
-    resolve_offline,
     resolve_paths,
-    resolve_pisa_bsa_threshold,
-    resolve_pisa_source,
-    resolve_refresh_structures,
     resolve_step_paths,
-    resolve_threads,
 )
 from pocketmapper.search import PocketMapper
 
@@ -50,25 +42,6 @@ def job_source(request, write_file):
         return write_file("job.json", json.dumps(job))
 
     return make
-
-
-# resolve_aligner
-
-
-@pytest.mark.parametrize(
-    "aligner, expected",
-    [("foldseek", "foldseek"), ("seq", "seq"), ("SEQ", "seq"), ("Foldseek", "foldseek")],
-)
-def test_resolve_aligner_accepts(aligner, expected):
-    """A known aligner, in any case, is returned lowercased."""
-    assert resolve_aligner(aligner) == expected
-
-
-@pytest.mark.parametrize("aligner", ["bogus", "", None, 1])
-def test_resolve_aligner_rejects(aligner):
-    """An unknown aligner, or a value that is not a string, is rejected by name."""
-    with raises(f"Unknown aligner {aligner!r}. Choose one of: foldseek, seq."):
-        resolve_aligner(aligner)
 
 
 # resolve_align_struct_method
@@ -108,54 +81,6 @@ def test_resolve_align_struct_method_rejects(method, aligner, message):
         resolve_align_struct_method(method, aligner)
 
 
-# resolve_threads
-
-
-@pytest.mark.parametrize("threads", [1, 2, 64])
-def test_resolve_threads_accepts(threads):
-    """A positive integer is returned unchanged."""
-    assert resolve_threads(threads) == threads
-
-
-@pytest.mark.parametrize("cpu_count, expected", [(6, 6), (None, 1)])
-def test_resolve_threads_unset(monkeypatch, cpu_count, expected):
-    """None gives one thread per available core, or 1 when the core count is unknown."""
-    monkeypatch.setattr(settings.os, "cpu_count", lambda: cpu_count)
-    assert resolve_threads(None) == expected
-
-
-@pytest.mark.parametrize("threads", [0, -1, True, False, 2.0, "2"])
-def test_resolve_threads_rejects(threads):
-    """Zero, a negative, a bool, a float or a string is rejected."""
-    with raises(f"threads must be a positive integer, got {threads!r}."):
-        resolve_threads(threads)
-
-
-# resolve_delete_tmp, resolve_fetch_missing, resolve_offline and resolve_refresh_structures
-
-FLAG_RESOLVERS = [
-    (resolve_delete_tmp, "delete_tmp"),
-    (resolve_fetch_missing, "fetch_missing"),
-    (resolve_offline, "offline"),
-    (resolve_refresh_structures, "refresh_structures"),
-]
-
-
-@pytest.mark.parametrize("resolve, key", FLAG_RESOLVERS)
-@pytest.mark.parametrize("value", [0, 1])
-def test_resolve_flag_accepts(resolve, key, value):
-    """0 and 1 are returned unchanged."""
-    assert resolve(value) == value
-
-
-@pytest.mark.parametrize("resolve, key", FLAG_RESOLVERS)
-@pytest.mark.parametrize("value", [2, -1, True, False, "1", None])
-def test_resolve_flag_rejects(resolve, key, value):
-    """Anything but the int 0 or 1, a bool included, is rejected by setting name."""
-    with raises(f"{key} must be 1 or 0, got {value!r}."):
-        resolve(value)
-
-
 # check_offline_refresh, alone and as `resolve_settings` step 4h
 
 OFFLINE_REFRESH_CONFLICT = "offline and refresh_structures cannot both be 1"
@@ -187,40 +112,6 @@ def test_resolve_settings_offline_refresh_conflict():
     }
     with raises(OFFLINE_REFRESH_CONFLICT):
         PocketMapper().resolve_settings(values)
-
-
-# resolve_pisa_source
-
-
-@pytest.mark.parametrize("source, expected", [("ftp", "ftp"), ("api", "api"), ("FTP", "ftp"), ("Api", "api")])
-def test_resolve_pisa_source_accepts(source, expected):
-    """A known source, in any case, is returned lowercased."""
-    assert resolve_pisa_source(source) == expected
-
-
-@pytest.mark.parametrize("source", ["http", "", None, 1])
-def test_resolve_pisa_source_rejects(source):
-    """An unknown source, or a value that is not a string, is rejected by name."""
-    with raises(f"Unknown pisa_source {source!r}. Choose one of: ftp, api."):
-        resolve_pisa_source(source)
-
-
-# resolve_pisa_bsa_threshold
-
-
-@pytest.mark.parametrize("threshold, expected", [(None, None), (0, 0.0), (50, 50.0), (25.5, 25.5), (99.9, 99.9)])
-def test_resolve_pisa_bsa_threshold_accepts(threshold, expected):
-    """None stays None; a number in [0, 100) is returned as a float."""
-    result = resolve_pisa_bsa_threshold(threshold)
-    assert result == expected
-    assert result is None or isinstance(result, float)
-
-
-@pytest.mark.parametrize("threshold", [100, 100.0, 150, -1, -0.1, float("nan"), float("inf"), True, "50"])
-def test_resolve_pisa_bsa_threshold_rejects(threshold):
-    """100 and above, a negative, NaN, a bool or a string is rejected."""
-    with raises(f"pisa_bsa_threshold must be a number at least 0 and below 100, got {threshold!r}."):
-        resolve_pisa_bsa_threshold(threshold)
 
 
 # layer_settings and require_setting

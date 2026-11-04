@@ -9,11 +9,13 @@ the job file sets nothing the CLI can't. Layering is `lib.settings.layer_setting
 `resolve_step_paths` for every other step; search's resolution is
 in `resolve_settings` (`resolve_*`). `Settings` has no defaults and is built once. Pocket methods keep
 `"auto"` (inferred per entry); `align_struct_method` is resolved per run. The steps take a job dict (or
-file) keyed by job keys, never a `Settings`, and call the same `lib.settings.resolve_*` validators.
+file) keyed by job keys, never a `Settings`, and call the same validators (`lib.options.OPTIONS[name].validate`,
+also named `lib.settings.resolve_*`).
 
-**Job keys are separate from `Settings`.** `lib.settings.JOB_KEYS` = `fields(Settings)` + `STEP_ONLY_KEYS`
+**Job keys are separate from `Settings`.** `lib.options.JOB_KEYS`, derived from the registry `lib.options.OPTIONS`
+in its order, is search's keys (`command_keys("search")`, the `Settings` fields) plus `STEP_ONLY_KEYS`
 (options only some steps take; `STEP_ONLY_PATH_KEYS` among them resolve against the cwd in
-`resolve_paths`) is what a job file may hold and what `layer_settings` seeds. Unknown
+`resolve_paths`). It is what a job file may hold and what `layer_settings` seeds. Unknown
 keys are rejected; one in `REMOVED_JOB_KEYS` gets its replacement named. Search drops keys `Settings`
 lacks before building one.
 
@@ -41,16 +43,16 @@ a timestamped name.
 
 **A reused dump names every path**, so an argument moves only the path it names.
 
-A new option goes in **four hand-maintained places per command**: the function signature and its
-`layer_settings` arguments dict (for search also `Settings`; for a step-only option
-`lib.settings.STEP_ONLY_KEYS` instead; for a step's path, its `resolve_step_paths` call), `OPTIONS` plus the command's `COMMANDS` row
-in `cli.py`, and README Options (for a step, its row in the step table). A fifth for an option with a
-static default: `lib.settings.SETTING_DEFAULTS` (from `lib.constants.DEFAULT_*`, which the help also quotes).
-Signature and parser defaults are all None. Path defaults are `lib.settings.CACHE_PATH_DEFAULTS` /
-`RESULTS_PATH_DEFAULTS` (`cache_path`, `results_path`). `cli()` passes parsed args straight through its
-dispatch table, so there is no kwarg block. Miss one → argparse fails or the option is silently
-ignored. `tests/unit/test_cli.py` checks, per command, that the options are exactly the parameters of its
-`cli.DISPATCH` function and all default to None; for search also `dataclasses.fields(Settings)` ==
+A new option goes in **five hand-maintained places per command**: the function signature and its
+`layer_settings` arguments dict (for search also `Settings`; for a step's path, its `resolve_step_paths`
+call), `OPTIONS` plus the command's `COMMANDS` row in `cli.py`, README Options (for a step, its row in the
+step table), and its `Option` in `lib.options.OPTIONS`, from which `SETTING_DEFAULTS` (its `default`, from
+`lib.constants.DEFAULT_*`, which the help also quotes), `JOB_KEYS`, `STEP_ONLY_KEYS` and the path defaults
+are derived. Signature and parser defaults are all None. Path defaults are `lib.options.CACHE_PATH_DEFAULTS`
+/ `RESULTS_PATH_DEFAULTS` (an `Option`'s `under`; `cache_path`, `results_path`). `cli()` passes parsed args
+straight through its dispatch table, so there is no kwarg block. Miss one → argparse fails or the option is
+silently ignored. `tests/unit/test_cli.py` checks, per command, that the options are exactly the parameters
+of its `cli.DISPATCH` function and all default to None; for search also `dataclasses.fields(Settings)` ==
 signature == `arguments` keys (modulo `job_file`); and `SETTING_DEFAULTS` keys ⊆ `JOB_KEYS`. No test
 checks every step's `arguments` dict, or README.
 

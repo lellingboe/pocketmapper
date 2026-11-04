@@ -201,20 +201,8 @@ ALIGN_STRUCT_METHODS = ("auto",) + RESOLVED_ALIGN_STRUCT_METHODS
 # The chain aligners the `aligner` setting accepts: Foldseek, or the local BLOSUM62 sequence aligner.
 ALIGNERS = ("foldseek", "seq")
 
-# The values the `delete_tmp` setting accepts: 1 deletes temp_dir at the end of the run, 0 keeps it.
-DELETE_TMP_VALUES = (0, 1)
-
-# The values the `fetch_missing` setting accepts: 1 downloads an entry structure missing from the
-# cache, 0 skips the entry.
-FETCH_MISSING_VALUES = (0, 1)
-
-# The values the `offline` setting accepts: 1 downloads nothing (structures, PISA interfaces, Foldseek
-# databases), 0 downloads what the cache lacks.
-OFFLINE_VALUES = (0, 1)
-
-# The values the `refresh_structures` setting accepts: 1 re-downloads cached PDB and AlphaFold
-# structures in the fetch step, 0 keeps them.
-REFRESH_STRUCTURES_VALUES = (0, 1)
+# The values an on/off setting accepts (delete_tmp, fetch_missing, offline, refresh_structures)
+FLAG_VALUES = (0, 1)
 
 # Where PISA interfaces come from: static files on the EBI FTP server, or one paced PDBe API call per
 # assembly. Both serve identical JSON.

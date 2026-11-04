@@ -15,8 +15,9 @@ import pytest
 from pocketmapper import cli
 from pocketmapper import search as search_module
 from pocketmapper.lib.constants import PACKAGE_LOGGER
+from pocketmapper.lib.options import JOB_KEYS, SETTING_DEFAULTS, STEP_ONLY_KEYS
 from pocketmapper.lib.scopes import HELD_TEMP_DIRS, OUTER_COMMAND
-from pocketmapper.lib.settings import JOB_KEYS, SETTING_DEFAULTS, STEP_ONLY_KEYS, Settings
+from pocketmapper.lib.settings import Settings
 
 SETTINGS_FIELDS = [field.name for field in fields(Settings)]
 
@@ -82,7 +83,8 @@ def test_settings_match_search_arguments(monkeypatch):
 
 def test_job_keys():
     """`JOB_KEYS` is the `Settings` fields plus `STEP_ONLY_KEYS`, and every `SETTING_DEFAULTS` key is a job key."""
-    assert list(JOB_KEYS) == SETTINGS_FIELDS + list(STEP_ONLY_KEYS)
+    assert sorted(JOB_KEYS) == sorted(SETTINGS_FIELDS + list(STEP_ONLY_KEYS))
+    assert len(JOB_KEYS) == len(set(JOB_KEYS))
     assert set(SETTING_DEFAULTS) <= set(JOB_KEYS)
 
 

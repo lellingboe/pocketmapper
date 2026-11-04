@@ -1,12 +1,12 @@
 """
-Run configuration: the `Settings` record, the job file layered under the arguments, and the
-validators that resolve each setting.
+Run configuration: the `Settings` record, the job file layered under the arguments, the paths, the
+settings dump, and the checks that span several settings.
 
 Every command layers its settings the same way, in `layer_settings`: an argument given beats the
 job file, which beats `SETTING_DEFAULTS`. Search and parse then fill in the paths still unset under
 `cache_dir` and `results_dir` (`resolve_paths`); every other step takes its paths resolved, as its job
-file or arguments name them (`resolve_step_paths`). A job file may hold any of `JOB_KEYS`: the
-`Settings` fields, which are search's, plus the options only some steps take.
+file or arguments name them (`resolve_step_paths`). A job file may hold any of `JOB_KEYS`. Those, the
+defaults and the single-setting validators all come from the registry in `lib.options`.
 
 Every `resolve_*` takes the value as given -- from the command line, a job file or a library call, so
 any JSON value -- and returns it checked and normalised, or logs a critical and raises.
@@ -15,30 +15,18 @@ any JSON value -- and returns it checked and normalised, or logs a critical and 
 import json
 import logging
 import os
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from datetime import datetime
 
-from pocketmapper.lib.constants import (
-    ALIGN_STRUCT_METHODS,
-    ALIGNERS,
-    DEFAULT_ALIGN_COUNT,
-    DEFAULT_ALIGN_STRUCT_METHOD,
-    DEFAULT_ALIGNER,
-    DEFAULT_CACHE_DIR,
-    DEFAULT_DELETE_TMP,
-    DEFAULT_FETCH_MISSING,
-    DEFAULT_OFFLINE,
-    DEFAULT_PISA_SOURCE,
-    DEFAULT_POCKET_METHOD,
-    DEFAULT_REFRESH_STRUCTURES,
-    DEFAULT_VERBOSITY,
-    DELETE_TMP_VALUES,
-    FETCH_MISSING_VALUES,
-    OFFLINE_VALUES,
-    PISA_SOURCES,
-    REFRESH_STRUCTURES_VALUES,
-)
 from pocketmapper.lib.exceptions import PocketMapperError
+from pocketmapper.lib.options import (
+    CACHE_PATH_DEFAULTS,
+    JOB_KEYS,
+    OPTIONS,
+    RESULTS_PATH_DEFAULTS,
+    SETTING_DEFAULTS,
+    STEP_ONLY_PATH_KEYS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,14 +86,6 @@ class Settings:
     fsdb_dir: str
 
 
-# What a job file may hold, in Settings order: every Settings field, plus the options only some steps
-# take. `layer_settings` seeds every key.
-STEP_ONLY_KEYS = ("pockets_tsv_path", "fetch_missing")
-
-# Step-only paths, resolved against the working directory like every path setting
-STEP_ONLY_PATH_KEYS = ("pockets_tsv_path",)
-JOB_KEYS = tuple(field.name for field in fields(Settings)) + STEP_ONLY_KEYS
-
 # Job keys no longer accepted -> what replaced them, for the error a stale job file gets
 REMOVED_JOB_KEYS = {
     key: "steps read their records from parse's entries.tsv; rerun parse for a new job file"
@@ -116,41 +96,15 @@ REMOVED_JOB_KEYS = {
     "work_dir": "renamed to local_root; set local_root in the job file instead",
 }
 
-# Setting -> its static default. The others default to None: resolved at run time, or required.
-SETTING_DEFAULTS = {
-    "cache_dir": DEFAULT_CACHE_DIR,
-    "verbosity": DEFAULT_VERBOSITY,
-    "aligner": DEFAULT_ALIGNER,
-    "align_count": DEFAULT_ALIGN_COUNT,
-    "align_struct_method": DEFAULT_ALIGN_STRUCT_METHOD,
-    "query_pocket_method": DEFAULT_POCKET_METHOD,
-    "target_pocket_method": DEFAULT_POCKET_METHOD,
-    "delete_tmp": DEFAULT_DELETE_TMP,
-    "pisa_source": DEFAULT_PISA_SOURCE,
-    "fetch_missing": DEFAULT_FETCH_MISSING,
-    "offline": DEFAULT_OFFLINE,
-    "refresh_structures": DEFAULT_REFRESH_STRUCTURES,
-}
-
-# Path setting -> its default, relative to cache_dir
-CACHE_PATH_DEFAULTS = {
-    "pdb_dir": "pdb_structures",
-    "alphafold_dir": "alphafold_structures",
-    "pocket_dir": "pockets",
-    "foldseek_preprocessed_structure_dir": "foldseek_preprocessed_structures",
-    "fsdb_dir": "fsdb",
-}
-
-# Path setting -> its default, relative to results_dir
-RESULTS_PATH_DEFAULTS = {
-    "temp_dir": "tmp",
-    "aligned_structure_dir": "aligned_structures",
-    "alignment_path": "alignment.tsv",
-    "pocket_comparison_path": "pocket_comparison.tsv",
-    "pockets_path": "pockets.json",
-    "entries_path": "entries.tsv",
-    "log_path": "info.log",
-}
+# The registry's single-setting validators, by the names the commands call
+resolve_aligner = OPTIONS["aligner"].validate
+resolve_threads = OPTIONS["threads"].validate
+resolve_delete_tmp = OPTIONS["delete_tmp"].validate
+resolve_fetch_missing = OPTIONS["fetch_missing"].validate
+resolve_offline = OPTIONS["offline"].validate
+resolve_refresh_structures = OPTIONS["refresh_structures"].validate
+resolve_pisa_source = OPTIONS["pisa_source"].validate
+resolve_pisa_bsa_threshold = OPTIONS["pisa_bsa_threshold"].validate
 
 # The settings dump search writes; parse writes parse_settings.json
 SEARCH_SETTINGS_NAME = "job_settings.json"
@@ -416,30 +370,6 @@ def results_path(results_dir, key, path=None):
     return path if path is not None else os.path.join(results_dir, RESULTS_PATH_DEFAULTS[key])
 
 
-def resolve_aligner(aligner):
-    """
-    Validate the `aligner` setting.
-
-    Args:
-        aligner (str): The requested aligner, "foldseek" or "seq", in any case.
-
-    Returns:
-        str: The aligner, lowercased.
-
-    Raises:
-        PocketMapperError: If the value is not one of ALIGNERS.
-    """
-    log_extra = {"stage": "Configuring Settings"}
-
-    # A job file can hold any JSON value, not only a str
-    normalised = aligner.lower() if isinstance(aligner, str) else aligner
-    if normalised not in ALIGNERS:
-        msg = f"Unknown aligner {aligner!r}. Choose one of: {', '.join(ALIGNERS)}."
-        logger.critical(msg, extra=log_extra)
-        raise PocketMapperError(msg)
-    return normalised
-
-
 def resolve_align_struct_method(align_struct_method, aligner):
     """
     Turn the tri-value `align_struct_method` setting into "pocket" or "foldseek".
@@ -458,13 +388,7 @@ def resolve_align_struct_method(align_struct_method, aligner):
     """
     log_extra = {"stage": "Configuring Settings"}
 
-    # A job file can hold any JSON value, not only a str
-    method = align_struct_method.lower() if isinstance(align_struct_method, str) else align_struct_method
-    if method not in ALIGN_STRUCT_METHODS:
-        msg = f"Unknown align_struct_method {align_struct_method!r}. Choose one of: {', '.join(ALIGN_STRUCT_METHODS)}."
-        logger.critical(msg, extra=log_extra)
-        raise PocketMapperError(msg)
-
+    method = OPTIONS["align_struct_method"].validate(align_struct_method)
     if method == "auto":
         method = "foldseek" if aligner == "foldseek" else "pocket"
         logger.info(
@@ -481,134 +405,6 @@ def resolve_align_struct_method(align_struct_method, aligner):
         raise PocketMapperError(msg)
 
     return method
-
-
-def resolve_threads(threads):
-    """
-    Turn an unset `threads` setting into a concrete core count.
-
-    Args:
-        threads (int or None): The requested core count.
-
-    Returns:
-        int: `threads`, or one per available core when it is None.
-
-    Raises:
-        PocketMapperError: If `threads` is not a positive integer.
-    """
-    log_extra = {"stage": "Configuring Settings"}
-
-    if threads is None:
-        # Not os.process_cpu_count() (3.13+) or os.sched_getaffinity (Linux only); None on an
-        # exotic platform
-        threads = os.cpu_count() or 1
-        logger.info(f"threads unset, using one per available core ({threads})", extra=log_extra)
-        return threads
-
-    # A job file can hold any JSON value, and a bool passes isinstance(threads, int)
-    if isinstance(threads, bool) or not isinstance(threads, int) or threads < 1:
-        msg = f"threads must be a positive integer, got {threads!r}."
-        logger.critical(msg, extra=log_extra)
-        raise PocketMapperError(msg)
-
-    return threads
-
-
-def resolve_delete_tmp(delete_tmp):
-    """
-    Validate the `delete_tmp` setting.
-
-    Args:
-        delete_tmp (int): 1 to delete temp_dir at the end of the run, 0 to keep it.
-
-    Returns:
-        int: The value, unchanged.
-
-    Raises:
-        PocketMapperError: If the value is not one of DELETE_TMP_VALUES, including a bool.
-    """
-    log_extra = {"stage": "Configuring Settings"}
-
-    # A job file can hold any JSON value, and True == 1
-    if isinstance(delete_tmp, bool) or delete_tmp not in DELETE_TMP_VALUES:
-        msg = f"delete_tmp must be 1 or 0, got {delete_tmp!r}."
-        logger.critical(msg, extra=log_extra)
-        raise PocketMapperError(msg)
-
-    return delete_tmp
-
-
-def resolve_fetch_missing(fetch_missing):
-    """
-    Validate the `fetch_missing` setting.
-
-    Args:
-        fetch_missing (int): 1 to download an entry structure missing from the cache, 0 to skip the
-            entry.
-
-    Returns:
-        int: The value, unchanged.
-
-    Raises:
-        PocketMapperError: If the value is not one of FETCH_MISSING_VALUES, including a bool.
-    """
-    log_extra = {"stage": "Configuring Settings"}
-
-    # A job file can hold any JSON value, and True == 1
-    if isinstance(fetch_missing, bool) or fetch_missing not in FETCH_MISSING_VALUES:
-        msg = f"fetch_missing must be 1 or 0, got {fetch_missing!r}."
-        logger.critical(msg, extra=log_extra)
-        raise PocketMapperError(msg)
-
-    return fetch_missing
-
-
-def resolve_offline(offline):
-    """
-    Validate the `offline` setting.
-
-    Args:
-        offline (int): 1 to download nothing, 0 to download what the cache lacks.
-
-    Returns:
-        int: The value, unchanged.
-
-    Raises:
-        PocketMapperError: If the value is not one of OFFLINE_VALUES, including a bool.
-    """
-    log_extra = {"stage": "Configuring Settings"}
-
-    # A job file can hold any JSON value, and True == 1
-    if isinstance(offline, bool) or offline not in OFFLINE_VALUES:
-        msg = f"offline must be 1 or 0, got {offline!r}."
-        logger.critical(msg, extra=log_extra)
-        raise PocketMapperError(msg)
-
-    return offline
-
-
-def resolve_refresh_structures(refresh_structures):
-    """
-    Validate the `refresh_structures` setting.
-
-    Args:
-        refresh_structures (int): 1 to re-download cached PDB and AlphaFold structures, 0 to keep them.
-
-    Returns:
-        int: The value, unchanged.
-
-    Raises:
-        PocketMapperError: If the value is not one of REFRESH_STRUCTURES_VALUES, including a bool.
-    """
-    log_extra = {"stage": "Configuring Settings"}
-
-    # A job file can hold any JSON value, and True == 1
-    if isinstance(refresh_structures, bool) or refresh_structures not in REFRESH_STRUCTURES_VALUES:
-        msg = f"refresh_structures must be 1 or 0, got {refresh_structures!r}."
-        logger.critical(msg, extra=log_extra)
-        raise PocketMapperError(msg)
-
-    return refresh_structures
 
 
 def check_offline_refresh(offline, refresh_structures):
@@ -631,64 +427,6 @@ def check_offline_refresh(offline, refresh_structures):
         msg = "offline and refresh_structures cannot both be 1: refreshing structures needs downloads."
         logger.critical(msg, extra=log_extra)
         raise PocketMapperError(msg)
-
-
-def resolve_pisa_source(pisa_source):
-    """
-    Validate the `pisa_source` setting.
-
-    Args:
-        pisa_source (str): "ftp" or "api", in any case.
-
-    Returns:
-        str: The source, lowercased.
-
-    Raises:
-        PocketMapperError: If the value is not one of PISA_SOURCES.
-    """
-    log_extra = {"stage": "Configuring Settings"}
-
-    # A job file can hold any JSON value, not only a str
-    normalised = pisa_source.lower() if isinstance(pisa_source, str) else pisa_source
-    if normalised not in PISA_SOURCES:
-        msg = f"Unknown pisa_source {pisa_source!r}. Choose one of: {', '.join(PISA_SOURCES)}."
-        logger.critical(msg, extra=log_extra)
-        raise PocketMapperError(msg)
-
-    return normalised
-
-
-def resolve_pisa_bsa_threshold(pisa_bsa_threshold):
-    """
-    Validate the `pisa_bsa_threshold` setting.
-
-    Args:
-        pisa_bsa_threshold (int, float or None): Percent buried, at least 0 and below 100, or None for
-            the bond rule.
-
-    Returns:
-        float or None: The threshold as a float, or None.
-
-    Raises:
-        PocketMapperError: If the value is not a number, is a bool, or is outside [0, 100), NaN included.
-    """
-    log_extra = {"stage": "Configuring Settings"}
-
-    if pisa_bsa_threshold is None:
-        return None
-
-    # A job file can hold any JSON value, and a bool passes isinstance(value, int). The range check is
-    # negated so NaN, which argparse's float and json both accept, fails it too.
-    if (
-        isinstance(pisa_bsa_threshold, bool)
-        or not isinstance(pisa_bsa_threshold, (int, float))
-        or not (0 <= pisa_bsa_threshold < 100)
-    ):
-        msg = f"pisa_bsa_threshold must be a number at least 0 and below 100, got {pisa_bsa_threshold!r}."
-        logger.critical(msg, extra=log_extra)
-        raise PocketMapperError(msg)
-
-    return float(pisa_bsa_threshold)
 
 
 def check_fsdb_aligner(aligner):
