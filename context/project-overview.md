@@ -5,9 +5,10 @@ and not copied here.
 ## Project Status
 
 - This is an early development project, features may change or break between patches.
-- Names/location of outputs may change, but typically the underlying data should remain fairly consistent.
+- Names/location of outputs may change, but the underlying data should remain fairly consistent.
 - The project is currently going through refactoring and reorganization, some things may be inconsistent
-  while this process is happening
+  while this process is happening.
+- This project is not yet ready for production use, and should be used with caution.
 
 ## Where to start
 

@@ -16,7 +16,6 @@ AI agent guidelines.
 - `ai-interaction`: Human managed.
 - `project-overview`: Hybrid, suggest updates.
 - `coding-standards`: Hybrid, suggest updates.
-- `current-feature`: Human drafted, AI iterated.
 
 ## Commands
 
