@@ -33,6 +33,8 @@ Facts about `pockets/`, moved out of `context/project-overview.md` so they load 
 `lib/CLAUDE.md`. The files it writes itself (the split summaries, `interface_pairs/<code>.json` and
 `errors.json`) go through `write_json`, which also writes a uniquely named `.part` file and moves it into
 place, so an interrupted run cannot leave a truncated interface file that a later run takes as cached.
+Every assembly and summary-batch response must parse as JSON (`lib.download.check_json`) before it is
+placed; one that does not is not retried, is reported as a download failure, and leaves nothing cached.
 
 **PISA assembly interfaces have two sources, one cache.** `source="ftp"` (the default) fetches
 `ftp.ebi.ac.uk/.../pdb-assemblies-analysis/split/<code[1:3]>/<code>_assembly<asm>_interfaces.json`

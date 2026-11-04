@@ -1,13 +1,15 @@
 """
 Finding, fetching and loading the reference structures PocketMapper works on.
 
-`STRUCTURE_SOURCES` maps each downloadable `struct_type` to its URL builder and the transform its response
-needs; a new source is one row. Structures land as gzipped mmCIF in the cache directory of their type, which
-doubles as the on-disk cache between runs. A local file is read where it is and never copied.
+`STRUCTURE_SOURCES` maps each downloadable `struct_type` to its URL builder, the transform its response
+needs and the content check the response must pass; a new source is one row. Structures land as gzipped
+mmCIF in the cache directory of their type, which doubles as the on-disk cache between runs. A local file
+is read where it is and never copied.
 
 `StructureManager.path` works out where a structure or Foldseek database lives from its `struct_type` and
-`struct_info`, and `record_path` does the same for a record. `path`, `record_path`, `fetch` and `get` need the
-directory of each type they resolve. `load_structure` never downloads.
+`struct_info`, `record_path` does the same for a record, and `on_disk` says whether it is there (for a
+database, its `.dbtype`). `path`, `record_path`, `on_disk`, `fetch` and `get` need the directory of each type
+they resolve. `load_structure` never downloads.
 
 The `fetch_missing_*` functions at the end download what the cache lacks: `fetch_missing_entries` and
 `fetch_missing_structures` the structures of records, `fetch_missing_fsdb` a bundled Foldseek database.
@@ -15,10 +17,12 @@ The `fetch_missing_*` functions at the end download what the cache lacks: `fetch
 
 import logging
 import os
+import shutil
+import tempfile
 
 import gemmi
 
-from pocketmapper.lib.download import DOWNLOAD_WORKERS, DownloadJob, download_many
+from pocketmapper.lib.download import DOWNLOAD_WORKERS, DownloadJob, check_gzip, check_mmcif, download_many
 from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.files import gzip_file, make_dir
 from pocketmapper.lib.foldseek import BUNDLED_FSDB_NAMES, bundled_foldseek_dbs, require_foldseek, run_foldseek
@@ -53,8 +57,9 @@ def alphafold_url(uniprot_acc):
     return f"https://alphafold.ebi.ac.uk/files/AF-{uniprot_acc}-F1-model_v6.cif"
 
 
-# struct_type -> (URL builder, transform). AlphaFold is gzipped on the way in to match the cache.
-STRUCTURE_SOURCES = {"pdb": (pdb_url, None), "alphafold": (alphafold_url, gzip_file)}
+# struct_type -> (URL builder, transform, content check). AlphaFold is gzipped on the way in to match the
+# cache; the check runs on the response as served, before the transform.
+STRUCTURE_SOURCES = {"pdb": (pdb_url, None, check_gzip), "alphafold": (alphafold_url, gzip_file, check_mmcif)}
 # Types already on disk, or fetched elsewhere
 NOT_DOWNLOADED = ("local_file", "foldseek_db")
 
@@ -174,12 +179,34 @@ class StructureManager:
         """
         return self.path(record["struct_type"], record["struct_info"])
 
+    def on_disk(self, record):
+        """
+        Whether the structure or Foldseek database a record names is on disk.
+
+        A Foldseek database counts only once `<path>.dbtype` exists, the file `fetch_missing_fsdb` places
+        last, so a partial download is not taken for a database.
+
+        Args:
+            record (dict): A record with `struct_type` and `struct_info`.
+
+        Returns:
+            bool: Whether the file `record_path` gives, or for a Foldseek database its `.dbtype`, exists.
+
+        Raises:
+            PocketMapperError: As `path`.
+        """
+        path = self.record_path(record)
+        if record["struct_type"] == "foldseek_db":
+            path = f"{path}.dbtype"
+        return os.path.exists(path)
+
     def fetch(self, records):
         """
         Concurrently fetch the structures a list of records names.
 
         Writes each PDB and AlphaFold structure to the path `record_path` gives, unless a file is already
-        there and `refresh` is off. With `download` off, nothing is fetched. Records sharing that path
+        there and `refresh` is off. A response failing its source's content check is not placed, and its
+        structure counts as unavailable. With `download` off, nothing is fetched. Records sharing that path
         (`4q5j` and `4Q5J`, say) give one download, from the first of them, and share its result.
 
         Args:
@@ -204,12 +231,12 @@ class StructureManager:
             if struct_info in found or struct_info in job_keys:
                 continue
             if struct_type in STRUCTURE_SOURCES and self.download:
-                url_for, transform = STRUCTURE_SOURCES[struct_type]
+                url_for, transform, check = STRUCTURE_SOURCES[struct_type]
                 out_fpath = self.record_path(record)
                 job_keys[struct_info] = out_fpath
-                jobs.setdefault(out_fpath, DownloadJob(url_for(struct_info), out_fpath, transform))
+                jobs.setdefault(out_fpath, DownloadJob(url_for(struct_info), out_fpath, transform, check))
             elif struct_type in STRUCTURE_SOURCES or struct_type == "local_file":
-                found[struct_info] = os.path.exists(self.record_path(record))
+                found[struct_info] = self.on_disk(record)
             elif struct_type in NOT_DOWNLOADED:
                 found[struct_info] = True
             else:
@@ -337,7 +364,11 @@ def fetch_missing_fsdb(record, manager, threads, tmp_dir):
     """
     Download a bundled Foldseek database if it is not already on disk.
 
-    Probes the foldseek binary before downloading.
+    A database counts as on disk when `<path>.dbtype` exists (`StructureManager.on_disk`). Probes the
+    foldseek binary before downloading. `foldseek databases` writes into a staging directory made beside
+    the destination, `.<name>.<random>`, whose files are then moved onto their final names with
+    `<name>.dbtype` last, so an interrupted download never leaves the marker beside a partial database.
+    The staging directory is removed whether or not the download succeeded.
 
     Args:
         record (dict): The `foldseek_db` record; the database is named by its `struct_info` and
@@ -352,13 +383,14 @@ def fetch_missing_fsdb(record, manager, threads, tmp_dir):
 
     Raises:
         PocketMapperError: If the database is missing and `manager` is not downloading, `manager` lacks
-            `fsdb_dir` for a bundled name, foldseek cannot run, the destination or `tmp_dir` cannot be
-            created, or -- from `run_foldseek` -- if the download fails.
+            `fsdb_dir` for a bundled name, foldseek cannot run, the destination, the staging directory or
+            `tmp_dir` cannot be created, the download wrote no `<name>.dbtype`, or -- from `run_foldseek`
+            -- if the download fails.
     """
     log_extra = {"stage": "Fetching Missing Foldseek Database"}
     fsdb_name = record["struct_info"].upper()
     fsdb_path = manager.record_path(record)
-    if os.path.exists(fsdb_path):
+    if manager.on_disk(record):
         return
     if not manager.download:
         msg = f"The Foldseek database '{fsdb_name}' is not at {fsdb_path}, and downloads are turned off"
@@ -367,7 +399,29 @@ def fetch_missing_fsdb(record, manager, threads, tmp_dir):
 
     require_foldseek(f"Downloading the Foldseek database '{fsdb_name}' needs foldseek")
     logger.info(f"Fetching bundled Foldseek database '{fsdb_name}' to {fsdb_path}", extra=log_extra)
-    make_dir(os.path.dirname(fsdb_path), log_extra)
+    fsdb_dir, base = os.path.split(fsdb_path)
+    make_dir(fsdb_dir, log_extra)
     make_dir(tmp_dir, log_extra)
-    run_foldseek(["databases", fsdb_name, fsdb_path, tmp_dir, "--threads", str(threads)], log_extra)
+    try:
+        # Mode 0700 applies to the directory only; the files keep foldseek's modes when moved out
+        staging = tempfile.mkdtemp(dir=fsdb_dir, prefix=f".{base}.")
+    except OSError as e:
+        msg = f"Error creating a staging directory in {fsdb_dir or os.getcwd()}"
+        logger.critical(msg, extra=log_extra)
+        raise PocketMapperError(msg) from e
+    try:
+        run_foldseek(
+            ["databases", fsdb_name, os.path.join(staging, base), tmp_dir, "--threads", str(threads)], log_extra
+        )
+        marker = f"{base}.dbtype"
+        names = os.listdir(staging)
+        if marker not in names:
+            msg = f"Downloading the Foldseek database '{fsdb_name}' wrote no {marker}"
+            logger.critical(msg, extra=log_extra)
+            raise PocketMapperError(msg)
+        # The marker last: it is what makes the database count as on disk
+        for name in sorted(names, key=lambda name: name == marker):
+            os.replace(os.path.join(staging, name), os.path.join(fsdb_dir, name))
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
     logger.info(f"Successfully fetched Foldseek database '{fsdb_name}'", extra=log_extra)

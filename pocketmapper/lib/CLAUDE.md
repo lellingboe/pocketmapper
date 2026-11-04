@@ -17,7 +17,12 @@ destination's directory, share one retry test, and fetch through `fetch_to` (a U
 **`download_many` is the one download pool**, used by `lib.structure_manager.StructureManager.fetch`
 and `PisaDownloader.download_missing_assemblies`. It skips a `DownloadJob` whose file already exists, so
 the file is the cache; `overwrite=True` fetches it anyway (a structure refresh), and a failed fetch then
-leaves the cached file in place. **With `fetch=download_api` it runs one job at a time, whatever `max_workers`
+leaves the cached file in place. **The file existing is still the only cache test, but only checked content
+reaches the final name**: a job's content check (`check_gzip` for a PDB structure, `check_mmcif` for an
+AlphaFold model, `check_json` for a PISA file) runs on the response before it is placed. A 200 response
+that fails it (a proxy or maintenance page) raises `UnexpectedContentError`, which is not transient, so it
+costs one request, is not cached, and is asked for again on the next run. A file cached before the checks
+existed is not re-checked. **With `fetch=download_api` it runs one job at a time, whatever `max_workers`
 says**: `download_api` sleeps the host delay outside the lock, so concurrent calls would each sleep the
 same delay and then fire together. The rule sits beside the pacer, so no caller repeats it.
 **Ctrl-C cancels the queued jobs, not the running ones**: `download_many` waits for the at most

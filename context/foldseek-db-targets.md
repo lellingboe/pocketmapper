@@ -32,6 +32,11 @@ rebuilds the superpose selection via `createsubdb` + `convert2pdb`.
 - Missing entry or short spec aborts the run (no per-row fallback: it would mix coordinate systems in one
   column). **Refresh the table whenever `BUNDLED_HUMAN_DOMAINS_DB` moves.**
 
+**The bundled `pdb` DB counts as cached when `<path>.dbtype` exists.** `fetch_missing_fsdb` runs
+`foldseek databases` into a staging dir beside it (`.<name>.<random>`), then moves the files out with
+`<name>.dbtype` last, so the marker never sits beside a partial DB. Known limit: a partial DB left by the
+old code (which wrote in place) that already has its `.dbtype` is still trusted; delete it to refetch.
+
 **Bundled DB ships without `.source`**; strip it from any refresh. It duplicates `.lookup` and nothing
 reads it (verified: `easy-search`, `createsubdb`, `convert2pdb` all work without it); saves 1.4 MB.
 `.lookup` must stay (`extract_fsdb_structures` reads it).

@@ -254,7 +254,8 @@ def report_failures(path, step, failures, log_extra, message=None):
 
 def split_missing_structures(records, manager, side, step, entries_path, log_extra):
     """
-    Set aside the records whose structure, or Foldseek database, is not on disk.
+    Set aside the records whose structure, or Foldseek database, is not on disk, as
+    `StructureManager.on_disk` decides.
 
     Reports them through `report_failures` as `structure_not_found`, with a hint to run
     fetch_structures (or pass --fetch_missing 1) unless running inside search, which already has.
@@ -276,7 +277,7 @@ def split_missing_structures(records, manager, side, step, entries_path, log_ext
     kept = []
     failures = []
     for record in records:
-        if os.path.exists(manager.record_path(record)):
+        if manager.on_disk(record):
             kept.append(record)
         else:
             failures.append(failure(side, record, "structure_not_found"))

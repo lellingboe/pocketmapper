@@ -19,18 +19,14 @@ from pocketmapper.lib.structure_manager import StructureManager
         pytest.param("alphafold", "p12345", os.path.join("af", "P12345.cif.gz"), True, id="alphafold_present"),
         pytest.param("local_file", "mine.cif", "mine.cif", True, id="local_present"),
         pytest.param("local_file", "mine.cif", None, False, id="local_missing"),
-        pytest.param(
-            "foldseek_db",
-            "human_domains",
-            os.path.join("fsdb", "pdb"),
-            True,
-            id="fsdb_present",
-        ),
+        pytest.param("foldseek_db", "human_domains", None, True, id="fsdb_bundled"),
+        pytest.param("foldseek_db", "pdb", os.path.join("fsdb", "pdb.dbtype"), True, id="fsdb_present"),
+        pytest.param("foldseek_db", "pdb", os.path.join("fsdb", "pdb"), False, id="fsdb_bare_prefix"),
         pytest.param("foldseek_db", "pdb", None, False, id="fsdb_missing"),
     ],
 )
 def test_split_missing_structures(write_file, local_root, struct_type, struct_info, written, kept):
-    """A record is kept only if the file `record_path` gives exists."""
+    """A record is kept only if the file `record_path` gives exists, or for a Foldseek database its `.dbtype`."""
     if written is not None:
         write_file(written, "")
     manager = StructureManager(

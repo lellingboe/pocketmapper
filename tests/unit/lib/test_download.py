@@ -1,9 +1,11 @@
 """
-Tests for `lib.download.fetch_to` and `write_through_part` against a loopback server: the User-Agent, POST
-bodies, short reads and a server that stalls.
+Tests for `lib.download.fetch_to`, `write_through_part` and `download_file` against a loopback server: the
+User-Agent, POST bodies, short reads, a server that stalls and a response failing its content check; and the
+content checks themselves.
 """
 
 import concurrent.futures
+import gzip
 import os
 import socket
 import threading
@@ -13,7 +15,18 @@ from urllib.error import ContentTooShortError, URLError
 import pytest
 
 from pocketmapper.lib import download
-from pocketmapper.lib.download import USER_AGENT, DownloadJob, fetch_to, is_transient_error, write_through_part
+from pocketmapper.lib.download import (
+    USER_AGENT,
+    DownloadJob,
+    UnexpectedContentError,
+    check_gzip,
+    check_json,
+    check_mmcif,
+    download_file,
+    fetch_to,
+    is_transient_error,
+    write_through_part,
+)
 
 BODY = b"0123456789"
 
@@ -168,7 +181,7 @@ def test_download_many_interrupt_cancels_queued(tmp_path, monkeypatch):
     lock = threading.Lock()
     calls = []
 
-    def fetch(url, out_fpath, transform=None, log_extra=None):
+    def fetch(url, out_fpath, transform=None, check=None, log_extra=None):
         """Count the call and take a moment, as a download would."""
         with lock:
             calls.append(url)
@@ -185,3 +198,56 @@ def test_download_many_interrupt_cancels_queued(tmp_path, monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         download.download_many(jobs, fetch=fetch, max_workers=2)
     assert len(calls) < 10
+
+
+HTML_BODY = b"<html><body>Down for maintenance</body></html>"
+GOOD_CONTENT = {
+    check_gzip: gzip.compress(b"data_x\n"),
+    check_json: b'{"a": 1}',
+    check_mmcif: b"# a comment\n\n#\ndata_x\n_cell.length_a 10\n",
+}
+
+
+@pytest.mark.parametrize(
+    ("check", "content", "accepted"),
+    [
+        pytest.param(check, content, accepted, id=f"{check.__name__}_{name}")
+        for check in GOOD_CONTENT
+        for name, content, accepted in [
+            ("good", GOOD_CONTENT[check], True),
+            ("html", HTML_BODY, False),
+            ("empty", b"", False),
+        ]
+    ],
+)
+def test_content_checks(tmp_path, check, content, accepted):
+    """Each check accepts its kind of file and rejects an HTML page or an empty file, without a retry."""
+    fpath = os.path.join(str(tmp_path), "response")
+    with open(fpath, "wb") as f:
+        f.write(content)
+    if accepted:
+        assert check(fpath) is None
+    else:
+        with pytest.raises(UnexpectedContentError) as info:
+            check(fpath)
+        assert fpath in str(info.value)
+        assert not is_transient_error(info.value)
+
+
+def test_download_file_unexpected_content(serve, tmp_path, monkeypatch):
+    """A 200 HTML page failing `check_gzip` costs one request and leaves nothing in the output directory."""
+    calls = []
+    real_fetch_to = download.fetch_to
+
+    def counting_fetch(url, raw_fpath, data=None):
+        """Count the request, then run the real `fetch_to` with a short timeout."""
+        calls.append(url)
+        real_fetch_to(url, raw_fpath, data, timeout=0.2)
+
+    monkeypatch.setattr(download, "fetch_to", counting_fetch)
+    server = serve(response(HTML_BODY, len(HTML_BODY)))
+    out_dir = os.path.join(str(tmp_path), "pdb")
+    out = os.path.join(out_dir, "4Q5J.cif.gz")
+    assert download_file(server.url, out, base_delay=0, check=check_gzip) is False
+    assert calls == [server.url]
+    assert os.listdir(out_dir) == []

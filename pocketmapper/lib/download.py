@@ -11,11 +11,17 @@ Every response lands on a scratch file beside its destination, `<out_fpath>.<hex
 download cannot leave a truncated file under a name a cache would trust. The name is unique per attempt,
 so two downloads of one file never write the same scratch file.
 
+A download can also be given a content check (`check_gzip`, `check_json`, `check_mmcif`), run on the raw
+response before it is placed. A 200 response that is not the expected kind of file, such as a proxy or
+maintenance page, then raises `UnexpectedContentError`: it is not retried, and nothing is placed, so the
+cache never trusts it and the next run asks again.
+
 Every request goes through `fetch_to`, which sends `USER_AGENT` and gives each socket operation
 `DOWNLOAD_TIMEOUT` seconds, so a server that stalls raises a `TimeoutError` that is retried like any
 other transient failure.
 """
 
+import json
 import logging
 import os
 import shutil
@@ -55,15 +61,98 @@ DOWNLOAD_WORKERS = 8
 _HOST_DELAYS = {}
 _HOST_DELAYS_LOCK = threading.Lock()
 
+# Bytes of a response `check_mmcif` reads looking for its `data_` line, and the bytes of a rejected
+# response quoted in the error
+MMCIF_CHECK_BYTES = 65536
+PREVIEW_BYTES = 40
+
 
 class DownloadJob(NamedTuple):
     """
-    One file for `download_many` to fetch: its address, its final path, and an optional `transform`.
+    One file for `download_many` to fetch: its address, its final path, an optional `transform`, and an
+    optional content `check` (such as `check_gzip`).
     """
 
     url: str
     out_fpath: str
     transform: object = None
+    check: object = None
+
+
+class UnexpectedContentError(ValueError):
+    """
+    A response arrived complete but is not the kind of file that was asked for.
+
+    Not a transient failure to `is_transient_error`, so the download fails without a retry.
+    """
+
+
+def check_gzip(fpath):
+    """
+    Check that a file starts with the gzip magic number.
+
+    Args:
+        fpath (str): The file to check.
+
+    Returns:
+        None
+
+    Raises:
+        UnexpectedContentError: If its first two bytes are not `1f 8b`.
+    """
+    with open(fpath, "rb") as f:
+        head = f.read(PREVIEW_BYTES)
+    if head[:2] != b"\x1f\x8b":
+        raise UnexpectedContentError(f"expected gzip data in {fpath}, but it starts {head!r}")
+
+
+def check_json(fpath):
+    """
+    Check that a file parses as JSON.
+
+    Args:
+        fpath (str): The file to check.
+
+    Returns:
+        None
+
+    Raises:
+        UnexpectedContentError: If `json.load` cannot parse it.
+    """
+    with open(fpath, "rb") as f:
+        try:
+            json.load(f)
+        except ValueError as e:  # JSONDecodeError and UnicodeDecodeError both subclass it
+            f.seek(0)
+            head = f.read(PREVIEW_BYTES)
+            raise UnexpectedContentError(f"expected JSON in {fpath} ({e}), but it starts {head!r}") from e
+
+
+def check_mmcif(fpath):
+    """
+    Check that a file's first line other than a blank or a `#` comment starts with `data_`.
+
+    Reads at most `MMCIF_CHECK_BYTES`, so a large file costs no more than a small one.
+
+    Args:
+        fpath (str): The file to check.
+
+    Returns:
+        None
+
+    Raises:
+        UnexpectedContentError: If that line does not start with `data_`, or there is none in the bytes read.
+    """
+    with open(fpath, "rb") as f:
+        head = f.read(MMCIF_CHECK_BYTES)
+    for line in head.splitlines():
+        line = line.strip()
+        if not line or line.startswith(b"#"):
+            continue
+        if line.startswith(b"data_"):
+            return
+        break
+    raise UnexpectedContentError(f"expected mmCIF, a data_ line, in {fpath}, but it starts {head[:PREVIEW_BYTES]!r}")
 
 
 def discard_partial(fpath):
@@ -173,15 +262,16 @@ def fetch_to(url, raw_fpath, data=None, timeout=DOWNLOAD_TIMEOUT):
             raise ContentTooShortError(f"got {out.tell()} of {expected} bytes from {url}", None)
 
 
-def write_through_part(url, out_fpath, transform, log_extra, data=None):
+def write_through_part(url, out_fpath, transform, log_extra, data=None, check=None):
     """
     Fetch `url` and place it at `out_fpath`, writing through a scratch `.part` file.
 
     Creates the parent directory of `out_fpath` if it is missing. The response is written to a scratch
     file beside the destination, named uniquely by `part_path`, and moved onto it with `os.replace` only
-    once it is complete, so a failed fetch leaves nothing under the final name. With a `transform`, the
-    response goes to a second scratch file and only the transform's output is placed. Every scratch file
-    is removed before returning, whether or not the fetch succeeded.
+    once it is complete, so a failed fetch leaves nothing under the final name. A `check` runs on the
+    response as received, before any transform. With a `transform`, the response goes to a second scratch
+    file and only the transform's output is placed. Every scratch file is removed before returning, whether
+    or not the fetch succeeded.
 
     Args:
         url (str): Address to fetch.
@@ -191,11 +281,14 @@ def write_through_part(url, out_fpath, transform, log_extra, data=None):
         log_extra (dict or None): `extra` mapping for the log records, or None to log them under
             this function's own name.
         data (bytes, optional): Request body. Given, the request is a POST. Defaults to None.
+        check (callable, optional): Called as `check(fpath)` on the response, raising
+            `UnexpectedContentError` if it is not the expected kind of file. Defaults to None, no check.
 
     Returns:
         None
 
     Raises:
+        UnexpectedContentError: If the response fails `check`.
         Exception: Whatever creating the directory, the fetch or the transform raised.
     """
     out_dir = os.path.dirname(out_fpath)
@@ -206,6 +299,8 @@ def write_through_part(url, out_fpath, transform, log_extra, data=None):
     try:
         logger.debug(f"Fetching {url} -> {raw_fpath}", extra=log_extra)
         fetch_to(url, raw_fpath, data=data)
+        if check:
+            check(raw_fpath)
         if transform:
             transform(raw_fpath, part_fpath)
         os.replace(part_fpath, out_fpath)
@@ -216,12 +311,14 @@ def write_through_part(url, out_fpath, transform, log_extra, data=None):
             discard_partial(raw_fpath)
 
 
-def download_file(url, out_fpath, transform=None, max_retries=5, base_delay=0.25, max_delay=30.0, log_extra=None):
+def download_file(
+    url, out_fpath, transform=None, max_retries=5, base_delay=0.25, max_delay=30.0, log_extra=None, check=None
+):
     """
     Download `url` to `out_fpath`, retrying transient failures with exponential backoff.
 
     Sleeps only after a failed attempt, starting at `base_delay` and doubling up to `max_delay`. Holds
-    no state between calls, so any number may run concurrently.
+    no state between calls, so any number may run concurrently. A response failing `check` is not retried.
 
     Args:
         url (str): Address to fetch.
@@ -233,6 +330,8 @@ def download_file(url, out_fpath, transform=None, max_retries=5, base_delay=0.25
         max_delay (float): Ceiling on the doubling delay. Defaults to 30.0.
         log_extra (dict, optional): `extra` mapping for the log records. Defaults to None, which
             logs them under this function's own name.
+        check (callable, optional): Content check run on the response, as in `write_through_part`.
+            Defaults to None, no check.
 
     Returns:
         bool: True once the file is in place, False if every attempt failed.
@@ -240,7 +339,7 @@ def download_file(url, out_fpath, transform=None, max_retries=5, base_delay=0.25
     delay = base_delay
     for attempt in range(1, max_retries + 1):
         try:
-            write_through_part(url, out_fpath, transform, log_extra)
+            write_through_part(url, out_fpath, transform, log_extra, check=check)
             return True
         except Exception as e:
             if attempt == max_retries or not is_transient_error(e):
@@ -256,7 +355,15 @@ def download_file(url, out_fpath, transform=None, max_retries=5, base_delay=0.25
 
 
 def download_api(
-    url, out_fpath, max_retries=5, base_delay=0.25, max_delay=30.0, log_extra=None, data=None, transform=None
+    url,
+    out_fpath,
+    max_retries=5,
+    base_delay=0.25,
+    max_delay=30.0,
+    log_extra=None,
+    data=None,
+    transform=None,
+    check=None,
 ):
     """
     Download a REST response to `out_fpath`, pacing requests to the host it came from.
@@ -265,7 +372,7 @@ def download_api(
     failure doubles that delay, capped at `max_delay`, and it is never lowered again, so the
     backoff one request needed becomes the pace of every later request to the same host. The delay
     is shared by every caller in the process and outlives any one of them; `reset_host_delays`
-    clears it.
+    clears it. A response failing `check` is not retried and leaves the delay unchanged.
 
     Args:
         url (str): Address to fetch.
@@ -278,6 +385,8 @@ def download_api(
         data (bytes, optional): Request body. Given, the request is a POST. Defaults to None.
         transform (callable, optional): Called as `transform(src_fpath, dst_fpath)` to convert the
             response before it is placed. Defaults to None, which places it unchanged.
+        check (callable, optional): Content check run on the response, as in `write_through_part`.
+            Defaults to None, no check.
 
     Returns:
         bool: True once the response is in place, False if every attempt failed.
@@ -285,7 +394,7 @@ def download_api(
     for attempt in range(1, max_retries + 1):
         sleep(get_host_delay(url, base_delay))
         try:
-            write_through_part(url, out_fpath, transform, log_extra, data=data)
+            write_through_part(url, out_fpath, transform, log_extra, data=data, check=check)
             return True
         except Exception as e:
             if attempt == max_retries or not is_transient_error(e):
@@ -304,14 +413,16 @@ def download_many(jobs, fetch=download_file, max_workers=DOWNLOAD_WORKERS, log_e
     """
     Fetch every job whose file is not already in place, `max_workers` at a time.
 
-    A job whose `out_fpath` exists is not fetched and counts as a success, unless `overwrite` is True. With
+    A job whose `out_fpath` exists is not fetched and counts as a success, unless `overwrite` is True. A job's
+    `check` is passed on to `fetch`, so only a response that passes it is placed. With
     `fetch=download_api` the jobs run one at a time, whatever `max_workers` says. The progress bar counts
     every job, skipped ones included. An interrupt (`KeyboardInterrupt`) cancels the queued jobs and is
     re-raised once the jobs already running have finished.
 
     Args:
         jobs (dict): Key -> `DownloadJob`.
-        fetch (callable, optional): `download_file` or `download_api`, called by keyword. Defaults to
+        fetch (callable, optional): `download_file` or `download_api`, called with the job's url and
+            out_fpath, then by keyword with its transform, its check and `log_extra`. Defaults to
             `download_file`.
         max_workers (int, optional): Downloads to run concurrently. Defaults to `DOWNLOAD_WORKERS`.
         log_extra (dict, optional): `extra` mapping for the log records. Defaults to None, which logs them
@@ -329,7 +440,9 @@ def download_many(jobs, fetch=download_file, max_workers=DOWNLOAD_WORKERS, log_e
     executor = ThreadPoolExecutor(max_workers=workers)
     try:
         futures = {
-            executor.submit(fetch, job.url, job.out_fpath, transform=job.transform, log_extra=log_extra): key
+            executor.submit(
+                fetch, job.url, job.out_fpath, transform=job.transform, check=job.check, log_extra=log_extra
+            ): key
             for key, job in to_fetch.items()
         }
         for f in tqdm(as_completed(futures), total=len(jobs), initial=len(results)):

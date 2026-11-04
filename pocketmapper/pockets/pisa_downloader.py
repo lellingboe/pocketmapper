@@ -31,7 +31,14 @@ from glob import glob
 from tqdm import tqdm
 
 from pocketmapper.lib.constants import DEFAULT_PISA_SOURCE, PISA_SOURCES
-from pocketmapper.lib.download import DOWNLOAD_WORKERS, DownloadJob, download_api, download_file, download_many
+from pocketmapper.lib.download import (
+    DOWNLOAD_WORKERS,
+    DownloadJob,
+    check_json,
+    download_api,
+    download_file,
+    download_many,
+)
 from pocketmapper.lib.exceptions import PocketMapperError
 from pocketmapper.lib.files import part_path
 
@@ -215,7 +222,8 @@ class PisaDownloader:
         Each batch response is written to a scratch file in `summary_dir` named uniquely per batch
         (`_batch.json.<hex>.part`), which creates the directory, split into one `<pdb_code>.json` per
         entry, and deleted. The API silently omits an entry it has no summary for, so a code absent from
-        its batch's response counts as a failure, as does every code in a batch whose request failed.
+        its batch's response counts as a failure, as does every code in a batch whose request failed or
+        whose response is not JSON.
 
         Args:
             pdb_codes (list): Lower-cased PDB codes to fetch.
@@ -240,7 +248,9 @@ class PisaDownloader:
             batch = to_fetch[start:end]
             batch_fname = part_path(os.path.join(self.summary_dir, "_batch.json"))
             try:
-                if not download_api(url, batch_fname, log_extra=self.log_extra, data=",".join(batch).encode()):
+                if not download_api(
+                    url, batch_fname, log_extra=self.log_extra, data=",".join(batch).encode(), check=check_json
+                ):
                     failure.extend(batch)
                     continue
                 with open(batch_fname) as f:
@@ -300,7 +310,8 @@ class PisaDownloader:
 
         Writes one file per assembly. An assembly already there counts as a success without costing a
         request, whichever source wrote it. FTP files are fetched `max_workers` at a time, and one the
-        server does not have (404) is not retried; API requests are paced, one at a time.
+        server does not have (404) is not retried; API requests are paced, one at a time. A response that
+        is not JSON is not retried and not written, and counts as a failure.
 
         Args:
             asm_dict (dict): pdb_code -> list of assembly ids, as returned by `parse_summaries`.
@@ -315,7 +326,9 @@ class PisaDownloader:
         )
         url_for, fetch = ASSEMBLY_SOURCES[self.source]
         jobs = {
-            (pdb_code, asm): DownloadJob(url_for(pdb_code, asm), os.path.join(self.asm_dir, f"{pdb_code}_{asm}.json"))
+            (pdb_code, asm): DownloadJob(
+                url_for(pdb_code, asm), os.path.join(self.asm_dir, f"{pdb_code}_{asm}.json"), check=check_json
+            )
             for pdb_code, assemblies in asm_dict.items()
             for asm in assemblies
         }

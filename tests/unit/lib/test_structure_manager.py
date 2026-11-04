@@ -1,6 +1,6 @@
 """
 Unit tests for `lib.structure_manager`: path resolution, fetching from a `file://` source, loading with
-validation, and a missing Foldseek database with downloads turned off.
+validation, and fetching a Foldseek database through a staging directory, or not at all with downloads off.
 """
 
 import logging
@@ -39,9 +39,10 @@ def has_ca_residues(st):
 
 @pytest.fixture
 def file_source(monkeypatch):
-    """Point the `pdb` URL builder at a `file://` URL of the 4Q5J fixture, whatever the code."""
+    """Point the `pdb` URL builder at a `file://` URL of the 4Q5J fixture, whatever the code, keeping its check."""
     url = urljoin("file:", pathname2url(FIXTURE))
-    monkeypatch.setitem(structure_manager.STRUCTURE_SOURCES, "pdb", (lambda pdb_code: url, None))
+    _, transform, check = structure_manager.STRUCTURE_SOURCES["pdb"]
+    monkeypatch.setitem(structure_manager.STRUCTURE_SOURCES, "pdb", (lambda pdb_code: url, transform, check))
 
 
 @pytest.fixture
@@ -293,22 +294,103 @@ def no_foldseek(monkeypatch):
     monkeypatch.setattr(structure_manager, "run_foldseek", forbidden)
 
 
-def test_fetch_missing_fsdb_no_download(local_root, no_foldseek):
-    """A missing database with `download=False` raises, without probing or running foldseek."""
-    fsdb_path = os.path.join(local_root, "fsdb", "pdb")
-    record = {"struct_type": "foldseek_db", "struct_info": "pdb"}
-    manager = StructureManager(fsdb_dir=os.path.join(local_root, "fsdb"), download=False)
+FSDB_RECORD = {"struct_type": "foldseek_db", "struct_info": "pdb"}
+FSDB_FILES = ["pdb", "pdb.dbtype", "pdb.index", "pdb_ca"]
+
+
+@pytest.fixture
+def fsdb_dir(local_root):
+    """The Foldseek database cache directory under `local_root`, not yet created."""
+    return os.path.join(local_root, "fsdb")
+
+
+@pytest.mark.parametrize("existing", [None, "pdb"], ids=["missing", "bare_prefix"])
+def test_fetch_missing_fsdb_no_download(write_file, local_root, fsdb_dir, no_foldseek, existing):
+    """A database without its `.dbtype` and `download=False` raises, without probing or running foldseek."""
+    if existing is not None:
+        write_file(os.path.join("fsdb", existing), "")
+    fsdb_path = os.path.join(fsdb_dir, "pdb")
+    manager = StructureManager(fsdb_dir=fsdb_dir, download=False)
 
     message = f"The Foldseek database 'PDB' is not at {fsdb_path}, and downloads are turned off"
     with pytest.raises(PocketMapperError, match=f"^{re.escape(message)}"):
-        structure_manager.fetch_missing_fsdb(record, manager, 1, os.path.join(local_root, "tmp"))
-    assert not os.path.exists(os.path.dirname(fsdb_path))
+        structure_manager.fetch_missing_fsdb(FSDB_RECORD, manager, 1, os.path.join(local_root, "tmp"))
+    expected = [] if existing is None else [existing]
+    assert (sorted(os.listdir(fsdb_dir)) if os.path.exists(fsdb_dir) else []) == expected
 
 
-def test_fetch_missing_fsdb_cached_no_download(write_file, local_root, no_foldseek):
-    """A database already on disk passes with `download=False`."""
-    write_file(os.path.join("fsdb", "pdb"), "")
-    record = {"struct_type": "foldseek_db", "struct_info": "pdb"}
-    manager = StructureManager(fsdb_dir=os.path.join(local_root, "fsdb"), download=False)
+def test_fetch_missing_fsdb_cached_no_download(write_file, local_root, fsdb_dir, no_foldseek):
+    """A database whose `.dbtype` is on disk passes with `download=False`."""
+    write_file(os.path.join("fsdb", "pdb.dbtype"), "")
+    manager = StructureManager(fsdb_dir=fsdb_dir, download=False)
 
-    structure_manager.fetch_missing_fsdb(record, manager, 1, os.path.join(local_root, "tmp"))
+    structure_manager.fetch_missing_fsdb(FSDB_RECORD, manager, 1, os.path.join(local_root, "tmp"))
+
+
+@pytest.fixture
+def fake_databases(monkeypatch):
+    """Replace foldseek with a `databases` stub; returns a function setting the files it writes and whether it fails."""
+    calls = []
+    behaviour = {"files": FSDB_FILES, "fails": False}
+
+    def run(args, log_extra=None):
+        """Write each file beside the output prefix `args[2]` (whose basename is `pdb`), then raise if told to fail."""
+        calls.append(list(args))
+        out_dir = os.path.dirname(args[2])
+        for name in behaviour["files"]:
+            with open(os.path.join(out_dir, name), "w") as f:
+                f.write(name)
+        if behaviour["fails"]:
+            raise PocketMapperError("Foldseek exited with code 1")
+
+    def configure(files=FSDB_FILES, fails=False):
+        """Set what the stub writes and whether it then raises, and return its recorded calls."""
+        behaviour.update(files=files, fails=fails)
+        return calls
+
+    monkeypatch.setattr(structure_manager, "require_foldseek", lambda *args, **kwargs: None)
+    monkeypatch.setattr(structure_manager, "run_foldseek", run)
+    return configure
+
+
+@pytest.mark.parametrize(
+    ("files", "fails", "message", "expected"),
+    [
+        pytest.param(FSDB_FILES, False, None, sorted(FSDB_FILES), id="success"),
+        pytest.param(["pdb", "pdb.index"], True, "exited with code 1", [], id="foldseek_fails"),
+        pytest.param(["pdb", "pdb.index"], False, "wrote no pdb.dbtype", [], id="no_dbtype"),
+    ],
+)
+def test_fetch_missing_fsdb_staging(local_root, fsdb_dir, fake_databases, files, fails, message, expected):
+    """The download lands beside the destination only once complete, and the staging directory is always removed."""
+    calls = fake_databases(files, fails)
+    manager = StructureManager(fsdb_dir=fsdb_dir)
+    tmp_dir = os.path.join(local_root, "tmp")
+    if message is None:
+        structure_manager.fetch_missing_fsdb(FSDB_RECORD, manager, 1, tmp_dir)
+    else:
+        with pytest.raises(PocketMapperError, match=message):
+            structure_manager.fetch_missing_fsdb(FSDB_RECORD, manager, 1, tmp_dir)
+    assert sorted(os.listdir(fsdb_dir)) == expected
+    [args] = calls
+    staging_prefix = args[2]
+    assert os.path.dirname(os.path.dirname(staging_prefix)) == fsdb_dir
+    assert os.path.basename(staging_prefix) == "pdb"
+    assert args[3] == tmp_dir
+
+
+def test_fetch_missing_fsdb_marker_moved_last(fsdb_dir, local_root, fake_databases, monkeypatch):
+    """`pdb.dbtype` is the last file moved onto its final name."""
+    fake_databases()
+    moved = []
+    real_replace = os.replace
+
+    def recording_replace(src, dst):
+        """Record the destination's name, then move."""
+        moved.append(os.path.basename(dst))
+        real_replace(src, dst)
+
+    monkeypatch.setattr(structure_manager.os, "replace", recording_replace)
+    structure_manager.fetch_missing_fsdb(FSDB_RECORD, StructureManager(fsdb_dir=fsdb_dir), 1, local_root)
+    assert sorted(moved) == sorted(FSDB_FILES)
+    assert moved[-1] == "pdb.dbtype"
