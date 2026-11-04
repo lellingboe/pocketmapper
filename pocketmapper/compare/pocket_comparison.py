@@ -331,15 +331,18 @@ def mapping_failure(side, pocket, aln_seq, first_mismatch):
 
 def format_vector(values):
     """
-    Comma-join values at three decimals, the format Foldseek writes its `u` and `t` in.
+    Comma-join values at six decimals.
+
+    The values are geometry, not display: at three decimals a rotation is no longer orthonormal, which moves
+    atoms 50-150 A from the origin by roughly 0.05-0.1 A.
 
     Args:
         values (iterable): Floats to format.
 
     Returns:
-        str: e.g. `0.846,-0.524,0.910`.
+        str: e.g. `0.846154,-0.524312,0.910027`.
     """
-    return ",".join(f"{value:.3f}" for value in values)
+    return ",".join(f"{value:.6f}" for value in values)
 
 
 def superpose(p1, p2, p1_overlap_ids, p2_overlap_ids, overlap_count, sup):
@@ -367,17 +370,19 @@ def superpose(p1, p2, p1_overlap_ids, p2_overlap_ids, overlap_count, sup):
     sup.set(x, y)
     sup.run()
     u, t = sup.get_rotran()
-    fields = {"target_to_query_u": format_vector(u.flatten()), "target_to_query_t": format_vector(t)}
+    # get_rotran() right-multiplies: dot(y, u) + t ~ x. Its inverse is dot(x - t, u.T), as u is orthonormal.
+    u_inv = u.T
+    t_inv = -t @ u.T
+    fields = {
+        "target_to_query_u": format_vector(u.flatten()),
+        "target_to_query_t": format_vector(t),
+        "query_to_target_u": format_vector(u_inv.flatten()),
+        "query_to_target_t": format_vector(t_inv),
+        "rmsd": sup.get_rms(),
+    }
 
-    # TODO do this with matrix algebra instead of doing it twice
-    sup.set(y, x)
-    sup.run()
-    u, t = sup.get_rotran()
-    fields["query_to_target_u"] = format_vector(u.flatten())
-    fields["query_to_target_t"] = format_vector(t)
-    fields["rmsd"] = sup.get_rms()
-
-    ca_dists = LA.norm(sup.get_transformed() - y, axis=1)
+    # |dot(x, u_inv) + t_inv - y| = |x - (dot(y, u) + t)|, so the target-to-query fit gives the same distances.
+    ca_dists = LA.norm(sup.get_transformed() - x, axis=1)
     fields["ca_dists"] = ",".join([str(round(dist, 3)) for dist in ca_dists])
     return fields
 
