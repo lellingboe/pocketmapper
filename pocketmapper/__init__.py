@@ -11,12 +11,10 @@ anything else explicitly from the module that defines it: `from pocketmapper.<mo
 
 import logging
 
-from pocketmapper.lib.constants import PACKAGE_LOGGER
+from pocketmapper.lib.constants import PACKAGE_LOGGER, __version__
 from pocketmapper.search import PocketMapper
 
 # Library convention: records are dropped here unless the host application or the CLI adds a handler.
 logging.getLogger(PACKAGE_LOGGER).addHandler(logging.NullHandler())
 
 __all__ = ["PocketMapper", "__version__"]
-
-__version__ = "0.2.6"

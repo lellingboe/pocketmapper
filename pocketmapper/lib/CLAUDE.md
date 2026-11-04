@@ -9,7 +9,9 @@ working here.
 in every operational respect. `download_file` is for bulk static files: unpaced and stateless.
 `download_api` is for REST endpoints: it paces its requests and, on a transient failure, doubles that
 host's pacing and never lowers it again. Both write through a `.part` file, create the destination's
-directory, and share one retry test.
+directory, share one retry test, and fetch through `fetch_to` (a User-Agent, and a `DOWNLOAD_TIMEOUT` of 60 s
+per socket operation). A host that stalls every time therefore costs `max_retries` x 60 s per file, and for
+`download_api` those files run one after another.
 
 **`download_many` is the one download pool**, used by `lib.structure_manager.StructureManager.fetch`
 and `PisaDownloader.download_missing_assemblies`. It skips a `DownloadJob` whose file already exists, so

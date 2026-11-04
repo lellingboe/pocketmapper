@@ -83,6 +83,6 @@ tag = true
 tag_name = "{new_version}"
 
 [[tool.bumpversion.files]]
-filename = "pocketmapper/__init__.py"
+filename = "pocketmapper/lib/constants.py"
 search = '__version__ = "{current_version}"'
 replace = '__version__ = "{new_version}"'

@@ -10,29 +10,38 @@ Every response lands on `<out_fpath>.part` and is moved onto its final name only
 complete, so an interrupted download cannot leave a truncated file under a name a cache would
 trust.
 
-`urlcleanup()` is deliberately absent. Its only effects are unlinking the temp files `urlretrieve`
-creates when no filename is given -- none, here, since every call passes one -- and discarding the
-cached global opener, which costs a rebuilt handler chain per request and races between threads.
+Every request goes through `fetch_to`, which sends `USER_AGENT` and gives each socket operation
+`DOWNLOAD_TIMEOUT` seconds, so a server that stalls raises a `TimeoutError` that is retried like any
+other transient failure.
 """
 
 import logging
 import os
+import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.client import HTTPException
 from time import sleep
 from typing import NamedTuple
-from urllib.error import HTTPError, URLError
+from urllib.error import ContentTooShortError, HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import urlretrieve
+from urllib.request import Request, urlopen
 
 from tqdm import tqdm
+
+from pocketmapper.lib.constants import __version__
 
 logger = logging.getLogger(__name__)
 
 # Timing statuses worth another attempt. Every other 4xx describes the request itself and will
 # fail identically however many times it is repeated.
 TRANSIENT_HTTP_STATUSES = frozenset({408, 425, 429})
+
+# Seconds one socket operation (the connect, or one read) may block. A limit per operation, not per
+# download, so a large file that keeps arriving is never cut off.
+DOWNLOAD_TIMEOUT = 60
+
+USER_AGENT = f"pocketmapper/{__version__} (+https://github.com/lellingboe/pocketmapper)"
 
 # Default `max_workers` of `download_many`. Fixed rather than tied to a thread count: a worker
 # waits on a socket, not on a core.
@@ -132,6 +141,36 @@ def escalate_host_delay(url, max_delay):
         return delay
 
 
+def fetch_to(url, raw_fpath, data=None, timeout=DOWNLOAD_TIMEOUT):
+    """
+    Stream `url` into `raw_fpath`, sending `USER_AGENT`.
+
+    The size check is needed because `http.client` does not raise when a body read in chunks ends
+    early, so a truncated response would otherwise pass as complete.
+
+    Args:
+        url (str): Address to fetch.
+        raw_fpath (str): Path to write the response body to.
+        data (bytes, optional): Request body. Given, the request is a POST. Defaults to None.
+        timeout (float, optional): Seconds one socket operation may block. Defaults to `DOWNLOAD_TIMEOUT`.
+
+    Returns:
+        None
+
+    Raises:
+        HTTPError: When the server answers with an error status.
+        URLError: When the connection fails or times out.
+        TimeoutError: When the server stalls after the connection is made.
+        ContentTooShortError: When fewer bytes arrive than the `Content-Length` header promises.
+    """
+    req = Request(url, data=data, headers={"User-Agent": USER_AGENT})
+    with urlopen(req, timeout=timeout) as resp, open(raw_fpath, "wb") as out:
+        shutil.copyfileobj(resp, out)
+        expected = resp.headers.get("Content-Length")
+        if expected is not None and out.tell() != int(expected):
+            raise ContentTooShortError(f"got {out.tell()} of {expected} bytes from {url}", None)
+
+
 def write_through_part(url, out_fpath, transform, log_extra, data=None):
     """
     Fetch `url` and place it at `out_fpath`, writing through a `.part` file.
@@ -164,7 +203,7 @@ def write_through_part(url, out_fpath, transform, log_extra, data=None):
     raw_fpath = f"{out_fpath}.raw.part" if transform else part_fpath
     try:
         logger.debug(f"Fetching {url} -> {raw_fpath}", extra=log_extra)
-        urlretrieve(url, raw_fpath, data=data)
+        fetch_to(url, raw_fpath, data=data)
         if transform:
             transform(raw_fpath, part_fpath)
         os.replace(part_fpath, out_fpath)

@@ -5,6 +5,10 @@ Imports nothing, so every module can import it. Tables that several modules must
 rather than beside any one of their users.
 """
 
+# Package version, re-exported as `pocketmapper.__version__`. Defined here because this module imports
+# nothing, so `lib` modules can read it while `pocketmapper/__init__.py` is still importing.
+__version__ = "0.2.6"
+
 # Three-letter residue names to one-letter codes, copied verbatim from Foldseek's threeToOneAA
 # (src/strucclustutils/GemmiWrapper.cpp); names not listed map to X there. gemmi's tabulated codes
 # are not a substitute: they differ on 14 of these entries. Refresh whenever Foldseek changes its table.
