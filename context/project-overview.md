@@ -1,121 +1,89 @@
 # Project overview
-Cross-module and derived facts only. Anything one docstring or comment already states is left to that site
-and not copied here.
+Cross-module facts and pointers only (`coding-standards.md` "Context docs").
 
-## Project Status
-
-- This is an early development project, features may change or break between patches.
-- Names/location of outputs may change, but the underlying data should remain fairly consistent.
-- The project is currently going through refactoring and reorganization, some things may be inconsistent
-  while this process is happening.
-- This project is not yet ready for production use, and should be used with caution.
+**Status:** early development, mid-refactor; output names and locations may change between patches. Not
+ready for production use.
 
 ## Where to start
 
-- `search.py` module docstring: the steps of `search()` and what each writes under `results_dir`;
-  each step's entry/core layers, settings layering, and how every later step reads its records from
-  `entries.tsv` (no records are handed on in memory).
-- `cli.py`: the only module that knows about argv or exit codes; why every option defaults to None.
-- `lib/options.py`: the option registry; CLI options, defaults, job keys and validators are derived from it.
-  `context/settings.md` says what a new option needs.
-- `lib/entries.py`: `entries.tsv`, why a dropped entry warns only once, and why a rerun step gives the same
-  table.
-- `parse/qt_processor.py`: the input grammar; the two tables in `QTProcessor.__init__` are the whole of it.
-- `parse/CLAUDE.md`, `pockets/CLAUDE.md`, `lib/CLAUDE.md`: read before changing those packages.
+- `search.py` module docstring: the steps, what each writes, and how every later step reads its records
+  from `entries.tsv`.
+- `cli.py` module docstring: argv, exit codes, why every option defaults to None.
+- `lib/options.py`: the option registry. `context/settings.md` says what a new option needs.
+- `lib/entries.py` module docstring: `entries.tsv`.
+- `parse/qt_processor.py`: the input grammar, mostly the two tables in `QTProcessor.__init__`.
 
 ## Invariants
 
 Breaking these gives silently wrong output. Each is explained at its code site; this is the map, plus
 checks that live nowhere else.
 
-- **`seq_pos`**: declared on `PocketResidue`, set only in `parse_pocket_from_struct` (every builder reaches it,
-  vdw included) as the index in `lib.residues.ca_residues`, and read in `map_pocket_into_alignment`. A
-  requested residue with no position (not in the chain, no CA atom, or not polymer) is dropped there, with one
-  warning per pocket, so a built pocket never holds `seq_pos` None or -1 and every `res_auth_ids` id is a key
-  of `residues`; a pocket whose named residues are all dropped is not built. Computed any other way,
-  `seq_pos` gives zero overlap and no error. Check: a pocket compared with itself gives
-  `overlap_count == pocket_len` (`test_self_comparison`). `pockets.pocket_files.check_pocket` enforces it on
-  every pocket written to or read from `pockets.json`: unique ids that are keys of `residues`,
-  `0 <= seq_pos < len(ca_sequence)`, and `ca_sequence[seq_pos]` equal to `res_code_single` (case-insensitive).
-  A violation raises `PocketMapperError`.
-- **Residue letters mirror Foldseek, not gemmi** (`lib.constants.FOLDSEEK_AA_CODES`). They compare
-  case-insensitively (`compare_pockets`), because Foldseek lowercases some residues; 4ER4, 2ER6 and 2ER9
-  are lowercased wholesale.
-- **Every chain walk reads `first_conformer()`**, and a new walk must too. The CA walk is
-  `lib.residues.ca_residues` (`parse_pocket_from_struct`, `vdw_pockets`' domain side, `SequenceAligner`); it
-  needs the entity types `setup_entities()` sets (`lib.structure_manager.load_structure` calls it). vdw's motif
-  side reads every atom of `get_polymer().first_conformer()`. `test_core_10` (`network`) covers it.
-- **`preprocess_name` is the alignment join key** (`QTProcessor.build_record`), bridged to `pocket_id` by
-  `pockets.json` `chains`. Only parse computes it (hashing local files); later steps read it from
-  `entries.tsv`, so `align` and `pockets` must run on the same table, and a caller that re-runs
-  `parse_entries` needs unchanged inputs. `compare.compare.check_coverage` catches a mismatch.
-  `test_preprocess_name_local_contents` and `test_local_7` cover local-file names.
-- **A pocket's `ca_sequence` must equal the aligner's sequence for its chain** (ungapped `qseq`/`tseq`),
-  case-insensitively, with X matching anything (`compare.pocket_comparison.first_sequence_mismatch`). Any other
-  difference means the two walks disagree, so every `seq_pos` after it lands in the neighbouring column; the
-  pocket is dropped and recorded in `incorrect_mapping.json`. Exactness is the point: a threshold lets a shift
-  near the chain end through.
+- **`seq_pos`** (`PocketResidue.seq_pos`): every built pocket's `seq_pos` is set in
+  `parse_pocket_from_struct`, as the index in `lib.residues.ca_residues`, and read in
+  `map_pocket_into_alignment`. The one other setter is `compare.pocket_comparison.synthesise_target_pocket`,
+  for a pocket that is never built. `pockets.pocket_files.check_pocket` enforces the rule on every pocket
+  written to or read from `pockets.json`. Check: a pocket compared with itself gives
+  `overlap_count == pocket_len` (`test_self_comparison`).
+- **Residue letters mirror Foldseek, not gemmi** (`lib.constants.FOLDSEEK_AA_CODES`) and compare
+  case-insensitively; 4ER4, 2ER6 and 2ER9 are lowercased wholesale.
+- **Every chain walk reads `first_conformer()`**, and a new walk must too. The walks: `lib.residues.ca_residues`
+  (used by `parse_pocket_from_struct`, `vdw_pockets`' domain side and `SequenceAligner`), which needs the
+  entity types `lib.structure_manager.load_structure` sets; and vdw's motif side. `test_core_10` (`network`)
+  covers it.
+- **`preprocess_name` is the alignment join key**, bridged to `pocket_id` by `pockets.json` `chains`. Parse
+  computes it (`QTProcessor.build_record`, hashing local files) and `PocketManager.expand_pdb_hits` replaces
+  it with the Foldseek hit name; every other step reads it from `entries.tsv`. So `align` and `pockets` must
+  run on the same table, and a caller that re-runs `parse_entries` needs unchanged inputs.
+  `compare.compare.check_coverage` catches a mismatch. `test_preprocess_name_local_contents` and
+  `test_local_7` cover local-file names. More in `parse/CLAUDE.md`.
+- **A pocket's `ca_sequence` must equal the aligner's sequence for its chain**
+  (`compare.pocket_comparison.first_sequence_mismatch`); a mismatch drops the pocket into
+  `incorrect_mapping.json`. Exactness is the point: a threshold lets a shift near the chain end through.
 - **`chain_info` is split only by `lib.residues.split_chain_info`.** `chain_info[0]` breaks on multi-character
-  chains; the patterns reject them, but library callers bypass the patterns.
+  chains; the patterns reject them, but library callers bypass the patterns (`pockets/CLAUDE.md`).
 
 **Changing the comparison without changing behaviour**: capture `compare_pockets`' arguments from a real
-run and diff old vs new output. The tests assert invariants (self-comparison overlap, rows present, steps
-matching search), not column values, so nothing else covers it.
+run and diff old vs new output. The tests mostly assert invariants (self-comparison overlap, rows present,
+steps matching search), not column values, so nothing else covers it.
 
 ## Logging and errors
 
-- The package never touches the root logger: `__init__` gives `lib.constants.PACKAGE_LOGGER` a `NullHandler`.
-- Handlers are added only in `cli()` (stderr; stdout carries only `parse`'s table) and `lib.logs.log_to_file`
-  (`info.log`, for `search` and every step), each removed in a `finally`.
-- Errors go through `PocketMapperError`, which `cli()` turns into exit 1. Foldseek runs through
-  `run_foldseek` so its failures raise it too.
+- The package never touches the root logger (`pocketmapper/__init__.py`).
+- Handlers are added only in `cli()` and `lib.logs.log_to_file`, each removed in a `finally`.
+- Errors go through `PocketMapperError`, which `cli()` turns into exit 1; `lib.foldseek.run_foldseek` raises
+  it for Foldseek.
 
 ## Python versions
 
-**3.10 – 3.14**; CI's `e2e_foldseek` and `e2e_network` jobs run the `foldseek` and `network` tests at both
-ends. Four places must agree: `requires-python`, the classifiers, `[tool.ruff] target-version`, README
-Installation; CI `compat` matrix is a fifth.
+**3.10 – 3.14.** Five places must agree: `requires-python`, the classifiers, `[tool.ruff] target-version`,
+README Installation, and the CI `compat` matrix; the e2e matrix runs both ends.
 
-- **Floor is 3.10**: `match` statements, PEP 604 dataclass annotations (no `from __future__ import
-  annotations`), and biopython itself.
-- **`compat` guards the floor, not `lint`** (ruff flags some post-3.10 syntax from `target-version`, but is
-  not the 3.10 parser). `compileall` at 3.10 catches syntax.
-- **Only 3.10 resolves pandas 2.x**; 3.11+ get 3.x. Hence CI's e2e jobs run 3.10 and 3.14. Both gave
-  identical row counts on every non-`huge` case of the former bash suite.
+- **Floor is 3.10**: PEP 604 dataclass annotations (no `from __future__ import annotations`).
+- **`compat` guards the floor, not `lint`**: ruff is not the 3.10 parser; `compileall` at 3.10 catches syntax.
+- **Only 3.10 resolves pandas 2.x**; 3.11+ get 3.x. Hence the e2e jobs run 3.10 and 3.14.
 
 ## Repo layout
 
-- `tests/unit/` and `tests/integration/` are the suite (`python -m pytest`). Integration tests run the CLI
-  in-process, offline from a copy of `tests/data/seed_cache/` unless marked `network`; the markers and
-  their env vars are in `pyproject.toml` and `tests/integration/conftest.py`.
+- Tests: `tests/unit/` and `tests/integration/`; markers and env vars in `pyproject.toml` and
+  `tests/integration/conftest.py`.
 - **Deliberately wrong fixture line — don't fix it:** `tests/integration/fixtures/invalid_residues.txt`
-  line 2 (`4Q5J:A:9999`, `test_steps_23`, asserted `pocket_not_built`).
-- **`tests/integration/fixtures/4Q5J.cif.gz` is also the seed's PDB structure** (`seed_cache` copies it
-  into `pdb_structures/`), and `testfile.txt` names it by a relative path; don't move or rename it.
-- **Delete `build/` before building or testing a wheel.** Stale, gitignored, but setuptools reuses
-  `build/lib/`, so `pip install .` ships dead modules (`align.py`, `local_aligner.py`, a 3.12-only
-  `pisa.py`, top-level `structure_fetcher.py`/`pisa_downloader.py`). Never edit it.
+  line 2 (`4Q5J:A:9999`, `test_steps_23`).
+- **`tests/integration/fixtures/4Q5J.cif.gz` is also the seed's PDB structure**, and `testfile.txt` names it
+  by a relative path; don't move or rename it.
+- **Delete `build/` before building or testing a wheel**: setuptools reuses a stale `build/lib/`.
 - **Imports run one way.** No `lib` module imports a step package, `search` or `cli`, and no step imports
-  another step's entry module (`<other>.<other>`), only its components. `tests/unit/test_imports.py` checks
-  both from the source text, deriving the steps from the subpackages, so a new step needs no test edit.
+  another step's entry module, only its components (`tests/unit/test_imports.py`).
 
 ## As a library
 
-`PocketMapper().search(...)`, a step's entry or core function in `<step>.<step>`, or any component directly
-(`parse.qt_processor`, `lib.structure_manager` (`StructureManager.get` fetches and loads one structure;
-the `fetch_missing_*` functions fill the cache), `pockets.pisa_downloader`, `align.structure_preprocessor`,
-`pockets.pocket_manager.PocketManager` (`build`, `expand_pdb_hits`) or one builder, `pockets.pocket_files`
-(read and write `pockets.json`, without the manager), `pockets.pisa` (`load_interfaces`,
-`interface_partners`, `pisa_pockets_from_records`), `pockets.vdw.vdw_contact_residues`, `align.sequence_aligner`,
-`superpose.structure_aligner`, `lib.foldseek`).
-No component or step takes a settings object; the entry functions take a job dict (job key -> value, as in
-`job_settings.json`) as `job_file`.
+`PocketMapper().search(...)`, a step's entry or core function in `<step>.<step>`, or a component:
+`parse.qt_processor`, `lib.structure_manager`, `pockets.pisa_downloader`, `align.structure_preprocessor`,
+`pockets.pocket_manager.PocketManager` or one builder, `pockets.pocket_files`, `pockets.pisa`,
+`pockets.vdw.vdw_contact_residues`, `align.sequence_aligner`, `superpose.structure_aligner`, `lib.foldseek`.
+No component or step takes a settings object; the entry functions take a job dict as `job_file`.
 
-- **Records come from `parse.parse.parse_entries`**: the side checks parse makes, with no files written.
-  A finished run's own records, its dropped entries left out, are
-  `lib.entries.entry_sides(lib.entries.read_entries(entries_path))`.
-- **Superposition can be deferred**: `search(align_count=0)`, then
-  `superpose.superpose.superpose(job_file=settings)`, or `StructureAligner.align_structs` with the records
-  of the run's `entries.tsv`, as above (FSDB targets also need `fsdb_path`; `superpose.superpose` derives it).
-  Records point at `pdb_dir`/`alphafold_dir`, which temp deletion never touches.
-  `query_ids`/`target_ids`/`overwrite` exist for batching this.
+- **Records**: `parse.parse.parse_entries` makes them without writing files. A finished run's own records,
+  its dropped entries left out, are `lib.entries.entry_sides(lib.entries.read_entries(entries_path))`.
+- **Superposition can be deferred**: `search(align_count=0)`, then `superpose.superpose.superpose(job_file=...)`,
+  or `StructureAligner.align_structs` with the records above (FSDB targets also need `fsdb_path`). The
+  structures it reads sit in the cache dirs, which temp deletion never touches.

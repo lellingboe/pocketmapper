@@ -1,61 +1,46 @@
 # parse
 
-Facts about `parse/` that no single docstring states, so they load only when working here. The input
-grammar is the two tables in `QTProcessor.__init__`; README "Input format" is the user-facing copy of it.
+Cross-module facts about `parse/`.
 
-## Where it sits
+## Where it is stated
 
-- **Step 1, and the only code that turns entry strings into records.** It uses no network and reads no
-  structure; it opens a local file only to hash it, under `local_root`. It writes `entries.tsv` afresh.
-  Every later step reads its records from that file (`lib.entries`) and never parses again, so a change
-  here reaches an existing run only when parse and the later steps are rerun. The table holds no paths:
-  a later step locates each record's structure with `StructureManager.record_path`, from its own cache dirs.
-- **Two layers.** `parse.py` is the step: settings, log, the entries table and the checks that need both
-  sides (a Foldseek-DB query is dropped, a DB target must be the only target, each side needs a record).
-  `qt_processor.py` is the component. It treats both sides the same way and knows nothing of settings
-  or the table.
+- The grammar: the `qt_processor` module docstring and the tables in `QTProcessor.__init__`; README "Input
+  format" is the user-facing copy.
+- The step and its component: the `parse.parse` and `qt_processor` module docstrings.
+- Entries files vs single entries: `QTProcessor.read_entries`.
+- The residue-list pattern: its comment in `QTProcessor.__init__` and `test_residue_pattern_linear`; keep new
+  patterns free of nested quantifiers.
+- Settings (`query_pocket_method`, `target_pocket_method`): `context/settings.md`.
 
 ## What other packages rely on
 
+- **Parse is the only step that parses**, and the only one that opens local inputs other than structures: it
+  reads entries files and hashes local structure files. Every later step reads its records from
+  `entries.tsv`, so a change here reaches an existing run only when parse and the later steps are rerun.
 - **`QTRecord`'s fields are `lib.entries.RECORD_FIELDS`, in the same order.** Neither is derived from the
-  other. A new field goes in both places; `test_qt_processor` checks the order.
-- **`pockets.pocket_manager.PocketManager.expand_pdb_hits` also calls `QTProcessor`.** It builds one
-  without `local_root`, reads `pocket_methods["pisa"][0]` to skip chain pairs the grammar cannot spell, calls
-  `parse_individual_qt(..., pocket_method="pisa")`, and replaces `preprocess_name` with the Foldseek hit
-  name. A change to that table's layout or to that method's signature breaks the PDB-database path. Only
-  the `pdb_fsdb` and `huge` tests (`tests/integration/test_databases.py`) cover that path.
+  other (`lib` cannot import `parse`). A new field goes in both places; `test_qt_processor` checks the order.
+- **`PocketManager.expand_pdb_hits` also calls `QTProcessor`.** It builds one without `local_root`, reads
+  `pocket_methods["pisa"][0]` to skip chain pairs the grammar cannot spell, calls
+  `parse_individual_qt(..., pocket_method="pisa")`, and replaces `preprocess_name` with the hit name. A
+  change to that table's layout or to that method's signature breaks the PDB-database path
+  (`test_pocket_manager.py` offline; `pdb_fsdb` and `huge` end to end).
 - **`preprocess_name` names the domain chain, not the pocket** (invariant in `project-overview.md`). So
   `4Q5J:B`, `4Q5J:B_F` and `4Q5J:B:10,11` share one name and are aligned once. It also names the files in
-  `foldseek_preprocessed_structure_dir`, so a new naming scheme leaves the old cached files unused and
-  every chain is preprocessed again. Its hash covers the local file parse resolved under `local_root`; a
-  later step run with another `local_root` can load a different file of the same name, undetected.
-- **`parse()` takes the cache dirs but reads none of them.** It dumps them into `parse_settings.json` for
-  the later steps. `QTProcessor(local_root=...)` is its only path input.
+  `foldseek_preprocessed_structure_dir`, so a new naming scheme leaves the old cached files unused. Its hash
+  covers the local file parse resolved under `local_root`; a later step run with another `local_root` can
+  load a different file of the same name, undetected.
 
-## Changing the grammar
+## A new pocket method needs
 
-- **A new pocket method needs:** a row in `pocket_methods`; a place in each `struct_type_pocket_methods`
-  tuple that should offer it (tuple order is precedence, and `whole_chain` stays first); a builder in
-  `pockets.pocket_manager.POCKET_BUILDERS`; and the hand-written method lists in the `Option.help` of
-  `query_pocket_method` in `lib/options.py` (hand-written because `lib` cannot import `parse`;
-  `test_pocket_method_help_lists_accepted_methods` catches a method missing there) and the README (Options
-  table, both "Input format" tables).
-  `accepted_pocket_methods` reads the table, so validation needs no other change.
-- **A residue list is spelled `\d+[A-Za-z]?(,\d+[A-Za-z]?)*,?`** (an id with an optional insertion
-  code). The older nested `(\d+[A-Za-z]?,?)+` matches the same strings but backtracks exponentially when
-  a long list has a bad last character; keep new patterns free of nested quantifiers (`test_residue_pattern_linear`).
-- **A top-level input that is an existing file, resolved against the working directory, is a file of
-  entries**, unless `is_structure_file` says its name is a structure's (`STRUCTURE_EXTENSIONS`). A file
-  that exists only under `local_root` is not read as an entries file: it is parsed as one entry, and is a
-  `local_file` entry because it exists there. Inside an entries file, each local file resolves against
-  `local_root`.
-- **Every pattern allows only single-character chains.** To allow longer chain ids, also check
-  `lib.residues.split_chain_info` and the PDB-database skip described in `pockets/CLAUDE.md`.
-- `context/settings.md` covers `query_pocket_method` / `target_pocket_method` as settings; read it before
-  you change their defaults or how they are layered.
+- a row in `pocket_methods`;
+- a place in each `struct_type_pocket_methods` tuple that should offer it (tuple order is precedence, and
+  `whole_chain` stays first);
+- a builder in `pockets.pocket_manager.POCKET_BUILDERS` (and an entry in `PocketManager`'s `builder_options`
+  if it takes options);
+- the hand-written method lists: the `Option.help` of `query_pocket_method` in `lib/options.py`
+  (`test_pocket_method_help_lists_accepted_methods` checks it), the `PocketMapper.search` docstring, and the
+  README (Options table, both "Input format" tables).
 
-## Tests
+`accepted_pocket_methods` reads the table, so validation needs no other change.
 
-`tests/unit/parse/` runs offline and without foldseek: `test_qt_processor.py` covers the grammar tables,
-path resolution and record shape; `test_parse.py` covers the entries table and the checks that need both
-sides.
+Longer chain ids: see `pockets/CLAUDE.md` "Single-character chains".

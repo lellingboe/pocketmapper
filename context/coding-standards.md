@@ -6,6 +6,15 @@
 - **Update docs, docstrings and comments in the same change as the code.** Stale documentation causes
   errors.
 
+## Context docs
+`context/*.md` and the package `CLAUDE.md` files.
+- **Hold only what no single code site states**: invariants, cross-module rules, checklists that span
+  modules, and pointers (`module.function`) to the site that does state a fact. A fact one docstring
+  or comment states is a pointer, never a paraphrase.
+- **One home per fact.** Another doc that needs it points there.
+- **No history.** A measurement or past behaviour stays only when it justifies a current rule, in one
+  clause with its date.
+
 ## Comments and docstrings
 - **Local.** Say what this code does and what it depends on or must precede. Never say who calls it or
   how it is used elsewhere; that goes stale.
@@ -28,11 +37,10 @@
 
 ## Logging and errors
 Mechanism: `project-overview.md` "Logging and errors".
-- **`logger = logging.getLogger(__name__)`**; never `logging.info(...)` etc. on the root logger.
+- **`logger = logging.getLogger(__name__)`**; never `logging.info(...)` etc.
 - **`extra` is always named `log_extra`.** A single-stage class sets `self.log_extra` once in `__init__`
   and never mutates it; elsewhere build it per function. A declared `stage` is the Title Case step name.
-- **Fail with `logger.critical(...)` then `raise PocketMapperError(...)`.** No `exit()`/`sys.exit()`
-  outside `cli()`.
+- **Fail with `logger.critical(...)` then `raise PocketMapperError(...)`.** No `exit()`/`sys.exit()`.
 - **A writer into a configurable path makes its own directory**: `lib.files.make_dir` in the pipeline,
   `os.makedirs` in components.
 
@@ -43,7 +51,6 @@ Mechanism: `project-overview.md` "Logging and errors".
 - **Prefer `pytest.mark.parametrize` tables** over one test per case.
 
 ## Formatting
-- **ruff, configured in `pyproject.toml`.** pre-commit runs `ruff check --fix` and `ruff format`; CI
-  checks both.
+- **ruff, configured in `pyproject.toml`** (pre-commit and CI run it).
 - **120 columns, comments and docstrings included.** `E501` is off and ruff does not wrap comments, so
   wrap them by hand.
