@@ -305,7 +305,8 @@ def download_many(jobs, fetch=download_file, max_workers=DOWNLOAD_WORKERS, log_e
 
     A job whose `out_fpath` exists is not fetched and counts as a success, unless `overwrite` is True. With
     `fetch=download_api` the jobs run one at a time, whatever `max_workers` says. The progress bar counts
-    every job, skipped ones included.
+    every job, skipped ones included. An interrupt (`KeyboardInterrupt`) cancels the queued jobs and is
+    re-raised once the jobs already running have finished.
 
     Args:
         jobs (dict): Key -> `DownloadJob`.
@@ -324,11 +325,19 @@ def download_many(jobs, fetch=download_file, max_workers=DOWNLOAD_WORKERS, log_e
     to_fetch = {key: job for key, job in jobs.items() if key not in results}
     # `download_api` sleeps the host delay outside the lock, so concurrent calls would not be paced
     workers = 1 if fetch is download_api else max_workers
-    with ThreadPoolExecutor(max_workers=workers) as e:
+    executor = ThreadPoolExecutor(max_workers=workers)
+    try:
         futures = {
-            e.submit(fetch, job.url, job.out_fpath, transform=job.transform, log_extra=log_extra): key
+            executor.submit(fetch, job.url, job.out_fpath, transform=job.transform, log_extra=log_extra): key
             for key, job in to_fetch.items()
         }
         for f in tqdm(as_completed(futures), total=len(jobs), initial=len(results)):
             results[futures[f]] = f.result()
+    except KeyboardInterrupt:
+        # Drop the queued jobs; the final wait then covers only those already running.
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise
+    finally:
+        # Running jobs finish and remove their `.part` files before this returns or propagates.
+        executor.shutdown(wait=True)
     return {key: results[key] for key in jobs}

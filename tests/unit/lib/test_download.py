@@ -3,15 +3,17 @@ Tests for `lib.download.fetch_to` and `write_through_part` against a loopback se
 bodies, short reads and a server that stalls.
 """
 
+import concurrent.futures
 import os
 import socket
 import threading
+import time
 from urllib.error import ContentTooShortError, URLError
 
 import pytest
 
 from pocketmapper.lib import download
-from pocketmapper.lib.download import USER_AGENT, fetch_to, is_transient_error, write_through_part
+from pocketmapper.lib.download import USER_AGENT, DownloadJob, fetch_to, is_transient_error, write_through_part
 
 BODY = b"0123456789"
 
@@ -130,3 +132,27 @@ def test_write_through_part_stall_leaves_nothing(serve, tmp_path, monkeypatch):
         write_through_part(server.url, out, None, None)
     assert not os.path.exists(out)
     assert not os.path.exists(f"{out}.part")
+
+
+def test_download_many_interrupt_cancels_queued(tmp_path, monkeypatch):
+    """A KeyboardInterrupt mid-run cancels the queued jobs instead of waiting for all of them."""
+    lock = threading.Lock()
+    calls = []
+
+    def fetch(url, out_fpath, transform=None, log_extra=None):
+        """Count the call and take a moment, as a download would."""
+        with lock:
+            calls.append(url)
+        time.sleep(0.05)
+        return True
+
+    def interrupted(futures):
+        """Yield the first future to finish, then raise as Ctrl-C would."""
+        yield next(concurrent.futures.as_completed(futures))
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(download, "as_completed", interrupted)
+    jobs = {i: DownloadJob(f"http://x/{i}", os.path.join(str(tmp_path), f"{i}.txt")) for i in range(50)}
+    with pytest.raises(KeyboardInterrupt):
+        download.download_many(jobs, fetch=fetch, max_workers=2)
+    assert len(calls) < 10

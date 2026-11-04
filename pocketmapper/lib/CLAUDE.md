@@ -19,6 +19,8 @@ the file is the cache; `overwrite=True` fetches it anyway (a structure refresh),
 leaves the cached file in place. **With `fetch=download_api` it runs one job at a time, whatever `max_workers`
 says**: `download_api` sleeps the host delay outside the lock, so concurrent calls would each sleep the
 same delay and then fire together. The rule sits beside the pacer, so no caller repeats it.
+**Ctrl-C cancels the queued jobs, not the running ones**: `download_many` waits for the at most
+`max_workers` jobs in flight, each of which still finishes its own retries, then re-raises.
 
 Four consequences no single file states:
 
