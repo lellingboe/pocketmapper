@@ -36,8 +36,10 @@ grammar is the two tables in `QTProcessor.__init__`; README "Input format" is th
 
 - **A new pocket method needs:** a row in `pocket_methods`; a place in each `struct_type_pocket_methods`
   tuple that should offer it (tuple order is precedence, and `whole_chain` stays first); a builder in
-  `pockets.pocket_manager.POCKET_BUILDERS`; and the hand-written method lists in `cli.py`
-  (`--query_pocket_method` help) and the README (Options table, both "Input format" tables).
+  `pockets.pocket_manager.POCKET_BUILDERS`; and the hand-written method lists in the `Option.help` of
+  `query_pocket_method` in `lib/options.py` (hand-written because `lib` cannot import `parse`;
+  `test_pocket_method_help_lists_accepted_methods` catches a method missing there) and the README (Options
+  table, both "Input format" tables).
   `accepted_pocket_methods` reads the table, so validation needs no other change.
 - **A residue list is spelled `\d+[A-Za-z]?(,\d+[A-Za-z]?)*,?`** (an id with an optional insertion
   code). The older nested `(\d+[A-Za-z]?,?)+` matches the same strings but backtracks exponentially when

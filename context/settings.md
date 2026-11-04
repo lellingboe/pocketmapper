@@ -47,20 +47,25 @@ a timestamped name.
 
 **A reused dump names every path**, so an argument moves only the path it names.
 
-A new option goes in **five hand-maintained places per command**: the function signature and its
-`layer_settings` arguments dict (search has none: `layer_command` checks its signature; for a step's path,
-its `resolve_step_paths` call), `OPTIONS` plus the command's `COMMANDS` row in `cli.py`, README Options (for a step, its row in the
-step table), and its `Option` in `lib.options.OPTIONS`, from which `SETTING_DEFAULTS` (its `default`, from
-`lib.constants.DEFAULT_*`, which the help also quotes), `JOB_KEYS`, `STEP_ONLY_KEYS` and the path defaults
-are derived. Signature and parser defaults are all None. Path defaults are `lib.options.CACHE_PATH_DEFAULTS`
-/ `RESULTS_PATH_DEFAULTS` (an `Option`'s `under`; `cache_path`, `results_path`). `cli()` passes parsed args
-straight through its dispatch table, so there is no kwarg block. Miss one → argparse fails or the option is
-silently ignored. `tests/unit/test_cli.py` checks, per command, that the options are exactly the parameters
-of its `cli.DISPATCH` function and all default to None; for search also signature ==
-`command_options("search")` (modulo `job_file`); and `SETTING_DEFAULTS` keys ⊆ `JOB_KEYS`. No test
-checks every step's `arguments` dict, or README.
+A new option needs four things:
 
-Options are grouped by lifetime in `cli.COMMANDS` and README alike: `in`, `aligned structure`, `cache`,
+1. One `Option` in `lib.options.OPTIONS`, giving its commands, group, flags, help, default (from
+   `lib.constants.DEFAULT_*`, which the help also quotes) and `validate`. The parser, `command_options`,
+   `JOB_KEYS`, `STEP_ONLY_KEYS`, `SETTING_DEFAULTS` and the path defaults (`CACHE_PATH_DEFAULTS` /
+   `RESULTS_PATH_DEFAULTS`, from an `Option`'s `under`) are derived from it. Parser defaults are all None.
+2. The parameter and its docstring `Args:` entry in each entry function that takes it. `layer_command`
+   raises at call time unless the parameters are exactly `command_options(cmd)`, and `tests/unit/test_cli.py`
+   checks the same per command against `cli.DISPATCH`.
+3. The code that uses it, for a step's path its `resolve_step_paths` call too. Nothing checks this: an
+   option that is parsed and validated but never read is silently ignored.
+4. The README rows: the option's table row (for a step, its entry in the step table's Options column, or a
+   group link). `tests/unit/test_readme.py` compares each command's documented flags with
+   `command_options`. README wording stays richer than `--help`, so only the flags are checked.
+
+`tests/unit/test_cli.py` also checks that every option defaults to None in the parser and that
+`SETTING_DEFAULTS` keys are in `JOB_KEYS`.
+
+Options are grouped by lifetime in `lib.options.GROUPS` and README alike: `in`, `aligned structure`, `cache`,
 `out`, `temp`, `advanced` (README lists advanced options in the main table: an `Advanced options`
 heading there would take the `#advanced-options` anchor). A file a command reads has a bare name (`--alignment`); one it writes ends in
 `_path`. A new path setting picks a group in both.

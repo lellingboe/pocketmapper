@@ -12,6 +12,7 @@ import pytest
 
 from pocketmapper.lib.entries import RECORD_FIELDS
 from pocketmapper.lib.exceptions import PocketMapperError
+from pocketmapper.lib.options import OPTIONS
 from pocketmapper.parse.qt_processor import QTProcessor
 
 STRUCT_IDS = {"pdb": "4Q5J", "alphafold": "P24941", "local_file": "struct.cif"}
@@ -510,3 +511,14 @@ def test_unreadable_entries_file_raises(processor, write_file, local_root, monke
     monkeypatch.setattr(builtins, "open", failing_open)
     with pytest.raises(PocketMapperError, match="Problem reading the file entries.txt"):
         processor.process_qt_cmdline_input("entries.txt", "query")
+
+
+def test_pocket_method_help_lists_accepted_methods():
+    """The hand-written pocket method lists in the options' help name every accepted method."""
+    methods = QTProcessor().accepted_pocket_methods()
+    query_help = OPTIONS["query_pocket_method"].help
+    target_help = OPTIONS["target_pocket_method"].help
+    # The target help refers to the query's list and adds the one method the query side lacks
+    assert [m for m in methods if m != "foldseek_db" and m not in query_help] == []
+    assert "foldseek_db" in target_help
+    assert "foldseek_db" not in query_help
