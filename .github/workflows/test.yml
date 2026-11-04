@@ -1,0 +1,147 @@
+name: tests
+
+on: [push, pull_request]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install .[dev]
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
+
+  compat:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        include:
+          - {os: macos-latest, python: "3.12"}
+    name: compat (${{ matrix.os }}, py${{ matrix.python }})
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+      - name: Byte-compile
+        run: python -m compileall -q pocketmapper
+      - name: CLI entry point
+        run: pocketmapper --help
+      - name: Tests
+        run: |
+          pip install pytest
+          python -m pytest
+
+  # 3.10 is the only Python that resolves pandas 2.x; 3.14 is the newest.
+  # Split from e2e_network so a service outage fails only that job.
+  e2e_foldseek:
+    needs: [lint, compat]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy: &e2e_strategy
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.12"}
+          - {os: macos-latest, python: "3.12"}
+          - {os: ubuntu-latest, python: "3.10"}
+          - {os: ubuntu-latest, python: "3.14"}
+    name: e2e_foldseek (${{ matrix.os }}, py${{ matrix.python }})
+    defaults: &e2e_defaults
+      run:
+        # Login shell activates the micromamba env. No -e: Ubuntu's ~/.bash_logout
+        # fails without a terminal and would override the step's exit status.
+        shell: bash -l {0}
+    steps:
+      - uses: actions/checkout@v4
+      # foldseek unpinned: bioconda's osx-arm64 builds start at 9.427df8a.
+      - &micromamba
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: pm
+          condarc: |
+            channels:
+              - conda-forge
+              - bioconda
+          create-args: >-
+            python=${{ matrix.python }}
+            foldseek
+          init-shell: bash
+      # Chained, since without -e only the last command's status counts.
+      - &install
+        name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip \
+            && pip install .[dev]
+      # pytest skips foldseek tests if the binary is missing; fail here instead.
+      - &verify_foldseek
+        name: Verify foldseek
+        run: foldseek version
+      # Only the foldseek tests: compat already runs the rest on these legs. -m replaces
+      # addopts' `not slow`, so it is restated. Fixed --basetemp so the upload step
+      # finds each test's info.log.
+      - name: Foldseek tests
+        run: python -m pytest -m "foldseek and not slow" --basetemp "$RUNNER_TEMP/pm_pytest"
+      # Logs only: the test dirs also hold a seed cache copy each.
+      - &upload_logs
+        name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ github.job }}-${{ matrix.os }}-py${{ matrix.python }}
+          path: ${{ runner.temp }}/pm_pytest/**/*.log
+
+  # After e2e_foldseek so a broken build doesn't hit wwPDB and PISA.
+  e2e_network:
+    needs: e2e_foldseek
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy: *e2e_strategy
+    name: e2e_network (${{ matrix.os }}, py${{ matrix.python }})
+    defaults: *e2e_defaults
+    steps:
+      - uses: actions/checkout@v4
+      - *micromamba
+      - *install
+      - *verify_foldseek
+      # Keyed on OS only; downloads don't depend on Python. A key hit is never
+      # re-saved, so bump the version to refresh the cache.
+      - name: Cache PocketMapper downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/pm_cache
+          key: pocketmapper-e2e-${{ matrix.os }}-v2
+      # One retry absorbs a service outage. pytest clears --basetemp on start,
+      # so uploaded logs are from the last attempt.
+      # conftest skips `huge` without POCKETMAPPER_TEST_HUGE.
+      - name: Network tests
+        env:
+          POCKETMAPPER_TEST_NETWORK: "1"
+          POCKETMAPPER_TEST_CACHE: ${{ runner.temp }}/pm_cache
+        run: |
+          for attempt in 1 2; do
+            python -m pytest -m "network and not slow" --basetemp "$RUNNER_TEMP/pm_pytest" && exit 0
+            echo "network attempt $attempt failed; retrying" >&2
+            sleep 30
+          done
+          exit 1
+      - *upload_logs

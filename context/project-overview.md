@@ -72,17 +72,15 @@ matching search), not column values, so nothing else covers it.
 
 ## Python versions
 
-**3.10 – 3.14**; CI's `e2e` job runs pytest with foldseek, `network` tests included, at both ends. Four
-places must agree: `requires-python`, the classifiers, `[tool.ruff] target-version`, README Installation; CI
-`compat` matrix is a fifth.
+**3.10 – 3.14**; CI's `e2e_foldseek` and `e2e_network` jobs run the `foldseek` and `network` tests at both
+ends. Four places must agree: `requires-python`, the classifiers, `[tool.ruff] target-version`, README
+Installation; CI `compat` matrix is a fifth.
 
 - **Floor is 3.10**: `match` statements, PEP 604 dataclass annotations (no `from __future__ import
   annotations`), and biopython itself.
 - **`compat` guards the floor, not `lint`** (ruff flags some post-3.10 syntax from `target-version`, but is
-  not the 3.10 parser). `compileall` at 3.10 catches syntax; the import step catches
-  annotation/`importlib.resources` failures. It uses `pkgutil.walk_packages` with a prefix (`iter_modules`
-  skips subpackage modules) and asserts a module count.
-- **Only 3.10 resolves pandas 2.x**; 3.11+ get 3.x. Hence CI's `e2e` job runs 3.10 and 3.14. Both gave
+  not the 3.10 parser). `compileall` at 3.10 catches syntax.
+- **Only 3.10 resolves pandas 2.x**; 3.11+ get 3.x. Hence CI's e2e jobs run 3.10 and 3.14. Both gave
   identical row counts on every non-`huge` case of the former bash suite.
 
 ## Repo layout
