@@ -6,6 +6,7 @@ dict. The 4C59 cases run the builders on a real entry: its chain B numbers 111A-
 (`tests/data/insertion_codes/`).
 """
 
+import json
 import os
 import shutil
 
@@ -15,7 +16,7 @@ import pytest
 from pocketmapper.lib.residues import ca_residues, residue_key, residue_sort_key
 from pocketmapper.lib.structure_manager import StructureManager, load_structure
 from pocketmapper.pockets.pisa import bonded_residues, buried_residues, pisa_pockets
-from pocketmapper.pockets.pisa_downloader import PisaDownloader
+from pocketmapper.pockets.pisa_downloader import PisaDownloader, write_json
 from pocketmapper.pockets.structure import parse_pocket_from_struct, passthrough_pockets, whole_chain_pockets
 from pocketmapper.pockets.vdw import vdw_contact_residues
 
@@ -150,8 +151,10 @@ def pdb_dir_4c59(local_root):
 def pisa_dir_4c59(tmp_path):
     """A PISA cache holding only 4C59's interface file, which is all a downloader with downloads off reads."""
     pisa_dir = os.path.join(str(tmp_path), "pisa")
-    os.makedirs(os.path.join(pisa_dir, "interface_pairs"))
-    shutil.copy(INTERFACES_4C59, os.path.join(pisa_dir, "interface_pairs", "4c59.json"))
+    with open(INTERFACES_4C59) as f:
+        interfaces = json.load(f)
+    # The fixture holds the interfaces alone; offline the assembly list is not read
+    write_json({"assemblies": [], "interfaces": interfaces}, os.path.join(pisa_dir, "interface_pairs", "4c59.json"))
     return pisa_dir
 
 

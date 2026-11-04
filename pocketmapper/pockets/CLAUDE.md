@@ -77,18 +77,35 @@ Two things that file does not say about itself:
   dominate, for multi-character chain ids; interfaces are now keyed by comma-joined chain ids
   (`"A,B-2"`), so none is skipped for that, and over a 13,063-assembly cache none had a molecule count
   other than two.
-- **An entry whose interfaces are all skipped gets no `<pdb_code>.json`.** It therefore never enters
-  the interface cache and is reparsed on every later run — from cached assemblies, so at no request
-  cost, but it is also why such an entry reappears in every report.
+- **An entry's skipped interfaces are reported only when it is parsed.** Its file is written anyway
+  (below), with `"interfaces": {}` if every interface was skipped, so once complete it is not parsed again
+  and the skips do not reappear in later reports. An assembly that could not be read or raised is never
+  listed as used, so its entry is parsed, and reported, on every online run.
+
+**`interface_pairs/<code>.json` records what it was built from**:
+`{"assemblies": [<ids used, in summary order>], "interfaces": {"A,B": <interface>, ...}}`.
+`parse_assemblies` writes one for every entry whose summary it could read, so an entry with no usable
+interface, or whose summary lists no assembly, is cached with `"interfaces": {}` (`load_interfaces` returns
+`{}`). An assembly counts as used when its file was read and parsed without error, even if all its
+interfaces were skipped; one that failed to download, could not be read or raised contributes no interface
+and is not listed. **Online, an entry is cached only when its file is complete** (`is_complete`): in the
+new shape, and with every assembly id its cached summary lists in `"assemblies"`. Anything else goes through
+the stages again, so a partial download is no longer cached for good: the next run requests only the
+assemblies not on disk (a summary or assembly already cached costs no request) and rewrites the file. An
+old-shape file (a flat dict of chain pairs) is rebuilt the same way, usually from cache alone. The check
+reads the cached summary and never requests one; with no readable summary the file is trusted. The cost of
+the rule: an assembly PISA permanently lacks (an FTP 404) is requested again on every online run, once,
+since a 404 is not retried; 12 of ~5,800 assemblies in the network-test cache (2026-11-04).
 
 **Offline, "cached" means `interface_pairs/<code>.json` exists, and nothing else is read.**
 A `PisaDownloader` with `download=False`, which a `PocketManager(download=False)` builds, runs no stage
 for an entry without that file: one warning gives their count, no request is sent, and nothing is
-written, `errors.json` included. `pisa_pockets_from_records` then finds no interface file for those
-records and leaves them out, so the step marks them `pocket_not_built`. Accepted
-limitation: an entry with cached summaries and assemblies but no `interface_pairs/<code>.json` (an
-interrupted run, or every interface skipped, as above) is not reparsed offline, although that would cost
-no request. The download stages called directly ignore the flag. `expand_pdb_hits` on a
+written, `errors.json` included. A file in the new shape is used as is, complete or not; an old-shape
+file counts as cached here but `load_interfaces` returns None for it. `pisa_pockets_from_records` then
+finds no interfaces for those records and leaves them out, so the step marks them `pocket_not_built`.
+Accepted limitation: an entry with cached summaries and assemblies but no usable
+`interface_pairs/<code>.json` (an interrupted run, or an old-shape file) is not reparsed offline,
+although that would cost no request. The download stages called directly ignore the flag. `expand_pdb_hits` on a
 `PocketManager(download=False)` (the pockets step's `offline`) reads the same cache: a hit entry not in
 it gives no records, so its `chains` key is `[]`, and a hit structure not cached is a
 `structure_not_found` failure, as a failed download is.

@@ -25,22 +25,25 @@ logger = logging.getLogger(__name__)
 
 def load_interfaces(pdb_id, in_dir):
     """
-    Load the cached interface file for a PDB entry, or None if there isn't one.
+    Load the interfaces of a PDB entry from its cached interface file, or None if there isn't one.
+
+    A file in the older flat shape (chain pairs at the top level, with no `"interfaces"` key) counts as not
+    cached.
 
     Args:
         pdb_id (str): PDB entry to load, in any case. Tried verbatim, then lower-cased.
         in_dir (str): Directory of parsed interface files.
 
     Returns:
-        dict: The entry's interfaces keyed by sorted, comma-joined chain pair ("A,B-2"), or None if not
-            cached.
+        dict: The file's `"interfaces"`, keyed by sorted, comma-joined chain pair ("A,B-2"); empty for an
+            entry with no usable interface. None if not cached.
     """
     # Cached files are named by the lower-cased code; pdb_id may be in any case.
     for candidate in (pdb_id, pdb_id.lower()):
         in_path = os.path.join(in_dir, f"{candidate}.json")
         if os.path.exists(in_path):
             with open(in_path, "r") as f:
-                return json.load(f)
+                return json.load(f).get("interfaces")
     return None
 
 

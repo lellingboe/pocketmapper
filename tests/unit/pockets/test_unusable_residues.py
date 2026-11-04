@@ -79,7 +79,7 @@ def renamed_pisa_dir(pocket_dir):
     path = os.path.join(pisa_dir, "interface_pairs", "4q5j.json")
     with open(path) as f:
         entry = json.load(f)
-    interface = entry["A,E"]
+    interface = entry["interfaces"]["A,E"]
     molecule = next(mol for mol in interface["molecules"] if mol["chain_id"] == "A")
     seq_id_lists = [molecule["residue_seq_ids"]]
     for value in interface.values():

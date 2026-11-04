@@ -52,8 +52,9 @@ Four consequences no single file states:
   that is thousands of entries.
 
 A leftover scratch file (`<name>.<hex>.part`) is inert in every cache directory:
-`download_missing_interfaces` globs `*.json`, which cannot match `x.json.<hex>.part`, and everything else
-checks an exact path — `download_many` its job's `out_fpath` (a structure's `.cif.gz`, a PISA assembly's
-`.json`), the other PISA stages their own files, the align step's preprocessing its `<preprocess_name>.cif.gz`.
+`download_missing_interfaces` offline globs `*.json`, which cannot match `x.json.<hex>.part`, and everything
+else checks an exact path — `download_many` its job's `out_fpath` (a structure's `.cif.gz`, a PISA assembly's
+`.json`), the online `is_complete` and the other PISA stages their own files, the align step's preprocessing its
+`<preprocess_name>.cif.gz`.
 The same holds for a leftover `summaries/_batch.json.<hex>.part`, which nothing reads. Being unique, they
 are never overwritten either: a run killed mid-write leaves one per file it was writing, until deleted.

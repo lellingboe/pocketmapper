@@ -3,7 +3,10 @@ Download and flatten PDBe PISA interface data into a per-entry cache.
 
 Three stages, each cached on disk so a rerun costs nothing: entry summaries, fetched in batches,
 give the assembly ids, one file per assembly gives its interfaces, and those are flattened into a single
-`<pdb_code>.json` per entry keyed by sorted chain pair -- the shape `pisa.load_interfaces` reads.
+`<pdb_code>.json` per entry, `{"assemblies": [...], "interfaces": {...}}`. `"interfaces"` is keyed by sorted
+chain pair and is what `pisa.load_interfaces` returns; `"assemblies"` lists the assemblies it was built from,
+so an entry with no usable interface is cached too, and one built from only some of its assemblies is
+completed by a later run.
 
 `PisaDownloader` names the cache's contents under the `pisa_dir` it is given: `summaries/`,
 `assemblies/`, `interface_pairs/` and `errors.json`.
@@ -19,7 +22,8 @@ No stage raises on a bad entry. Each returns the ids it could not handle and the
 collects them into one JSON report, so the entries PISA lacks cost a line in that file rather than
 the rest of the batch.
 
-With downloads off, the entry point uses only what `interface_pairs/` already holds and sends no request.
+With downloads off, the entry point uses only what `interface_pairs/` already holds, complete or not, and
+sends no request.
 """
 
 import json
@@ -113,9 +117,11 @@ class PisaDownloader:
     separately usable, and each makes the directories it writes into. Every stage returns what it could not
     handle instead of raising, so one dead entry does not abort a large batch. Every file, downloaded or
     written here, is written through a uniquely named `.part` file, so an interrupted run cannot leave a
-    truncated file for a later run to trust, and two runs sharing the cache cannot write each other's. With
-    `download` False, `download_missing_interfaces` runs no stage, so it sends no request; the download
-    stages called directly still fetch.
+    truncated file for a later run to trust, and two runs sharing the cache cannot write each other's. An
+    entry's interface file records the assemblies it was built from (`is_complete`), so an online run
+    rebuilds one that lacks an assembly its summary names. With `download` False,
+    `download_missing_interfaces` runs no stage, so it sends no request; the download stages called directly
+    still fetch.
     """
 
     def __init__(
@@ -137,8 +143,8 @@ class PisaDownloader:
             summary_batch_size (int, optional): Entries per summary request. The API fails with a 500
                 somewhere above 800, so keep it well below that. Defaults to 50.
             max_workers (int, optional): Concurrent FTP downloads. Defaults to DOWNLOAD_WORKERS.
-            download (bool, optional): Whether `download_missing_interfaces` may fetch entries missing from
-                `interface_pairs/`. Defaults to True.
+            download (bool, optional): Whether `download_missing_interfaces` may fetch and rebuild entries
+                missing from `interface_pairs/` or incomplete there. Defaults to True.
 
         Raises:
             PocketMapperError: If `source` is not one of PISA_SOURCES.
@@ -161,13 +167,15 @@ class PisaDownloader:
         """
         Populate the interface cache for a list of PDB entries.
 
-        Entries already in `interface_dir` cost no requests. For the rest, caches the summaries and
-        assembly responses, writes one `<pdb_code>.json` per entry into `interface_dir`, and writes
-        `error_path` if anything failed.
+        Entries complete in `interface_dir` (`is_complete`) cost no requests. For the rest, caches the
+        summaries and assembly responses, writes one `<pdb_code>.json` per entry it could read a summary for
+        into `interface_dir`, and writes `error_path` if anything failed. An entry rebuilt from cached
+        summary and assemblies, such as one whose file is in the older flat shape, costs no request either.
 
-        With `download` False, the entries not in `interface_dir` skip every stage: one warning gives
-        their count, and nothing is written. That includes an entry whose summaries and assemblies are
-        cached but which has no `<pdb_code>.json`; it is not reparsed.
+        With `download` False, an entry counts as cached if its `<pdb_code>.json` exists, complete or not, and
+        the rest skip every stage: one warning gives their count, and nothing is written. That includes an
+        entry whose summaries and assemblies are cached but which has no `<pdb_code>.json`; it is not
+        reparsed.
 
         Args:
             pdb_list (list): PDB codes, in any case.
@@ -179,10 +187,15 @@ class PisaDownloader:
                 `download` False: the entries skipped are counted only in the warning.
         """
         pdb_codes = list(dict.fromkeys(x.lower() for x in pdb_list))
-        existing_files = set(glob("*.json", root_dir=self.interface_dir))
-        missing_pdbs = [x for x in pdb_codes if f"{x}.json" not in existing_files]
+        if self.download:
+            missing_pdbs = [x for x in pdb_codes if not self.is_complete(x)]
+            found = "complete"
+        else:
+            existing_files = set(glob("*.json", root_dir=self.interface_dir))
+            missing_pdbs = [x for x in pdb_codes if f"{x}.json" not in existing_files]
+            found = "found"
         local_count = len(pdb_codes) - len(missing_pdbs)
-        logger.info(f"{local_count}/{len(pdb_codes)} interfaces found locally", extra=self.log_extra)
+        logger.info(f"{local_count}/{len(pdb_codes)} PISA interface files {found} locally", extra=self.log_extra)
 
         all_failures = {}
         if len(missing_pdbs) > 0 and not self.download:
@@ -213,6 +226,35 @@ class PisaDownloader:
                 )
 
         return all_failures
+
+    def is_complete(self, pdb_code):
+        """
+        Whether an entry's interface file is built from every assembly its cached summary names.
+
+        False if `interface_dir` has no `<pdb_code>.json`, or one that is not in the shape `parse_assemblies`
+        writes (the older flat dict of chain pairs included). True if the file's `"assemblies"` holds every id
+        `summary_assemblies` gives, and also if no summary is cached or it cannot be read, so that checking
+        never costs a request.
+
+        Args:
+            pdb_code (str): Lower-cased PDB code.
+
+        Returns:
+            bool: Whether the file can be used as is.
+        """
+        try:
+            with open(os.path.join(self.interface_dir, f"{pdb_code}.json")) as f:
+                data = json.load(f)
+            used = set(data["assemblies"])
+            if not isinstance(data["interfaces"], dict):
+                return False
+        except PARSE_ERRORS:
+            return False
+        try:
+            listed = self.summary_assemblies(pdb_code)
+        except PARSE_ERRORS:
+            return True
+        return used.issuperset(listed)
 
     def download_missing_summaries(self, pdb_codes):
         """
@@ -268,6 +310,28 @@ class PisaDownloader:
             logger.warning(f"Failed to download {len(failure)} summaries", extra=self.log_extra)
         return success, failure
 
+    def summary_assemblies(self, pdb_code):
+        """
+        Read an entry's cached summary from `summary_dir` and list its assembly ids.
+
+        Args:
+            pdb_code (str): Lower-cased PDB code.
+
+        Returns:
+            list: Assembly ids, in summary order; empty for an entry with no assemblies.
+
+        Raises:
+            OSError: If the summary is not cached or cannot be read.
+            ValueError: If it is not JSON, or names anything other than exactly one entry.
+            KeyError: If it lacks an expected key; TypeError, IndexError or AttributeError for another
+                unexpected shape (all in PARSE_ERRORS).
+        """
+        with open(os.path.join(self.summary_dir, f"{pdb_code}.json")) as f:
+            data = json.load(f)
+        if len(data[pdb_code]) != 1:
+            raise ValueError(f"expected one entry in summary for {pdb_code}, found {len(data[pdb_code])}")
+        return [assembly["assembly_id"] for assembly in data[pdb_code][0]["assemblies"]]
+
     def parse_summaries(self, pdb_codes):
         """
         Read cached summaries from `summary_dir` and collect each entry's assembly ids.
@@ -277,26 +341,16 @@ class PisaDownloader:
 
         Returns:
             tuple: (defaultdict of pdb_code -> list of assembly ids, list of codes whose summary
-                could not be read). A summary naming anything other than exactly one entry counts as
-                a failure; neither case raises.
+                could not be read). Every code read is a key, with an empty list if its summary names no
+                assembly. A summary naming anything other than exactly one entry counts as a failure;
+                neither case raises.
         """
         logger.info(f"Parsing {len(pdb_codes)} PISA summaries", extra=self.log_extra)
         asm_dict = defaultdict(list)
         failure = []
         for pdb_code in tqdm(pdb_codes):
             try:
-                fname = os.path.join(self.summary_dir, f"{pdb_code}.json")
-                with open(fname) as f:
-                    data = json.load(f)
-                if len(data[pdb_code]) != 1:
-                    logger.debug(
-                        f"Expected one entry in summary for {pdb_code}, found {len(data[pdb_code])}",
-                        extra=self.log_extra,
-                    )
-                    failure.append(pdb_code)
-                    continue
-                for assembly in data[pdb_code][0]["assemblies"]:
-                    asm_dict[pdb_code].append(assembly["assembly_id"])
+                asm_dict[pdb_code] = self.summary_assemblies(pdb_code)
             except PARSE_ERRORS as e:
                 logger.debug(f"Issue parsing summary for {pdb_code}: ({e})", extra=self.log_extra)
                 failure.append(pdb_code)
@@ -318,7 +372,9 @@ class PisaDownloader:
 
         Returns:
             tuple: (defaultdict of pdb_code -> list of the assembly ids now on disk, list of
-                `<pdb_code>_<assembly_id>` that could not be fetched), both in `asm_dict` order.
+                `<pdb_code>_<assembly_id>` that could not be fetched), both in `asm_dict` order. Every
+                entry of `asm_dict` is a key of the first, with an empty list if none of its assemblies is
+                on disk.
         """
         logger.info(
             f"Downloading {sum(len(v) for v in asm_dict.values())} PISA assemblies from {self.source}",
@@ -335,7 +391,7 @@ class PisaDownloader:
         fetched = download_many(jobs, fetch, self.max_workers, self.log_extra)
 
         failure = []
-        success = defaultdict(list)
+        success = defaultdict(list, {pdb_code: [] for pdb_code in asm_dict})
         for (pdb_code, asm), ok in fetched.items():
             if ok:
                 success[pdb_code].append(asm)
@@ -349,9 +405,13 @@ class PisaDownloader:
         """
         Flatten each entry's assemblies in `asm_dir` into one interface file keyed by chain pair.
 
-        Writes `<pdb_code>.json` into `interface_dir` for each entry with at least one usable interface:
-        every assembly's interfaces merged into one dict keyed by the two chain ids sorted and joined by a
-        comma (e.g. "A,B-2"), a later assembly winning on a repeated pair.
+        Writes `<pdb_code>.json` into `interface_dir` for every entry, replacing any file there, as
+        `{"assemblies": [...], "interfaces": {...}}`. `"interfaces"` merges every used assembly's interfaces
+        into one dict keyed by the two chain ids sorted and joined by a comma (e.g. "A,B-2"), a later
+        assembly winning on a repeated pair; it is empty if no assembly has a usable interface.
+        `"assemblies"` lists, in `asm_dict` order, the assemblies read and parsed without error, including
+        one whose interfaces were all skipped. An assembly that could not be read or raised contributes no
+        interface and is not listed, so the entry is not complete (`is_complete`).
 
         Args:
             asm_dict (dict): pdb_code -> list of assembly ids.
@@ -369,6 +429,7 @@ class PisaDownloader:
         failure = []
         for pdb_code, assemblies in tqdm(asm_dict.items()):
             pdb_interfaces = {}
+            used = []
             for asm_id in assemblies:
                 try:
                     asm_fname = os.path.join(self.asm_dir, f"{pdb_code}_{asm_id}.json")
@@ -388,6 +449,8 @@ class PisaDownloader:
                     else:
                         data = data[pdb_code]
 
+                    # Merged only once the whole assembly has parsed, so an unlisted one contributes nothing
+                    asm_interfaces = {}
                     for interface in data["assembly"]["interfaces"]:
                         interface_id = interface["interface_id"]
                         if len(interface["molecules"]) != 2:
@@ -401,15 +464,17 @@ class PisaDownloader:
                         # Comma-separated, so chain ids of any length stay distinguishable
                         chain_ids = [molecule["chain_id"] for molecule in interface["molecules"]]
                         entry_name = ",".join(sorted(chain_ids))
-                        pdb_interfaces[entry_name] = interface
+                        asm_interfaces[entry_name] = interface
+                    pdb_interfaces.update(asm_interfaces)
+                    used.append(asm_id)
                 except PARSE_ERRORS as e:
                     logger.debug(
                         f"Unexpected error parsing assembly for {pdb_code}_{asm_id}: ({e})", extra=self.log_extra
                     )
                     failure.append(f"{pdb_code}_{asm_id}_parse_error")
 
-            if len(pdb_interfaces) > 0:
-                write_json(pdb_interfaces, os.path.join(self.interface_dir, f"{pdb_code}.json"))
+            entry = {"assemblies": used, "interfaces": pdb_interfaces}
+            write_json(entry, os.path.join(self.interface_dir, f"{pdb_code}.json"))
         if len(failure) > 0:
             logger.warning(f"Failed to parse {len(failure)} PISA assemblies", extra=self.log_extra)
         return failure
