@@ -15,8 +15,9 @@ PocketMapper supports **Python 3.10 to 3.14** and is published on
 pip install pocketmapper
 ```
 
-Installation of [Foldseek](https://github.com/steineggerlab/foldseek) is recommended, an external binary that pip does
-not install:
+### Foldseek
+
+[Foldseek](https://github.com/steineggerlab/foldseek) is the default aligner. It is a fast structural alignment tool that PocketMapper uses to align the query and target chains. Binaries are available at <https://dev.mmseqs.com/foldseek/> or you can install it via conda or Homebrew:
 
 ```bash
 # With conda
@@ -28,13 +29,7 @@ brew trust brewsci/bio
 brew install foldseek
 ```
 
-Precompiled Foldseek binaries are also available at <https://dev.mmseqs.com/foldseek/>.
-
-Foldseek is the default aligner. To run without it, pass `--aligner seq`, which uses a built-in
-BLOSUM62 sequence aligner instead. Searching a Foldseek database target (`human_domains`, `pdb`) always
-needs the binary.
-
-Check the installed version with `pocketmapper --version`.
+To run without it, you must pass `--aligner seq`, which uses a built-in BLOSUM62 sequence aligner instead. Searching a Foldseek database target (`human_domains`, `pdb`) requires Foldseek.
 
 ## Quick start
 
@@ -52,11 +47,11 @@ chain A against chain E. The main results in `./out`:
 | `aligned_structures/` | The top targets superposed onto each query, as PDB files. |
 
 Downloads are cached in `pocketmapper_cache/`, so a second run over the same structures is fast. See
-[Outputs](https://github.com/lellingboe/pocketmapper/blob/main/docs/outputs.md) for every file and column.
+[Outputs](https://github.com/lellingboe/pocketmapper/blob/main/docs/outputs.md) for more details.
 
 ## How it works
 
-A `search` runs six steps:
+`search` runs six steps:
 
 1. **parse**: reads the query and target entries and decides how each pocket is derived.
 2. **fetch_structures**: downloads the mmCIF files (or AlphaFold models) it needs.
@@ -70,31 +65,38 @@ Each step is also a command of its own, so you can run, inspect and rerun steps 
 
 ## Specifying entries
 
-Each query and target is written as:
+Each query and target uses the format:
 
 ```text
 STRUCTURE[:CHAIN[:RESIDUES]]
 ```
 
-| Example | Pocket |
-| --- | --- |
-| `4Q5J:B_F` | Interface of chain B against chain F, from PDBe PISA |
-| `4Q5J:A_B:10,11,12` | Van der Waals contacts of chain A against chain B |
-| `4Q5J:A:10,11,12` | Exactly the residues listed, on chain A |
-| `P04637:A:10,11,12` | The same, on the AlphaFold model for a UniProt accession |
-| `4Q5J:B` | Open search: the whole of chain B |
-| `path/to/model.cif` | A local structure file (chain A, open search) |
-| `human_domains`, `pdb` | A Foldseek database (target only) |
+Queries automatically resolve to a pocket method based on the structure type, chain(s) and residues. 
 
-An entry that names a pocket on both sides is a *closed search*: how do these two pockets compare? An
-entry with no pocket is an *open search*: does the query pocket match anything on this chain?
+| Example | Structure | Pocket | Details |
+| --- | --- | --- | --- |
+| `4Q5J:B_F` | PDB | PISA | Interface of chain B against chain F from PDBe PISA |
+| `4Q5J:A:10,11,12` | PDB | passthrough | The listed residues, on chain A |
+| `P04637:A:10,11,12` | AlphaFold | passthrough | The listed residues, on chain A |
+| `4Q5J:B` | PDB | whole_chain | Open search: the whole of chain B |
+| `path/to/model.cif` | Local file | whole_chain | Open search: defaults to chain A |
+| `human_domains` | Foldseek database | whole_chain | Open search against a bundled database of human domains |
+| `pdb` | Foldseek database | pisa | Interfaces from PDBe PISA |
 
 To compare many entries, pass a file with one entry per line instead. Every query is compared against
 every target.
 
 The full rules (which methods each structure type allows, residue checks, and what the Foldseek
-databases return) are in
-[Entries and targets](https://github.com/lellingboe/pocketmapper/blob/main/docs/input.md).
+databases return) are in [Entries and targets](https://github.com/lellingboe/pocketmapper/blob/main/docs/input.md).
+
+### Closed Search
+
+- Pocket specified for query and target.
+- Compares the overlap of the pockets.
+
+### Open Search
+- Pocket specified for query, whole_chain for target.
+- Compares the surfaces of the target which aligns to the query pocket.
 
 ## Examples
 
