@@ -89,14 +89,9 @@ every target.
 The full rules (which methods each structure type allows, residue checks, and what the Foldseek
 databases return) are in [Entries and targets](https://github.com/lellingboe/pocketmapper/blob/main/docs/input.md).
 
-### Closed Search
+### Closed vs Open Search
 
-- Pocket specified for query and target.
-- Compares the overlap of the pockets.
-
-### Open Search
-- Pocket specified for query, whole_chain for target.
-- Compares the surfaces of the target which aligns to the query pocket.
+If a target pocket specifies a subset of residues (any method other than whole_chain), PocketMapper performs a **closed search**. Otherwise, it performs an **open search**. Closed searches directly compare the query and target pockets, while open searches compare the query pocket against the region of the target which aligns to the pocket.
 
 ## Examples
 
