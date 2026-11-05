@@ -45,10 +45,10 @@ Cross-module rules for options, job keys, path settings and their layering.
    command); nothing checks the `Args:` entry.
 3. The code that reads it, and for a step's path its `resolve_step_paths` call. Nothing checks this: an
    option that is parsed and validated but never read is silently ignored.
-4. The README: its table row (for a step, its entry in the step table's Options column, or a group link),
-   in the same group as in `lib.options.GROUPS`. `tests/unit/test_readme.py` compares only flags with
-   `command_options`, plus `SHARED_STEP_FLAGS`, because the README wording is richer than `--help`.
+4. `docs/options.md`: its table row (for a step, its entry in the step table's Options column, or a group
+   link), in the same group as in `lib.options.GROUPS`. `tests/unit/test_options_doc.py` compares only flags
+   with `command_options`, plus `SHARED_STEP_FLAGS`, because the doc's wording is richer than `--help`.
 
-README lists advanced options in the main table: an `Advanced options` heading there would take the
-`#advanced-options` anchor. A file a command reads has a bare name (`--alignment`); one it writes ends in
+In `docs/options.md`, every `#### <Name> options` heading is read as an option group by the test, so prose
+about options goes under another heading (`## Job files and aligners`). A file a command reads has a bare name (`--alignment`); one it writes ends in
 `_path`.

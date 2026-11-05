@@ -233,7 +233,7 @@ DEFAULT_CHAIN = "A"
 
 
 # The examples for `search --help`, the one part argparse cannot generate. Kept to 80 columns;
-# anything longer belongs in the README, which the footer points at.
+# anything longer belongs in docs/, which the footer points at.
 CLI_SEARCH_EPILOG = """
 Examples:
   # One pair, aligned with Foldseek (the binary must be installed).
@@ -252,8 +252,8 @@ Examples:
   pocketmapper search --job_file job.json
 
 Input grammar, databases, output columns and the choice of aligner are
-documented in the README:
-    https://github.com/lellingboe/pocketmapper
+documented in docs/:
+    https://github.com/lellingboe/pocketmapper/tree/main/docs
 """
 
 # The examples for every other command's --help, kept to 80 columns like CLI_SEARCH_EPILOG
@@ -274,8 +274,8 @@ Examples:
 
 Each step reads its entries from parse's entries.tsv and every path from its
 job file or arguments; only parse and search take --results_dir and
---cache_dir. The README documents each step's inputs and outputs:
-    https://github.com/lellingboe/pocketmapper
+--cache_dir. docs/options.md documents each step's inputs and outputs:
+    https://github.com/lellingboe/pocketmapper/blob/main/docs/options.md
 """
 
 # Command -> the examples for its --help

@@ -4,8 +4,8 @@ Cross-module facts about `parse/`.
 
 ## Where it is stated
 
-- The grammar: the `qt_processor` module docstring and the tables in `QTProcessor.__init__`; README "Input
-  format" is the user-facing copy.
+- The grammar: the `qt_processor` module docstring and the tables in `QTProcessor.__init__`; `docs/input.md`
+  "Input format" is the user-facing copy.
 - The step and its component: the `parse.parse` and `qt_processor` module docstrings.
 - Entries files vs single entries: `QTProcessor.read_entries`.
 - The residue-list pattern: its comment in `QTProcessor.__init__` and `test_residue_pattern_linear`; keep new
@@ -38,8 +38,8 @@ Cross-module facts about `parse/`.
 - a builder in `pockets.pocket_manager.POCKET_BUILDERS` (and an entry in `PocketManager`'s `builder_options`
   if it takes options);
 - the hand-written method lists: the `Option.help` of `query_pocket_method` in `lib/options.py`
-  (`test_pocket_method_help_lists_accepted_methods` checks it), the `PocketMapper.search` docstring, and the
-  README (Options table, both "Input format" tables).
+  (`test_pocket_method_help_lists_accepted_methods` checks it), the `PocketMapper.search` docstring,
+  `docs/options.md` (Options table) and `docs/input.md` (both "Input format" tables).
 
 `accepted_pocket_methods` reads the table, so validation needs no other change.
 

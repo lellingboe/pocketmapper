@@ -1,5 +1,5 @@
 """
-Checks that the README documents exactly the options each command takes.
+Checks that docs/options.md documents exactly the options each command takes.
 """
 
 import os
@@ -9,7 +9,7 @@ import pytest
 
 from pocketmapper.lib.options import COMMANDS, command_options
 
-README = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "README.md")
+OPTIONS_DOC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "docs", "options.md")
 
 # Documented in prose rather than in a step's row: every step takes these, and every step after parse --entries
 SHARED_STEP_FLAGS = ("--job_file", "--verbosity", "--log_path")
@@ -17,14 +17,14 @@ SHARED_STEP_FLAGS = ("--job_file", "--verbosity", "--log_path")
 IGNORED_FLAGS = ("--help",)
 
 
-def read_readme():
+def read_options_doc():
     """
-    Read the README.
+    Read docs/options.md.
 
     Returns:
         str: Its text.
     """
-    with open(README, encoding="utf-8") as handle:
+    with open(OPTIONS_DOC, encoding="utf-8") as handle:
         return handle.read()
 
 
@@ -33,7 +33,7 @@ def section(text, heading):
     The text under a heading, up to the next heading of the same or a higher level.
 
     Args:
-        text (str): The README.
+        text (str): The options doc.
         heading (str): The heading line, e.g. "#### Cache options".
 
     Returns:
@@ -41,7 +41,7 @@ def section(text, heading):
     """
     level = len(heading.split()[0])
     match = re.search(rf"^{re.escape(heading)}\n(.*?)(?=^#{{1,{level}}} |\Z)", text, re.S | re.M)
-    assert match, f"README has no heading {heading!r}"
+    assert match, f"options doc has no heading {heading!r}"
     return match.group(1)
 
 
@@ -65,7 +65,7 @@ def table_flags(body):
     The flags in the first column of every table row in some text.
 
     Args:
-        body (str): A README section.
+        body (str): A section of the options doc.
 
     Returns:
         set of str: The documented flags.
@@ -79,11 +79,11 @@ def table_flags(body):
 
 def documented_flags(command, text):
     """
-    The flags the README documents for a command, with group links and shared prose expanded.
+    The flags the options doc documents for a command, with group links and shared prose expanded.
 
     Args:
         command (str): One of COMMANDS.
-        text (str): The README.
+        text (str): The options doc.
 
     Returns:
         set of str: The documented flags.
@@ -111,7 +111,7 @@ def group_flags(text):
     The flags in every `#### ... options` group.
 
     Args:
-        text (str): The README.
+        text (str): The options doc.
 
     Returns:
         set of str: The documented flags.
@@ -140,12 +140,12 @@ def registry_flags(command):
 
 
 @pytest.mark.parametrize("command", COMMANDS)
-def test_readme_options_match_registry(command):
-    """The README documents exactly the flags `command_options(command)` has."""
-    documented = documented_flags(command, read_readme())
+def test_options_doc_matches_registry(command):
+    """docs/options.md documents exactly the flags `command_options(command)` has."""
+    documented = documented_flags(command, read_options_doc())
     expected = registry_flags(command)
     assert documented == expected, (
-        f"README vs registry for {command}: "
-        f"missing from README {sorted(expected - documented)}, "
+        f"options doc vs registry for {command}: "
+        f"missing from options doc {sorted(expected - documented)}, "
         f"not in registry {sorted(documented - expected)}"
     )

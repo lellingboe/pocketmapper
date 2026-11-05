@@ -2,8 +2,8 @@
 Parsing of query and target input strings into structured records.
 
 Input grammar is `struct_info[:chain_info[:residue_info]]`, and either side may instead be a file
-holding one such string per line, blank lines skipped -- README's "Input format" table documents the
-forms. An existing file named like a structure (`STRUCTURE_EXTENSIONS`) is an entry, not such a file.
+holding one such string per line, blank lines skipped -- the "Input format" tables in docs/input.md
+document the forms. An existing file named like a structure (`STRUCTURE_EXTENSIONS`) is an entry, not such a file.
 PDB ids and UniProt accessions are matched in any case and kept upper-cased.
 `determine_struct_type` and `determine_pocket_method` implement them, against the regexes defined
 in `QTProcessor.__init__`. A caller may force a pocket method instead of the default "auto";
